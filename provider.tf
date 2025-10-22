@@ -38,5 +38,3 @@ terraform {
     # profile = "FHIR-Admin"
   }
 }
-
-

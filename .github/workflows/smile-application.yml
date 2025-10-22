@@ -15,11 +15,6 @@ on:
       - '**.tf'
   workflow_dispatch: # Manual trigger
 
-permissions:
-  id-token: write # This is required for requesting the JWT
-  contents: read  # This is required for actions/checkout
-  pull-requests: write # This is required for commenting on pull requests
-
 jobs:
   terraform-plan:
     uses: aehrc/sparked-infrastructure/.github/workflows/template-terraform-plan.yml@main
@@ -31,18 +26,17 @@ jobs:
       working_dir: "."
       aws_oidc_role: arn:aws:iam::471112546300:role/github-actions-eks-role
       aws_region: ap-southeast-2
-    secrets: inherit
 
   terraform-apply:
     uses: aehrc/sparked-infrastructure/.github/workflows/template-terraform-apply.yml@main
     permissions:
       id-token: write
       contents: read
+      pull-requests: write
     needs: [terraform-plan]
-    # Only apply on main branch pushes
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    # Only apply on main branch pushes when there are changes (exitcode == 2)
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && needs.terraform-plan.outputs.tfplanExitCode == '2'
     with:
       working_dir: "."
       aws_oidc_role: arn:aws:iam::471112546300:role/github-actions-eks-role
       aws_region: ap-southeast-2
-    secrets: inherit
