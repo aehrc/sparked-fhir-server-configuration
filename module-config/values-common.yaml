@@ -27,7 +27,9 @@ mappedFiles:
     path: /home/smile/smilecdr/classes/config_seeding
   package-aups-0.3.0.json:
     path: /home/smile/smilecdr/classes/config_seeding
-  package-ips-2.0.0.json:
+  package-international-patient-summary-2.0.0.json:
+    path: /home/smile/smilecdr/classes/config_seeding
+  users.json:
     path: /home/smile/smilecdr/classes/config_seeding
   # users.json:
   #   path: /home/smile/smilecdr/classes/config_seeding
