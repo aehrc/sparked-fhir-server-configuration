@@ -1,4 +1,4 @@
-name: 'Smile Helm+TF Deployment'
+name: 'Smile CDR Configuration Deployment'
 
 on:
   pull_request:
@@ -21,24 +21,28 @@ permissions:
   pull-requests: write # This is required for commenting on pull requests
 
 jobs:
-  # terraform:
-  #   uses: ./.github/workflows/template-terraform.yml #replace with url in future
-  #   needs: [EnvSetup]
-  #   with:
-  #     working_dir: "./simple-managed-eks"
-  #     aws_oidc_role: arn:aws:iam::471112546300:role/github-actions-eks-role
-  #     aws_region: ap-southeast-2
-  #     # additional_args: ${{ needs.EnvSetup.outputs.tfenv }} 
-  #     # init_args: ${{ needs.EnvSetup.outputs.tfinit }}
   terraform-plan:
     uses: aehrc/sparked-infrastructure/.github/workflows/template-terraform-plan.yml@main
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: write
     with:
+      working_dir: "."
       aws_oidc_role: arn:aws:iam::471112546300:role/github-actions-eks-role
       aws_region: ap-southeast-2
+    secrets: inherit
+
   terraform-apply:
     uses: aehrc/sparked-infrastructure/.github/workflows/template-terraform-apply.yml@main
-    # if: github.ref_name == github.event.repository.default_branch && needs.terraform-plan.outputs.tfplanExitCode == 2
+    permissions:
+      id-token: write
+      contents: read
     needs: [terraform-plan]
+    # Only apply on main branch pushes
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     with:
+      working_dir: "."
       aws_oidc_role: arn:aws:iam::471112546300:role/github-actions-eks-role
       aws_region: ap-southeast-2
+    secrets: inherit

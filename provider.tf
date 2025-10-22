@@ -3,8 +3,6 @@ provider "aws" {
   # profile = "FHIR-Admin"
 }
 
-
-
 provider "helm" {
 
   kubernetes {
