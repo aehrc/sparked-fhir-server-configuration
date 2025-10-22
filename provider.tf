@@ -1,6 +1,6 @@
 provider "aws" {
   region = var.region
-  profile = "FHIR-Admin"
+  # profile = "FHIR-Admin"
 }
 
 
@@ -37,7 +37,7 @@ terraform {
     bucket = "examplebucket-fhir-aws"
     region = "ap-southeast-2"
     key    = "infra/smile-app/prod.tfstate"
-    profile = "FHIR-Admin"
+    # profile = "FHIR-Admin"
   }
 }
 
