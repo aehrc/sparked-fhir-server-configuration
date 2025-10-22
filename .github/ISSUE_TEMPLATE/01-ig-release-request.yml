@@ -50,18 +50,6 @@ body:
       required: false
 
   - type: dropdown
-    id: environment
-    attributes:
-      label: Target Environment
-      description: Which environment should this be deployed to?
-      options:
-        - Development
-        - Production
-        - All environments
-    validations:
-      required: true
-
-  - type: dropdown
     id: urgency
     attributes:
       label: Urgency
@@ -73,15 +61,6 @@ body:
         - Critical - Blocking work
     validations:
       required: true
-
-  - type: input
-    id: timeline
-    attributes:
-      label: Target Completion Date
-      description: When do you need this completed? (YYYY-MM-DD)
-      placeholder: "2025-11-15"
-    validations:
-      required: false
 
   - type: dropdown
     id: request-type
@@ -99,44 +78,22 @@ body:
     id: business-justification
     attributes:
       label: Business Justification
-      description: Why is this IG needed? What use case does it support?
-      placeholder: "We need IPS 3.0.0 to support the upcoming cross-border data exchange pilot project scheduled for September."
+      description: Why is this IG needed? What use case does it support? Is this for a specific event?
+      placeholder: "We need IPS 3.0.0 to support the upcoming December Connectathon event."
     validations:
       required: true
 
   - type: textarea
     id: test-data
     attributes:
-      label: Test Data Requirements
+      label: Test Data or Examples Requirements
       description: |
-        Do you need test data loaded for this IG?
+        Do you need test data or specific examples loaded for this IG?
         - How much test data? (e.g., "50 sample patients", "minimal examples")
         - How often should it refresh?
-        - Any anonymization requirements?
       placeholder: |
-        - Need 20 sample IPS documents
-        - Refresh weekly during testing phase
-        - Must be fully anonymized/synthetic data
-    validations:
-      required: false
-
-  - type: textarea
-    id: config-changes
-    attributes:
-      label: Known Configuration Changes
-      description: |
-        If you know what configuration changes are needed, list them here.
-        **Most users can leave this blank** - the technical team will determine requirements.
-
-        For technical users, this might include:
-        - Changes to simplified-multinode.yaml (new modules, endpoints)
-        - Database requirements
-        - Security/access requirements
-      placeholder: |
-        Example technical details:
-        - Need new FHIR endpoint at /fhir/ips
-        - Requires separate database module
-        - Public read access, authenticated write
+        - Need latest branch of https://github.com/hl7au/au-fhir-test-data 
+        - Need /examples folder from the IPS IG
     validations:
       required: false
 
@@ -165,24 +122,15 @@ body:
           required: false
 
   - type: textarea
-    id: stakeholders
-    attributes:
-      label: Stakeholders & Approvers
-      description: Who should be notified when this is complete? Who needs to approve this?
-      placeholder: |
-        - Requestor: @username
-        - Technical Lead: @username
-        - Business Owner: Name/Team
-        - Notify: Sparked content team
-    validations:
-      required: true
-
-  - type: textarea
     id: additional-context
     attributes:
       label: Additional Context
-      description: Any other information that might be helpful?
-      placeholder: "This relates to the work being done for the September 1-2 event."
+      description: |
+        Any additional context or configuration changes that might be required.
+      placeholder: |
+        Example additional details:
+        - New modules, endpoints or access requirements
+        - installMode, fetchDependencies, packageUrl settings
     validations:
       required: false
 

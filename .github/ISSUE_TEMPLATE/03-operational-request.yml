@@ -30,18 +30,6 @@ body:
       required: true
 
   - type: dropdown
-    id: environment
-    attributes:
-      label: Target Environment
-      description: Which environment should this operation run on?
-      options:
-        - Development (dev)
-        - Staging/Test
-        - Production (requires extra approval)
-    validations:
-      required: true
-
-  - type: dropdown
     id: urgency
     attributes:
       label: Urgency
@@ -81,7 +69,8 @@ body:
         - Resource types: Patient, Observation, Condition, Procedure
         - Date range: 2025-07-01 to 2025-07-31
         - Identifier pattern: TEST-* (test data prefix)
-        - Estimated count: ~500 resources
+        - All content for a node
+        - All content for all nodes
     validations:
       required: false
 
@@ -130,7 +119,6 @@ body:
         - label: I confirm this operation should run on the selected environment
           required: true
         - label: I understand this operation may cause temporary unavailability
-        - label: (For deletes/expunge) I confirm the data to be deleted is test data, not production
         - label: I have verified the scope and will double-check before execution
 
   - type: textarea

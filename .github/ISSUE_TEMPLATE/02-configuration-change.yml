@@ -56,19 +56,6 @@ body:
       required: true
 
   - type: dropdown
-    id: environment
-    attributes:
-      label: Target Environment
-      description: Which environment should this be deployed to?
-      options:
-        - Development (dev)
-        - Staging/Test
-        - Production
-        - All environments
-    validations:
-      required: true
-
-  - type: dropdown
     id: urgency
     attributes:
       label: Urgency
