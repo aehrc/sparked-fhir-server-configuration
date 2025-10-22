@@ -1,0 +1,7 @@
+{
+  "name": "hl7.fhir.au.ps",
+  "version": "0.3.0-ballot",
+  "installMode": "STORE_ONLY",
+  "fetchDependencies": false,
+  "packageUrl": "https://hl7.org.au/fhir/ps/0.3.0-ballot/package.tgz"
+}

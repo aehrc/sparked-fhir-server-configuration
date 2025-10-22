@@ -1,0 +1,175 @@
+name: Issue Management
+
+on:
+  issues:
+    types: [opened, labeled, unlabeled]
+  issue_comment:
+    types: [created]
+
+jobs:
+  auto-label:
+    name: Auto-label Issues
+    runs-on: ubuntu-latest
+    if: github.event.action == 'opened'
+    steps:
+      - name: Add priority labels based on urgency
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issue = context.payload.issue;
+            const body = issue.body || '';
+
+            // Extract urgency from issue body
+            if (body.includes('Critical - Blocking work')) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                labels: ['priority:critical']
+              });
+            } else if (body.includes('High - Needed within 1 week')) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                labels: ['priority:high']
+              });
+            } else if (body.includes('Medium - Needed within 2 weeks')) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                labels: ['priority:medium']
+              });
+            }
+
+            // Add environment labels
+            if (body.includes('Production')) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                labels: ['env:production']
+              });
+            } else if (body.includes('Development')) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                labels: ['env:dev']
+              });
+            }
+
+  notify-new-issue:
+    name: Notify on New Issue
+    runs-on: ubuntu-latest
+    if: github.event.action == 'opened'
+    steps:
+      - name: Add initial comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issueType = context.payload.issue.labels
+              .map(l => l.name)
+              .find(name => name === 'ig-release' || name === 'configuration' || name === 'operations');
+
+            let message = '👋 Thank you for your request!\n\n';
+
+            if (issueType === 'ig-release') {
+              message += `
+            ## Next Steps for IG Release
+
+            1. ✅ **Request received** - Your request is now in the queue
+            2. 🔍 **Technical review** - Team will assess requirements and update this issue with implementation details
+            3. 📋 **Approval** - If ADR is needed, it will be routed for approval
+            4. 🚀 **Implementation** - Configuration changes will be made and tested
+            5. ✅ **Deployment** - Changes deployed to target environment
+            6. 📣 **Notification** - You'll be notified on Zulip
+
+            **Watch this issue for status updates** - Labels will change as work progresses.
+
+            Questions? Comment below and the team will respond.
+              `;
+            } else if (issueType === 'configuration') {
+              message += `
+            ## Next Steps for Configuration Change
+
+            1. ✅ **Request received**
+            2. 🔍 **Impact assessment** - Team will evaluate the change and potential impacts
+            3. 📋 **ADR approval** (if needed) - Major changes require Architecture Decision Record
+            4. 🚀 **Implementation** - Changes will be made and tested
+            5. ✅ **Verification** - You'll be asked to verify the change meets requirements
+            6. 📣 **Notification** - Stakeholders notified on Zulip
+
+            **Labels indicate status** - Watch for label changes as work progresses.
+              `;
+            } else if (issueType === 'operations') {
+              message += `
+            ## Next Steps for Operational Request
+
+            1. ✅ **Request received**
+            2. 🔍 **Safety review** - Team will verify scope and safety checks
+            3. 📅 **Scheduling** - Operation will be scheduled based on urgency and constraints
+            4. ⚠️  **Pre-execution notice** - You'll be notified before the operation runs
+            5. ▶️  **Execution** - Operation will be performed with monitoring
+            6. ✅ **Verification** - Results verified against your verification plan
+            7. 📣 **Completion notice** - Notification sent on Zulip
+
+            **For destructive operations** (expunge/delete), additional approval may be required.
+              `;
+            } else {
+              message += 'A team member will review your request shortly and provide next steps.';
+            }
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.issue.number,
+              body: message
+            });
+
+  status-tracking:
+    name: Track Status Changes
+    runs-on: ubuntu-latest
+    if: github.event.action == 'labeled' || github.event.action == 'unlabeled'
+    steps:
+      - name: Update on status change
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const label = context.payload.label.name;
+            const action = context.payload.action;
+
+            if (action !== 'labeled') return;
+
+            let message = '';
+
+            switch(label) {
+              case 'status:approved':
+                message = '✅ **Status Update: Approved** - This request has been approved and will proceed to implementation.';
+                break;
+              case 'status:in-progress':
+                message = '🚀 **Status Update: In Progress** - Work has started on this request. Updates will be posted as progress is made.';
+                break;
+              case 'status:testing':
+                message = '🧪 **Status Update: Testing** - Changes are being tested. Requestor may be asked to verify functionality.';
+                break;
+              case 'status:complete':
+                message = '🎉 **Status Update: Complete** - This request has been completed! Please verify it meets your requirements and close the issue if satisfied.';
+                break;
+              case 'needs:adr':
+                message = '📋 **ADR Required** - This change requires an Architecture Decision Record for approval before proceeding.';
+                break;
+              case 'blocked':
+                message = '⚠️  **Blocked** - This request is currently blocked. See comments for details on the blocker.';
+                break;
+            }
+
+            if (message) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.issue.number,
+                body: message
+              });
+            }

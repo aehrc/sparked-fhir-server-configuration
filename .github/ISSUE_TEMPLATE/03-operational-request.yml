@@ -1,0 +1,218 @@
+name: Operational Request
+description: Request operational tasks like test data loading, data expunge, or server maintenance
+title: "[Ops]: "
+labels: ["operations", "needs-review"]
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Operational Request
+        Use this template to request operational tasks on the Sparked FHIR Server.
+
+        **Examples**: Load test data, expunge/delete data, refresh environment, run maintenance tasks
+
+  - type: dropdown
+    id: operation-type
+    attributes:
+      label: Operation Type
+      description: What operation do you need performed?
+      options:
+        - Load test data
+        - Expunge/delete test data ($expunge)
+        - Refresh test environment
+        - Data migration
+        - Server restart/maintenance
+        - Backup/restore
+        - Other (describe below)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Target Environment
+      description: Which environment should this operation run on?
+      options:
+        - Development (dev)
+        - Staging/Test
+        - Production (requires extra approval)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: urgency
+    attributes:
+      label: Urgency
+      description: How urgent is this request?
+      options:
+        - Low - Can be scheduled at convenience
+        - Medium - Needed within 2 weeks
+        - High - Needed within 1 week
+        - Critical - Blocking work
+    validations:
+      required: true
+
+  - type: textarea
+    id: operation-details
+    attributes:
+      label: Operation Details
+      description: Provide specific details about what needs to be done
+      placeholder: |
+        Example for test data load:
+        - Load 50 synthetic patient records
+        - Include IPS documents for each patient
+        - Data should conform to AU Core profiles
+
+        Example for expunge:
+        - Delete all test data from July 2025
+        - Keep production data intact
+        - Expunge only Patient, Observation, and Condition resources
+    validations:
+      required: true
+
+  - type: textarea
+    id: resource-scope
+    attributes:
+      label: Resource Types & Scope (if applicable)
+      description: Which FHIR resources are affected? What's the scope?
+      placeholder: |
+        - Resource types: Patient, Observation, Condition, Procedure
+        - Date range: 2025-07-01 to 2025-07-31
+        - Identifier pattern: TEST-* (test data prefix)
+        - Estimated count: ~500 resources
+    validations:
+      required: false
+
+  - type: textarea
+    id: data-source
+    attributes:
+      label: Data Source (for load operations)
+      description: Where is the data coming from? Provide links or attachments
+      placeholder: |
+        - Bundle file attached to this issue
+        - S3 bucket: s3://sparked-test-data/batch-001/
+        - Synthea generator config (attached)
+        - External URL: https://example.com/test-data.json
+    validations:
+      required: false
+
+  - type: dropdown
+    id: frequency
+    attributes:
+      label: Frequency
+      description: Is this a one-time request or recurring?
+      options:
+        - One-time operation
+        - Recurring - Daily
+        - Recurring - Weekly
+        - Recurring - Monthly
+        - Recurring - On-demand (need pipeline/workflow)
+    validations:
+      required: true
+
+  - type: textarea
+    id: business-justification
+    attributes:
+      label: Business Justification
+      description: Why is this operation needed?
+      placeholder: "We need fresh test data loaded for the upcoming testing sprint starting next week."
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: safety-checks
+    attributes:
+      label: Safety Confirmation
+      description: Please confirm you understand the impact
+      options:
+        - label: I confirm this operation should run on the selected environment
+          required: true
+        - label: I understand this operation may cause temporary unavailability
+        - label: (For deletes/expunge) I confirm the data to be deleted is test data, not production
+        - label: I have verified the scope and will double-check before execution
+
+  - type: textarea
+    id: timing-constraints
+    attributes:
+      label: Timing Constraints
+      description: Are there any timing requirements or restrictions?
+      placeholder: |
+        - Must complete before 2025-11-15
+        - Should run outside business hours (after 6 PM AEST)
+        - Needs to align with September 1-2 event
+        - Can only run when dev team is available to monitor
+    validations:
+      required: false
+
+  - type: textarea
+    id: verification-plan
+    attributes:
+      label: Verification Plan
+      description: How should we verify the operation completed successfully?
+      placeholder: |
+        For data load:
+        - Query for newly loaded patients
+        - Verify resource count matches expected
+        - Spot-check data quality
+
+        For expunge:
+        - Verify target resources no longer exist
+        - Confirm non-target data remains intact
+        - Check database storage freed up
+    validations:
+      required: true
+
+  - type: textarea
+    id: rollback-plan
+    attributes:
+      label: Rollback/Recovery Plan
+      description: What should happen if something goes wrong?
+      placeholder: |
+        - Restore from backup taken before operation
+        - Re-run previous data load
+        - Accept data loss (if test data)
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: automation
+    attributes:
+      label: Automation Request
+      description: Should this be automated for future use?
+      options:
+        - label: I would like this operation automated in a GitHub Actions workflow
+        - label: This should be available as an on-demand pipeline
+        - label: This is one-time only, no automation needed
+
+  - type: textarea
+    id: stakeholders
+    attributes:
+      label: Stakeholders & Notification
+      description: Who should be notified before, during, or after this operation?
+      placeholder: |
+        - Requestor: @username
+        - Notify before execution: Content team, test team
+        - Notify on completion: @username via Zulip
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional Context
+      description: Any other relevant information?
+    validations:
+      required: false
+
+  - type: markdown
+    attributes:
+      value: |
+        ---
+        ### What happens next?
+        1. Technical team will review the request and assess feasibility
+        2. For destructive operations, additional approval may be required
+        3. You'll be notified of the scheduled execution time
+        4. Progress updates will be posted to this issue
+        5. You'll be notified on Zulip when complete

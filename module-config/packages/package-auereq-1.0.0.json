@@ -1,0 +1,6 @@
+{
+  "name": "hl7.fhir.au.ereq",
+  "version": "1.0.0-ballot",
+  "installMode": "STORE_AND_INSTALL",
+  "fetchDependencies": false
+}

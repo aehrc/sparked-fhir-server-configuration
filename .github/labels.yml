@@ -1,0 +1,100 @@
+# GitHub Labels Configuration
+# Use with: gh label create --force $(cat .github/labels.yml)
+# Or manually create these labels in GitHub UI
+
+# Request Types
+- name: "ig-release"
+  color: "0366d6"
+  description: "Implementation Guide release request"
+
+- name: "configuration"
+  color: "1d76db"
+  description: "Configuration change request"
+
+- name: "operations"
+  color: "5319e7"
+  description: "Operational request (data load, expunge, etc.)"
+
+# Status Labels
+- name: "needs-review"
+  color: "fbca04"
+  description: "Awaiting technical review"
+
+- name: "status:approved"
+  color: "0e8a16"
+  description: "Request approved, ready to implement"
+
+- name: "status:in-progress"
+  color: "0075ca"
+  description: "Work in progress"
+
+- name: "status:testing"
+  color: "8b78e6"
+  description: "Changes deployed, awaiting verification"
+
+- name: "status:complete"
+  color: "28a745"
+  description: "Completed and verified"
+
+- name: "blocked"
+  color: "d93f0b"
+  description: "Blocked by external dependency"
+
+# Priority Labels
+- name: "priority:critical"
+  color: "b60205"
+  description: "Critical - Blocking work"
+
+- name: "priority:high"
+  color: "d93f0b"
+  description: "High - Needed within 1 week"
+
+- name: "priority:medium"
+  color: "fbca04"
+  description: "Medium - Needed within 2 weeks"
+
+- name: "priority:low"
+  color: "c5def5"
+  description: "Low - Can wait for next scheduled release"
+
+# Environment Labels
+- name: "env:dev"
+  color: "d4c5f9"
+  description: "Development environment"
+
+- name: "env:staging"
+  color: "c2e0c6"
+  description: "Staging/test environment"
+
+- name: "env:production"
+  color: "ffd700"
+  description: "Production environment"
+
+# Special Labels
+- name: "needs:adr"
+  color: "d876e3"
+  description: "Requires Architecture Decision Record approval"
+
+- name: "needs:verification"
+  color: "fbca04"
+  description: "Awaiting requestor verification"
+
+- name: "automation"
+  color: "bfdadc"
+  description: "Request to automate an operation"
+
+- name: "documentation"
+  color: "0075ca"
+  description: "Documentation improvements or requests"
+
+- name: "question"
+  color: "cc317c"
+  description: "Question or help request"
+
+- name: "duplicate"
+  color: "cfd3d7"
+  description: "Duplicate of another issue"
+
+- name: "wontfix"
+  color: "ffffff"
+  description: "Will not be implemented"
