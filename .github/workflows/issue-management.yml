@@ -43,22 +43,6 @@ jobs:
               });
             }
 
-            // Add environment labels
-            if (body.includes('Production')) {
-              await github.rest.issues.addLabels({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: issue.number,
-                labels: ['env:production']
-              });
-            } else if (body.includes('Development')) {
-              await github.rest.issues.addLabels({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: issue.number,
-                labels: ['env:dev']
-              });
-            }
 
   notify-new-issue:
     name: Notify on New Issue

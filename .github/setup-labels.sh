@@ -25,11 +25,6 @@ gh label create "priority:high" --color "d93f0b" --description "High - Needed wi
 gh label create "priority:medium" --color "fbca04" --description "Medium - Needed within 2 weeks" --force
 gh label create "priority:low" --color "c5def5" --description "Low - Can wait for next scheduled release" --force
 
-# Environment Labels
-gh label create "env:dev" --color "d4c5f9" --description "Development environment" --force
-gh label create "env:staging" --color "c2e0c6" --description "Staging/test environment" --force
-gh label create "env:production" --color "ffd700" --description "Production environment" --force
-
 # Special Labels
 gh label create "needs:adr" --color "d876e3" --description "Requires Architecture Decision Record approval" --force
 gh label create "needs:verification" --color "fbca04" --description "Awaiting requestor verification" --force
@@ -38,6 +33,11 @@ gh label create "documentation" --color "0075ca" --description "Documentation im
 gh label create "question" --color "cc317c" --description "Question or help request" --force
 gh label create "duplicate" --color "cfd3d7" --description "Duplicate of another issue" --force
 gh label create "wontfix" --color "ffffff" --description "Will not be implemented" --force
+
+# Automation Labels
+gh label create "ready-for-automation" --color "0e8a16" --description "Issue has all info needed for automated PR generation" --force
+gh label create "auto-pr-created" --color "1d76db" --description "Automated PR has been created for this issue" --force
+gh label create "needs-manual-intervention" --color "d93f0b" --description "Automation failed, requires manual implementation" --force
 
 echo "✅ All labels created successfully!"
 echo ""

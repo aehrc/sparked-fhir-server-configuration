@@ -57,19 +57,6 @@
   color: "c5def5"
   description: "Low - Can wait for next scheduled release"
 
-# Environment Labels
-- name: "env:dev"
-  color: "d4c5f9"
-  description: "Development environment"
-
-- name: "env:staging"
-  color: "c2e0c6"
-  description: "Staging/test environment"
-
-- name: "env:production"
-  color: "ffd700"
-  description: "Production environment"
-
 # Special Labels
 - name: "needs:adr"
   color: "d876e3"
@@ -98,3 +85,16 @@
 - name: "wontfix"
   color: "ffffff"
   description: "Will not be implemented"
+
+# Automation Labels
+- name: "ready-for-automation"
+  color: "0e8a16"
+  description: "Issue has all info needed for automated PR generation"
+
+- name: "auto-pr-created"
+  color: "1d76db"
+  description: "Automated PR has been created for this issue"
+
+- name: "needs-manual-intervention"
+  color: "d93f0b"
+  description: "Automation failed, requires manual implementation"

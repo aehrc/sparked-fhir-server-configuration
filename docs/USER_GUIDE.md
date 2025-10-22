@@ -184,8 +184,6 @@ After you submit a request, you'll see labels that show its status:
 | `status:testing` | Testing | Changes deployed, being tested |
 | `status:complete` | Complete | Done! Please verify and close if satisfied |
 | `blocked` | Blocked | Something is preventing progress (see comments) |
-| `env:dev` | Development | For dev environment |
-| `env:production` | Production | For production environment |
 
 ## What Happens After You Submit?
 

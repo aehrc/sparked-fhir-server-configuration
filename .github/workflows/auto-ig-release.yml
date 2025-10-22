@@ -1,0 +1,376 @@
+name: Auto-Generate IG Release PR
+
+on:
+  issues:
+    types: [labeled]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: 'Issue number to process'
+        required: true
+        type: number
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  generate-ig-pr:
+    name: Generate IG Release PR
+    runs-on: ubuntu-latest
+    # Only run when 'ready-for-automation' label is added to an IG release issue
+    if: |
+      (github.event_name == 'issues' && github.event.label.name == 'ready-for-automation' && contains(github.event.issue.labels.*.name, 'ig-release')) ||
+      github.event_name == 'workflow_dispatch'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Get issue details
+        id: issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issueNumber = context.payload.issue?.number || ${{ inputs.issue_number }};
+            const { data: issue } = await github.rest.issues.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber
+            });
+
+            // Parse issue body to extract structured data
+            const body = issue.body || '';
+
+            // Extract fields from GitHub issue form
+            const extractField = (label) => {
+              const regex = new RegExp(`### ${label}\\s*([\\s\\S]*?)(?=###|$)`, 'i');
+              const match = body.match(regex);
+              return match ? match[1].trim() : '';
+            };
+
+            const igName = extractField('Implementation Guide Name');
+            const igVersion = extractField('IG Version');
+            const packageId = extractField('NPM Package ID \\(if known\\)') || '';
+            const requestType = extractField('Request Type');
+
+            // Generate safe filenames
+            const safeName = igName.toLowerCase()
+              .replace(/[^a-z0-9]+/g, '-')
+              .replace(/^-|-$/g, '');
+
+            const branchName = `ig-release/issue-${issueNumber}-${safeName}-${igVersion}`;
+            const packageFileName = `package-${safeName}-${igVersion}.json`;
+
+            core.setOutput('issue_number', issueNumber);
+            core.setOutput('ig_name', igName);
+            core.setOutput('ig_version', igVersion);
+            core.setOutput('package_id', packageId);
+            core.setOutput('request_type', requestType);
+            core.setOutput('branch_name', branchName);
+            core.setOutput('package_file_name', packageFileName);
+            core.setOutput('safe_name', safeName);
+
+            // Check if we have required info
+            if (!igName || !igVersion) {
+              core.setFailed('Missing required fields: IG Name or Version');
+              return;
+            }
+
+            return {
+              issueNumber,
+              igName,
+              igVersion,
+              packageId,
+              requestType,
+              branchName,
+              packageFileName,
+              safeName
+            };
+
+      - name: Check if required fields present
+        if: steps.issue.outputs.ig_name == '' || steps.issue.outputs.ig_version == ''
+        run: |
+          echo "::error::Missing required fields in issue"
+          gh issue comment ${{ steps.issue.outputs.issue_number }} --body "❌ **Automation Failed**
+
+          Missing required information:
+          - IG Name: ${{ steps.issue.outputs.ig_name }}
+          - IG Version: ${{ steps.issue.outputs.ig_version }}
+
+          Please ensure these fields are filled in the issue and try again."
+          gh issue edit ${{ steps.issue.outputs.issue_number }} --add-label "needs-manual-intervention" --remove-label "ready-for-automation"
+          exit 1
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Create branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "${{ steps.issue.outputs.branch_name }}"
+
+      - name: Generate package JSON file
+        run: |
+          PACKAGE_FILE="module-config/packages/${{ steps.issue.outputs.package_file_name }}"
+
+          # Determine package ID - use provided or generate from IG name
+          PACKAGE_ID="${{ steps.issue.outputs.package_id }}"
+          if [ -z "$PACKAGE_ID" ]; then
+            # Generate a plausible package ID if not provided
+            PACKAGE_ID="hl7.fhir.${{ steps.issue.outputs.safe_name }}"
+            echo "⚠️  No package ID provided, using generated: $PACKAGE_ID"
+          fi
+
+          # Create package JSON file
+          cat > "$PACKAGE_FILE" <<EOF
+          {
+            "name": "$PACKAGE_ID",
+            "version": "${{ steps.issue.outputs.ig_version }}"
+          }
+          EOF
+
+          echo "✅ Created $PACKAGE_FILE"
+          cat "$PACKAGE_FILE"
+
+          # Validate JSON
+          jq empty "$PACKAGE_FILE"
+
+      - name: Update main.tf
+        run: |
+          PACKAGE_FILE_NAME="${{ steps.issue.outputs.package_file_name }}"
+
+          # Check if this is an update (package already referenced) or new
+          if grep -q "module-config/packages/$PACKAGE_FILE_NAME" main.tf; then
+            echo "ℹ️  Package already referenced in main.tf (update scenario)"
+            # For updates, we might need to change version only
+            # This is handled by the new file creation above
+          else
+            echo "✅ Adding new package reference to main.tf"
+
+            # Find the helm_chart_mapped_files section and add new entry
+            # This is a simplified approach - insert before the users.json entry
+
+            # Create the new package entry
+            NEW_ENTRY="    {
+              name     = \"$PACKAGE_FILE_NAME\"
+              location = \"classes/config_seeding\"
+              data     = file(\"module-config/packages/$PACKAGE_FILE_NAME\")
+            },"
+
+            # Use Python to safely insert the entry
+            python3 <<'PYTHON_SCRIPT'
+          import re
+
+          with open('main.tf', 'r') as f:
+              content = f.read()
+
+          # Find the helm_chart_mapped_files section
+          pattern = r'(helm_chart_mapped_files\s*=\s*\[)(.*?)(\s+# Users configuration)'
+
+          def replacer(match):
+              before = match.group(1)
+              packages = match.group(2)
+              after = match.group(3)
+
+              new_entry = """
+              {
+                name     = "$PACKAGE_FILE_NAME"
+                location = "classes/config_seeding"
+                data     = file("module-config/packages/$PACKAGE_FILE_NAME")
+              },"""
+
+              return before + packages + new_entry + after
+
+          new_content = re.sub(pattern, replacer, content, flags=re.DOTALL)
+
+          with open('main.tf', 'w') as f:
+              f.write(new_content)
+
+          print("✅ Updated main.tf with new package reference")
+          PYTHON_SCRIPT
+          fi
+
+      - name: Validate changes
+        run: |
+          echo "Validating JSON..."
+          jq empty "module-config/packages/${{ steps.issue.outputs.package_file_name }}"
+
+          echo "Validating Terraform syntax..."
+          terraform fmt -check main.tf || terraform fmt main.tf
+
+          echo "Checking for package file reference..."
+          if grep -q "${{ steps.issue.outputs.package_file_name }}" main.tf; then
+            echo "✅ Package reference found in main.tf"
+          else
+            echo "❌ Package reference NOT found in main.tf"
+            exit 1
+          fi
+
+      - name: Commit changes
+        run: |
+          git add "module-config/packages/${{ steps.issue.outputs.package_file_name }}"
+          git add main.tf
+
+          git commit -m "Add ${{ steps.issue.outputs.ig_name }} ${{ steps.issue.outputs.ig_version }}
+
+          Auto-generated from issue #${{ steps.issue.outputs.issue_number }}
+
+          Changes:
+          - Created module-config/packages/${{ steps.issue.outputs.package_file_name }}
+          - Updated main.tf to reference new package
+
+          Implements: #${{ steps.issue.outputs.issue_number }}"
+
+      - name: Push branch
+        run: |
+          git push origin "${{ steps.issue.outputs.branch_name }}"
+
+      - name: Create Pull Request
+        id: create_pr
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: pr } = await github.rest.pulls.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Add ${{ steps.issue.outputs.ig_name }} ${{ steps.issue.outputs.ig_version }} (Issue #${{ steps.issue.outputs.issue_number }})`,
+              head: '${{ steps.issue.outputs.branch_name }}',
+              base: 'main',
+              body: `## Auto-generated IG Release PR
+
+          This PR was automatically generated from issue #${{ steps.issue.outputs.issue_number }}.
+
+          ### Implementation Guide Details
+          - **IG Name**: ${{ steps.issue.outputs.ig_name }}
+          - **Version**: ${{ steps.issue.outputs.ig_version }}
+          - **Package ID**: ${{ steps.issue.outputs.package_id || 'Auto-generated' }}
+          - **Request Type**: ${{ steps.issue.outputs.request_type }}
+
+          ### Changes Made
+          - ✅ Created \`module-config/packages/${{ steps.issue.outputs.package_file_name }}\`
+          - ✅ Updated \`main.tf\` to reference new package
+
+          ### Next Steps
+          1. **Review** the generated files
+          2. **Verify** package ID is correct (may need manual correction)
+          3. **Check** if \`simplified-multinode.yaml\` needs updates
+          4. **Approve** this PR
+          5. **Merge** to trigger deployment
+          6. **Verify** deployment in target environment
+          7. **Update** issue #${{ steps.issue.outputs.issue_number }} when verified
+
+          ### ⚠️  Manual Review Required
+          - [ ] Package ID is correct
+          - [ ] Version is correct
+          - [ ] simplified-multinode.yaml updated if needed
+          - [ ] Test data requirements addressed
+          - [ ] Terraform plan looks good
+
+          ### Rollback Plan
+          If issues occur after merge:
+          1. Revert this PR
+          2. Run terraform apply
+          3. Update issue #${{ steps.issue.outputs.issue_number }}
+
+          ---
+          Closes #${{ steps.issue.outputs.issue_number }}
+
+          🤖 This PR was automatically generated by the [Auto-Generate IG Release workflow](${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID})
+          `
+            });
+
+            core.setOutput('pr_number', pr.number);
+            core.setOutput('pr_url', pr.html_url);
+
+            return pr;
+
+      - name: Update issue with PR link
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: ${{ steps.issue.outputs.issue_number }},
+              body: `🤖 **Automated PR Created!**
+
+            I've automatically generated a Pull Request for this IG release request:
+
+            **PR #${{ steps.create_pr.outputs.pr_number }}**: ${{ steps.create_pr.outputs.pr_url }}
+
+            ### What was generated:
+            - ✅ Package file: \`module-config/packages/${{ steps.issue.outputs.package_file_name }}\`
+            - ✅ Updated: \`main.tf\`
+
+            ### Next Steps:
+            1. A maintainer will review the PR
+            2. If \`simplified-multinode.yaml\` needs updates, they'll be added manually
+            3. Once approved and merged, deployment will begin automatically
+            4. You'll be tagged for verification once deployed
+
+            ### Please Review:
+            - Is the package ID correct? **${{ steps.issue.outputs.package_id || 'Auto-generated - please verify!' }}**
+            - Is the version correct? **${{ steps.issue.outputs.ig_version }}**
+
+            If anything needs adjustment, please comment on the PR!
+            `
+            });
+
+            // Update labels
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: ${{ steps.issue.outputs.issue_number }},
+              labels: ['auto-pr-created', 'status:in-progress']
+            });
+
+            await github.rest.issues.removeLabel({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: ${{ steps.issue.outputs.issue_number }},
+              name: 'ready-for-automation'
+            }).catch(() => {});
+
+      - name: Handle failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: ${{ steps.issue.outputs.issue_number }},
+              body: `❌ **Automated PR Generation Failed**
+
+            The automation encountered an error while trying to generate the PR.
+
+            **Error details**: Check the [workflow run](${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}) for details.
+
+            **Next steps**:
+            - A maintainer will review this issue manually
+            - The PR will be created manually instead
+
+            This issue has been labeled \`needs-manual-intervention\`.
+            `
+            });
+
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: ${{ steps.issue.outputs.issue_number }},
+              labels: ['needs-manual-intervention']
+            });
+
+            await github.rest.issues.removeLabel({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: ${{ steps.issue.outputs.issue_number }},
+              name: 'ready-for-automation'
+            }).catch(() => {});

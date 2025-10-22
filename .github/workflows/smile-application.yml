@@ -1,0 +1,44 @@
+name: 'Smile Helm+TF Deployment'
+
+on:
+  pull_request:
+    paths:
+      - 'module-config/**'
+      - 'main.tf'
+      - '**.tf'
+  push:
+    branches:
+      - main
+    paths:
+      - 'module-config/**'
+      - 'main.tf'
+      - '**.tf'
+  workflow_dispatch: # Manual trigger
+
+permissions:
+  id-token: write # This is required for requesting the JWT
+  contents: read  # This is required for actions/checkout
+  pull-requests: write # This is required for commenting on pull requests
+
+jobs:
+  # terraform:
+  #   uses: ./.github/workflows/template-terraform.yml #replace with url in future
+  #   needs: [EnvSetup]
+  #   with:
+  #     working_dir: "./simple-managed-eks"
+  #     aws_oidc_role: arn:aws:iam::471112546300:role/github-actions-eks-role
+  #     aws_region: ap-southeast-2
+  #     # additional_args: ${{ needs.EnvSetup.outputs.tfenv }} 
+  #     # init_args: ${{ needs.EnvSetup.outputs.tfinit }}
+  terraform-plan:
+    uses: https://github.com/aehrc/sparked-infrastructure/.github/workflows/template-terraform-plan.yml #replace with url in future
+    with:
+      aws_oidc_role: arn:aws:iam::471112546300:role/github-actions-eks-role
+      aws_region: ap-southeast-2
+  terraform-apply:
+    uses: https://github.com/aehrc/sparked-infrastructure/.github/workflows/template-terraform-apply.yml 
+    # if: github.ref_name == github.event.repository.default_branch && needs.terraform-plan.outputs.tfplanExitCode == 2
+    needs: [terraform-plan]
+    with:
+      aws_oidc_role: arn:aws:iam::471112546300:role/github-actions-eks-role
+      aws_region: ap-southeast-2
