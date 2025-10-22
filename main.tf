@@ -58,6 +58,11 @@ module "smile_cdr_dependencies" {
       location = "classes/config_seeding"
       data     = file("module-config/packages/package-auereq-1.0.0.json")
     },
+    {
+      name     = "$PACKAGE_FILE_NAME"
+      location = "classes/config_seeding"
+      data     = file("module-config/packages/$PACKAGE_FILE_NAME")
+    },
     
     # Users configuration
     {
