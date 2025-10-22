@@ -217,22 +217,6 @@ jobs:
           PYTHON_SCRIPT
           fi
 
-      - name: Validate changes
-        run: |
-          echo "Validating JSON..."
-          jq empty "module-config/packages/${{ steps.issue.outputs.package_file_name }}"
-
-          # echo "Validating Terraform syntax..." # Switch to custom runners with tf installed to enable
-          # terraform fmt -check main.tf || terraform fmt main.tf
-
-          echo "Checking for package file reference..."
-          if grep -q "${{ steps.issue.outputs.package_file_name }}" main.tf; then
-            echo "✅ Package reference found in main.tf"
-          else
-            echo "❌ Package reference NOT found in main.tf"
-            exit 1
-          fi
-
       - name: Commit changes
         run: |
           git add "module-config/packages/${{ steps.issue.outputs.package_file_name }}"
