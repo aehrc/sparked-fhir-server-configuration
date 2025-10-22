@@ -4,8 +4,7 @@ provider "aws" {
 }
 
 provider "helm" {
-
-  kubernetes {
+  kubernetes = {
     host                   = module.smile_cdr_dependencies.eks_cluster.endpoint
     cluster_ca_certificate = base64decode(module.smile_cdr_dependencies.eks_cluster.certificate)
     token                  = module.smile_cdr_dependencies.eks_cluster.auth_token
@@ -24,11 +23,15 @@ terraform {
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = ">= 5.60.0, < 7.0.0"  # Allow any 5.x or 6.x version
+      version = ">= 6.8.0, < 7.0.0"  # Module requires >= 6.8.0
     }
     helm = {
       source  = "hashicorp/helm"
-      version = ">= 2.10"
+      version = ">= 3.0.0, < 4.0.0"  # Module requires >= 3.0.0
+    }
+    kubernetes = {
+      source  = "hashicorp/kubernetes"
+      version = ">= 2.38.0, < 3.0.0"  # Module requires >= 2.38.0
     }
   }
   backend "s3" {
