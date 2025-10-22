@@ -40,12 +40,12 @@ module "smile_cdr_dependencies" {
       data     = file("module-config/packages/package-auereq-1.0.0.json")
     },
     
-    # Users configuration
-    {
-      name     = "users.json"
-      location = "classes/config_seeding"
-      data     = local.users_json  # Use the templated version
-    }
+    # # Users configuration
+    # {
+    #   name     = "users.json"
+    #   location = "classes/config_seeding"
+    #   data     = local.users_json  # Use the templated version
+    # }
   ]
 
   helm_chart_values_set_overrides = {
