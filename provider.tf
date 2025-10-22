@@ -19,12 +19,12 @@ provider "kubernetes" {
 }
 
 terraform {
-  required_version = ">= 1.3"
+  required_version = ">= 1.5"
 
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = "~> 5.60.0"
+      version = ">= 5.60.0, < 7.0.0"  # Allow any 5.x or 6.x version
     }
     helm = {
       source  = "hashicorp/helm"
