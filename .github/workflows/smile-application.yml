@@ -31,12 +31,12 @@ jobs:
   #     # additional_args: ${{ needs.EnvSetup.outputs.tfenv }} 
   #     # init_args: ${{ needs.EnvSetup.outputs.tfinit }}
   terraform-plan:
-    uses: https://github.com/aehrc/sparked-infrastructure/.github/workflows/template-terraform-plan.yml #replace with url in future
+    uses: aehrc/sparked-infrastructure/.github/workflows/template-terraform-plan.yml@main
     with:
       aws_oidc_role: arn:aws:iam::471112546300:role/github-actions-eks-role
       aws_region: ap-southeast-2
   terraform-apply:
-    uses: https://github.com/aehrc/sparked-infrastructure/.github/workflows/template-terraform-apply.yml 
+    uses: aehrc/sparked-infrastructure/.github/workflows/template-terraform-apply.yml@main
     # if: github.ref_name == github.event.repository.default_branch && needs.terraform-plan.outputs.tfplanExitCode == 2
     needs: [terraform-plan]
     with:
