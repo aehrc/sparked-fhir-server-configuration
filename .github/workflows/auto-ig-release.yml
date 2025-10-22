@@ -174,19 +174,12 @@ jobs:
           else
             echo "✅ Adding new package reference to main.tf"
 
-            # Find the helm_chart_mapped_files section and add new entry
-            # This is a simplified approach - insert before the users.json entry
-
-            # Create the new package entry
-            NEW_ENTRY="    {
-              name     = \"$PACKAGE_FILE_NAME\"
-              location = \"classes/config_seeding\"
-              data     = file(\"module-config/packages/$PACKAGE_FILE_NAME\")
-            },"
-
-            # Use Python to safely insert the entry
-            python3 <<'PYTHON_SCRIPT'
+            # Use Python to safely insert the entry, passing filename as env var
+            PACKAGE_FILE_NAME="$PACKAGE_FILE_NAME" python3 <<'PYTHON_SCRIPT'
           import re
+          import os
+
+          package_file_name = os.environ['PACKAGE_FILE_NAME']
 
           with open('main.tf', 'r') as f:
               content = f.read()
@@ -199,12 +192,12 @@ jobs:
               packages = match.group(2)
               after = match.group(3)
 
-              new_entry = """
-              {
-                name     = "$PACKAGE_FILE_NAME"
+              new_entry = f"""
+              {{
+                name     = "{package_file_name}"
                 location = "classes/config_seeding"
-                data     = file("module-config/packages/$PACKAGE_FILE_NAME")
-              },"""
+                data     = file("module-config/packages/{package_file_name}")
+              }},"""
 
               return before + packages + new_entry + after
 
