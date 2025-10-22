@@ -58,6 +58,11 @@ module "smile_cdr_dependencies" {
       location = "classes/config_seeding"
       data     = file("module-config/packages/package-auereq-1.0.0.json")
     },
+    {
+      name     = "package-au-erequestion-1.0.0-ballot.json"
+      location = "classes/config_seeding"
+      data     = file("module-config/packages/package-au-erequestion-1.0.0-ballot.json")
+    },
     
     # Users configuration
     {
