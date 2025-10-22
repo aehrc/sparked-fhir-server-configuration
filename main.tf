@@ -1,29 +1,10 @@
-locals {
-  # eks_cluster_name = "fhir-dev-smilecdr"
-  cdr_regcred_secret_arn = "arn:aws:secretsmanager:ap-southeast-2:471112546300:secret:example-key-value-x7qP8R"
-  route53_create_record = true
-
-
-  users_json = templatefile("${path.module}/module-config/users.json.tpl", { #switch to external secrets later
-    admin_password = jsondecode(data.aws_secretsmanager_secret_version.smilecdr-user-passwords.secret_string)["smilecdr-admin-password"]
-    devtester_password = jsondecode(data.aws_secretsmanager_secret_version.smilecdr-user-passwords.secret_string)["smilecdr-devtester-password"]
-  })
-
-
-  tags = {
-    Name       = var.name
-    Repository = "github.com/aehrc/sparked-infrastructure"
-  }
-
-}
-
 module "smile_cdr_dependencies" {
   source           = "git::https://gitlab.com/smilecdr-public/smile-dh-helm-charts//src/main/terraform/smile-cdr-deps?ref=terraform-module"
   name             = var.name
   eks_cluster_name = var.cluster_name
   cdr_regcred_secret_arn = local.cdr_regcred_secret_arn
   prod_mode = false
-  helm_chart_version = "4.0.0"
+  helm_chart_version = "6.1.0"
 
 
   helm_chart_values = [                       #alpha order
@@ -59,12 +40,12 @@ module "smile_cdr_dependencies" {
       data     = file("module-config/packages/package-international-patient-summary-2.0.0.json")
     },
     
-    # Users configuration
-    {
-      name     = "users.json"
-      location = "classes/config_seeding"
-      data     = local.users_json  # Use the templated version
-    }
+    # # Users configuration
+    # {
+    #   name     = "users.json"
+    #   location = "classes/config_seeding"
+    #   data     = local.users_json  # Use the templated version
+    # }
   ]
 
   helm_chart_values_set_overrides = {
@@ -196,4 +177,19 @@ module "smile_cdr_dependencies" {
     }
   }
 
+}
+
+locals {
+  cdr_regcred_secret_arn = "arn:aws:secretsmanager:ap-southeast-2:471112546300:secret:example-key-value-x7qP8R"
+  route53_create_record = true
+
+  users_json = templatefile("${path.module}/module-config/users.json.tpl", { #switch to external secrets later
+    admin_password = jsondecode(data.aws_secretsmanager_secret_version.smilecdr-user-passwords.secret_string)["smilecdr-admin-password"]
+    devtester_password = jsondecode(data.aws_secretsmanager_secret_version.smilecdr-user-passwords.secret_string)["smilecdr-devtester-password"]
+  })
+
+  tags = {
+    Name       = var.name
+    Repository = "github.com/aehrc/sparked-fhir-server-configuration"
+  }
 }

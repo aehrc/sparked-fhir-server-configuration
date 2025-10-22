@@ -1,0 +1,309 @@
+name: Load Test Data
+
+on:
+  issues:
+    types: [labeled]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: 'Issue number (optional, for manual trigger)'
+        required: false
+        type: number
+      data_source:
+        description: 'Data source URL or description'
+        required: false
+        default: 'https://github.com/hl7au/au-fhir-test-data'
+        type: string
+      upload_mode:
+        description: 'Upload mode (individual, bundle, or transaction)'
+        required: false
+        default: 'individual'
+        type: choice
+        options:
+          - individual
+          - bundle
+          - transaction
+
+jobs:
+  trigger-test-data-load:
+    name: Trigger Test Data Load
+    runs-on: ubuntu-latest
+    # Only run when:
+    # 1. An operations issue with "Load test data" is approved (labeled with status:approved)
+    # 2. Manual workflow dispatch
+    if: |
+      (github.event_name == 'issues' &&
+       github.event.label.name == 'status:approved' &&
+       contains(github.event.issue.labels.*.name, 'operations') &&
+       contains(github.event.issue.body, 'Load test data')) ||
+      github.event_name == 'workflow_dispatch'
+
+    steps:
+      - name: Extract issue details
+        id: issue-details
+        uses: actions/github-script@v7
+        with:
+          script: |
+            let issueNumber, issueBody, issueTitle;
+
+            if (context.eventName === 'workflow_dispatch') {
+              // Manual trigger - use provided issue number or create standalone execution
+              issueNumber = context.payload.inputs.issue_number || null;
+              if (issueNumber) {
+                const { data: issue } = await github.rest.issues.get({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: issueNumber
+                });
+                issueBody = issue.body;
+                issueTitle = issue.title;
+              } else {
+                issueBody = '';
+                issueTitle = 'Manual test data load';
+              }
+            } else {
+              // Triggered by issue label
+              issueNumber = context.payload.issue.number;
+              issueBody = context.payload.issue.body || '';
+              issueTitle = context.payload.issue.title;
+            }
+
+            // Parse data source from issue body or use input
+            let dataSource = context.payload.inputs?.data_source || 'https://github.com/hl7au/au-fhir-test-data';
+            const dataSourceMatch = issueBody.match(/Data Source.*?```\s*([\s\S]*?)\s*```/i);
+            if (dataSourceMatch && dataSourceMatch[1].trim()) {
+              dataSource = dataSourceMatch[1].trim().split('\n')[0];
+            }
+
+            // Parse upload mode from issue body or use input
+            let uploadMode = context.payload.inputs?.upload_mode || 'individual';
+            if (issueBody.includes('bundle upload') || issueBody.includes('as bundle')) {
+              uploadMode = 'bundle';
+            } else if (issueBody.includes('transaction')) {
+              uploadMode = 'transaction';
+            }
+
+            core.setOutput('issue_number', issueNumber || '');
+            core.setOutput('data_source', dataSource);
+            core.setOutput('upload_mode', uploadMode);
+            core.setOutput('issue_title', issueTitle);
+
+            console.log('Parsed details:', {
+              issueNumber,
+              dataSource,
+              uploadMode,
+              issueTitle
+            });
+
+      - name: Comment on issue - Starting
+        if: steps.issue-details.outputs.issue_number != ''
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: ${{ steps.issue-details.outputs.issue_number }},
+              body: `🚀 **Test Data Load Starting**
+
+            The test data loading operation has been initiated.
+
+            **Details:**
+            - Data Source: \`${{ steps.issue-details.outputs.data_source }}\`
+            - Upload Mode: \`${{ steps.issue-details.outputs.upload_mode }}\`
+            - Workflow Run: [View Progress](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+            The FHIRFlare service will process this request. This may take several minutes depending on the data volume.
+
+            You will receive an update when the operation completes.`
+            });
+
+      - name: Update issue label
+        if: steps.issue-details.outputs.issue_number != ''
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: ${{ steps.issue-details.outputs.issue_number }},
+              labels: ['status:in-progress']
+            });
+
+      - name: Clone test data repository
+        id: clone-data
+        env:
+          DATA_SOURCE: ${{ steps.issue-details.outputs.data_source }}
+        run: |
+          echo "Cloning test data repository..."
+          GITHUB_REPO="${DATA_SOURCE:-https://github.com/hl7au/au-fhir-test-data}"
+          DATA_FOLDER="au-fhir-test-data-set"
+          WORK_DIR="/tmp/fhir-data"
+
+          # Create working directory
+          mkdir -p $WORK_DIR
+          cd $WORK_DIR
+
+          # Clone the repository
+          git clone $GITHUB_REPO .
+
+          # Check if data folder exists
+          if [ -d "$DATA_FOLDER" ]; then
+            cd $DATA_FOLDER
+          else
+            echo "Data folder '$DATA_FOLDER' not found. Using root directory."
+          fi
+
+          # Count JSON files
+          TOTAL_FILES=$(find . -name "*.json" -type f | wc -l)
+          echo "Total JSON files found: $TOTAL_FILES"
+
+          if [ $TOTAL_FILES -eq 0 ]; then
+            echo "❌ No JSON files found!"
+            exit 1
+          fi
+
+          # Show sample of files
+          echo "Sample files:"
+          find . -name "*.json" -type f | head -10
+
+          echo "data_dir=$(pwd)" >> $GITHUB_OUTPUT
+          echo "total_files=$TOTAL_FILES" >> $GITHUB_OUTPUT
+
+      - name: Wait for FHIRFlare to be ready
+        env:
+          FHIRFLARE_URL: ${{ secrets.FHIRFLARE_URL || 'http://fhirflare-service.fhirflare.svc.cluster.local:5000' }}
+        run: |
+          echo "Waiting for FHIRFlare service to be ready..."
+          MAX_ATTEMPTS=30
+          ATTEMPT=0
+
+          until curl -f "$FHIRFLARE_URL/health" 2>/dev/null || curl -f "$FHIRFLARE_URL/" 2>/dev/null; do
+            ATTEMPT=$((ATTEMPT + 1))
+            if [ $ATTEMPT -ge $MAX_ATTEMPTS ]; then
+              echo "❌ FHIRFlare service not ready after $MAX_ATTEMPTS attempts"
+              exit 1
+            fi
+            echo "Waiting for FHIRFlare... (attempt $ATTEMPT/$MAX_ATTEMPTS)"
+            sleep 10
+          done
+
+          echo "✅ FHIRFlare is ready!"
+
+      - name: Upload test data to FHIRFlare
+        id: upload-data
+        env:
+          FHIRFLARE_URL: ${{ secrets.FHIRFLARE_URL || 'http://fhirflare-service.fhirflare.svc.cluster.local:5000' }}
+          FHIRFLARE_API_KEY: ${{ secrets.FHIRFLARE_API_KEY }}
+          DATA_DIR: ${{ steps.clone-data.outputs.data_dir }}
+          UPLOAD_MODE: ${{ steps.issue-details.outputs.upload_mode }}
+          FHIR_SERVER_URL: ${{ secrets.FHIR_SERVER_URL || 'https://smile.sparked-fhir.com/aucore/fhir/DEFAULT' }}
+          FHIR_AUTH_TYPE: ${{ secrets.FHIR_AUTH_TYPE || 'basic' }}
+          FHIR_USERNAME: ${{ secrets.FHIR_USERNAME }}
+          FHIR_PASSWORD: ${{ secrets.FHIR_PASSWORD }}
+          TOTAL_FILES: ${{ steps.clone-data.outputs.total_files }}
+        run: |
+          echo "Starting upload of $TOTAL_FILES files to FHIRFlare..."
+          echo "URL: $FHIRFLARE_URL/api/upload-test-data"
+
+          cd "$DATA_DIR"
+
+          # Build curl command with all files
+          CURL_CMD="curl -X POST \"$FHIRFLARE_URL/api/upload-test-data\" \
+            -H \"X-API-Key: $FHIRFLARE_API_KEY\" \
+            -H \"Accept: application/x-ndjson\" \
+            -F \"fhir_server_url=$FHIR_SERVER_URL\" \
+            -F \"auth_type=$FHIR_AUTH_TYPE\" \
+            -F \"username=$FHIR_USERNAME\" \
+            -F \"password=$FHIR_PASSWORD\" \
+            -F \"upload_mode=${UPLOAD_MODE:-individual}\" \
+            -F \"error_handling=continue\" \
+            -F \"use_conditional_uploads=true\""
+
+          # Add all JSON files to the curl command
+          echo "Adding all $TOTAL_FILES files to upload request..."
+          while IFS= read -r -d '' file; do
+            CURL_CMD="$CURL_CMD -F \"test_data_files=@$file\""
+          done < <(find . -name "*.json" -type f -print0)
+
+          echo "Executing upload..."
+          echo "This may take several minutes depending on file sizes and server processing..."
+
+          # Execute the upload and capture response
+          RESPONSE=$(eval $CURL_CMD 2>&1)
+          UPLOAD_EXIT_CODE=$?
+
+          echo "Upload response:"
+          echo "$RESPONSE"
+
+          if [ $UPLOAD_EXIT_CODE -eq 0 ]; then
+            echo "✅ Upload completed successfully! Uploaded $TOTAL_FILES files."
+            echo "upload_success=true" >> $GITHUB_OUTPUT
+            echo "response=$RESPONSE" >> $GITHUB_OUTPUT
+          else
+            echo "❌ Upload failed with exit code: $UPLOAD_EXIT_CODE"
+            echo "upload_success=false" >> $GITHUB_OUTPUT
+            echo "error_message=Upload failed with exit code $UPLOAD_EXIT_CODE" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+      - name: Comment on issue - Success
+        if: steps.issue-details.outputs.issue_number != '' && steps.upload-data.outputs.upload_success == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: ${{ steps.issue-details.outputs.issue_number }},
+              body: `✅ **Test Data Load Complete**
+
+            The test data has been successfully loaded into SmileCDR via FHIRFlare.
+
+            **Details:**
+            - Data Source: \`${{ steps.issue-details.outputs.data_source }}\`
+            - Upload Mode: \`${{ steps.issue-details.outputs.upload_mode }}\`
+            - Total Files: ${{ steps.clone-data.outputs.total_files }}
+            - Workflow Run: [View Logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+            Please verify the data has been loaded as expected and close this issue when satisfied.`
+            });
+
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: ${{ steps.issue-details.outputs.issue_number }},
+              labels: ['status:complete']
+            });
+
+      - name: Comment on issue - Failure
+        if: steps.issue-details.outputs.issue_number != '' && failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            let errorMsg = '${{ steps.upload-data.outputs.error_message }}' || 'Upload operation failed. Check workflow logs for details.';
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: ${{ steps.issue-details.outputs.issue_number }},
+              body: `❌ **Test Data Load Failed**
+
+            The test data loading operation encountered an error.
+
+            **Error:** ${errorMsg}
+
+            **Details:**
+            - Data Source: \`${{ steps.issue-details.outputs.data_source }}\`
+            - Upload Mode: \`${{ steps.issue-details.outputs.upload_mode }}\`
+            - Workflow Run: [View Logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+            Please review the error and try again, or contact the infrastructure team for assistance.`
+            });
+
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: ${{ steps.issue-details.outputs.issue_number }},
+              labels: ['blocked']
+            });

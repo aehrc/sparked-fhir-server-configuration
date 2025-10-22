@@ -118,7 +118,7 @@ body:
         Configure how this IG package should be loaded (leave unchecked for defaults)
 
         **installMode**: Controls whether the package is just stored or also installed
-        - Unchecked (default): `STORE` - Package is stored but not automatically installed
+        - Unchecked (default): `STORE_ONLY` - Package is stored but not automatically installed
         - Checked: `STORE_AND_INSTALL` - Package is both stored and installed
 
         **fetchDependencies**: Controls whether to automatically fetch package dependencies

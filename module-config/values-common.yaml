@@ -29,8 +29,8 @@ mappedFiles:
     path: /home/smile/smilecdr/classes/config_seeding
   package-international-patient-summary-2.0.0.json:
     path: /home/smile/smilecdr/classes/config_seeding
-  users.json:
-    path: /home/smile/smilecdr/classes/config_seeding
+  # users.json:
+  #   path: /home/smile/smilecdr/classes/config_seeding
 
 
 copyFiles:
