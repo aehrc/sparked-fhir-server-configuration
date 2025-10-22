@@ -1,0 +1,256 @@
+# Upload trigger service deployment
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: upload-trigger-script
+  namespace: fhirflare
+data:
+  app.py: |
+    #!/usr/bin/env python3
+    import os
+    import subprocess
+    import threading
+    import time
+    from flask import Flask, request, jsonify
+    import logging
+
+    app = Flask(__name__)
+    logging.basicConfig(level=logging.INFO)
+
+    # Global status tracking
+    upload_status = {"running": False, "last_run": None, "result": None}
+
+    def run_upload_script():
+        """Run the upload script in background"""
+        global upload_status
+        
+        try:
+            upload_status["running"] = True
+            upload_status["last_run"] = time.strftime("%Y-%m-%d %H:%M:%S")
+            
+            # Run the upload script
+            result = subprocess.run(["/scripts/upload-script.sh"], 
+                                  capture_output=True, text=True, timeout=3600)
+            
+            upload_status["result"] = {
+                "success": result.returncode == 0,
+                "stdout": result.stdout,
+                "stderr": result.stderr,
+                "return_code": result.returncode
+            }
+            
+        except subprocess.TimeoutExpired:
+            upload_status["result"] = {
+                "success": False,
+                "error": "Upload timed out after 1 hour"
+            }
+        except Exception as e:
+            upload_status["result"] = {
+                "success": False,
+                "error": str(e)
+            }
+        finally:
+            upload_status["running"] = False
+
+    @app.route('/health', methods=['GET'])
+    def health():
+        return {"status": "healthy"}, 200
+
+    @app.route('/trigger-upload', methods=['POST'])
+    def trigger_upload():
+        if upload_status["running"]:
+            return {"error": "Upload already in progress"}, 409
+        
+        # Start upload in background thread
+        thread = threading.Thread(target=run_upload_script)
+        thread.daemon = True
+        thread.start()
+        
+        return {"message": "Upload started", "status": "running"}, 202
+
+    @app.route('/upload-status', methods=['GET'])
+    def get_upload_status():
+        return upload_status, 200
+
+    if __name__ == '__main__':
+        app.run(host='0.0.0.0', port=8090)
+
+  upload-script.sh: |
+    #!/bin/bash
+    set -e
+    
+    echo "Starting FHIR test data upload process..."
+    
+    # Configuration
+    FHIRFLARE_URL="http://fhirflare-service.fhirflare.svc.cluster.local:5000"
+    GITHUB_REPO="https://github.com/hl7au/au-fhir-test-data"
+    DATA_FOLDER="au-fhir-test-data-set"
+    WORK_DIR="/tmp/fhir-data"
+    
+    # Create working directory
+    mkdir -p $WORK_DIR
+    cd $WORK_DIR
+    
+    # Clone the repository
+    echo "Cloning test data repository..."
+    git clone $GITHUB_REPO .
+    
+    # Navigate to the data folder
+    cd $DATA_FOLDER
+    
+    echo "Found test data files:"
+    find . -name "*.json" -type f | head -10
+    echo "..."
+    TOTAL_FILES=$(find . -name "*.json" -type f | wc -l)
+    echo "Total JSON files: $TOTAL_FILES"
+    
+    # Wait for FHIRFlare to be ready
+    echo "Waiting for FHIRFlare service to be ready..."
+    until curl -f $FHIRFLARE_URL/health 2>/dev/null || curl -f $FHIRFLARE_URL/ 2>/dev/null; do
+      echo "Waiting for FHIRFlare..."
+      sleep 10
+    done
+    echo "FHIRFlare is ready!"
+    
+    # Check if we have files
+    if [ $TOTAL_FILES -eq 0 ]; then
+      echo "No JSON files found!"
+      exit 1
+    fi
+    
+    echo "Preparing to upload all $TOTAL_FILES files in a single request..."
+    
+    # Build curl command with all files
+    CURL_CMD="curl -X POST \"$FHIRFLARE_URL/api/upload-test-data\" \
+      -H \"X-API-Key: $API_KEY\" \
+      -H \"Accept: application/x-ndjson\" \
+      -F \"fhir_server_url=$FHIR_SERVER_URL\" \
+      -F \"auth_type=$AUTH_TYPE\" \
+      -F \"username=$username\" \
+      -F \"password=$password\" \
+      -F \"upload_mode=individual\" \
+      -F \"error_handling=continue\" \
+      -F \"use_conditional_uploads=true\""
+    
+    # Add all JSON files to the curl command
+    echo "Adding all files to upload request..."
+    while IFS= read -r -d '' file; do
+      CURL_CMD="$CURL_CMD -F \"test_data_files=@$file\""
+    done < <(find . -name "*.json" -type f -print0)
+    
+    echo "Starting upload of all $TOTAL_FILES files..."
+    echo "This may take several minutes depending on file sizes and server processing..."
+    
+    # Execute the upload
+    eval $CURL_CMD
+    
+    UPLOAD_EXIT_CODE=$?
+    
+    if [ $UPLOAD_EXIT_CODE -eq 0 ]; then
+      echo "Upload completed successfully! Uploaded $TOTAL_FILES files."
+    else
+      echo "Upload failed with exit code: $UPLOAD_EXIT_CODE"
+      exit $UPLOAD_EXIT_CODE
+    fi
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fhir-upload-trigger
+  namespace: fhirflare
+  labels:
+    app: fhir-upload-trigger
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fhir-upload-trigger
+  template:
+    metadata:
+      labels:
+        app: fhir-upload-trigger
+    spec:
+      containers:
+      - name: upload-trigger
+        image: python:3.11-slim
+        command: ["/bin/bash"]
+        args: ["-c", "apt-get update && apt-get install -y git curl && pip install flask && python /scripts/app.py"]
+        
+        ports:
+        - containerPort: 8090
+          name: http
+        
+        env:
+        - name: API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: fhirflare-secrets
+              key: api-key
+        - name: FHIR_SERVER_URL
+          value: "https://smile.sparked-fhir.com/aucore/fhir/DEFAULT"
+        - name: AUTH_TYPE
+          value: "basic"
+        - name: username
+          value: "Xun"
+        - name: password
+          valueFrom:
+            secretKeyRef:
+              name: fhirflare-secrets
+              key: basic-auth-password
+        - name: AUTH_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: fhirflare-secrets
+              key: encoded-auth-token
+        
+        volumeMounts:
+        - name: upload-scripts
+          mountPath: /scripts
+          
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+            
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8090
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8090
+          initialDelaySeconds: 10
+          periodSeconds: 10
+            
+      volumes:
+      - name: upload-scripts
+        configMap:
+          name: upload-trigger-script
+          defaultMode: 0755
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fhir-upload-trigger-service
+  namespace: fhirflare
+  labels:
+    app: fhir-upload-trigger
+spec:
+  type: ClusterIP
+  selector:
+    app: fhir-upload-trigger
+  ports:
+  - name: http
+    port: 8090
+    targetPort: 8090
+    protocol: TCP
