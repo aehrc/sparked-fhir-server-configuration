@@ -111,6 +111,24 @@ body:
       required: true
 
   - type: checkboxes
+    id: package-options
+    attributes:
+      label: Package Installation Options
+      description: |
+        Configure how this IG package should be loaded (leave unchecked for defaults)
+
+        **installMode**: Controls whether the package is just stored or also installed
+        - Unchecked (default): `STORE` - Package is stored but not automatically installed
+        - Checked: `STORE_AND_INSTALL` - Package is both stored and installed
+
+        **fetchDependencies**: Controls whether to automatically fetch package dependencies
+        - Unchecked (default): `false` - Dependencies not fetched
+        - Checked: `true` - Dependencies automatically fetched
+      options:
+        - label: Install this package automatically (STORE_AND_INSTALL)
+        - label: Fetch dependencies automatically
+
+  - type: checkboxes
     id: rollback
     attributes:
       label: Rollback Plan
@@ -130,7 +148,7 @@ body:
       placeholder: |
         Example additional details:
         - New modules, endpoints or access requirements
-        - installMode, fetchDependencies, packageUrl settings
+        - Custom packageUrl if not using packages.fhir.org
     validations:
       required: false
 

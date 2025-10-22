@@ -60,6 +60,18 @@ jobs:
             const packageId = extractField('NPM Package ID \\(if known\\)') || '';
             const requestType = extractField('Request Type');
 
+            // Extract package options from checkboxes
+            const packageOptions = extractField('Package Installation Options');
+
+            // Check if "Install this package automatically" is checked
+            const installModeChecked = packageOptions.includes('[X]') || packageOptions.includes('[x]');
+            const installMode = installModeChecked ? 'STORE_AND_INSTALL' : 'STORE';
+
+            // Check if "Fetch dependencies automatically" is checked (second checkbox)
+            const lines = packageOptions.split('\n');
+            const fetchDepsChecked = lines.length > 1 && (lines[1].includes('[X]') || lines[1].includes('[x]'));
+            const fetchDependencies = fetchDepsChecked;
+
             // Generate safe filenames
             const safeName = igName.toLowerCase()
               .replace(/[^a-z0-9]+/g, '-')
@@ -73,6 +85,8 @@ jobs:
             core.setOutput('ig_version', igVersion);
             core.setOutput('package_id', packageId);
             core.setOutput('request_type', requestType);
+            core.setOutput('install_mode', installMode);
+            core.setOutput('fetch_dependencies', fetchDependencies);
             core.setOutput('branch_name', branchName);
             core.setOutput('package_file_name', packageFileName);
             core.setOutput('safe_name', safeName);
@@ -128,11 +142,17 @@ jobs:
             echo "⚠️  No package ID provided, using generated: $PACKAGE_ID"
           fi
 
-          # Create package JSON file
+          # Get install mode and fetch dependencies from issue checkboxes
+          INSTALL_MODE="${{ steps.issue.outputs.install_mode }}"
+          FETCH_DEPS="${{ steps.issue.outputs.fetch_dependencies }}"
+
+          # Create package JSON file with required fields
           cat > "$PACKAGE_FILE" <<EOF
           {
             "name": "$PACKAGE_ID",
-            "version": "${{ steps.issue.outputs.ig_version }}"
+            "version": "${{ steps.issue.outputs.ig_version }}",
+            "installMode": "$INSTALL_MODE",
+            "fetchDependencies": $FETCH_DEPS
           }
           EOF
 

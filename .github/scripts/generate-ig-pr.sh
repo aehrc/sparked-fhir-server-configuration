@@ -69,6 +69,28 @@ if [ -z "$PACKAGE_ID" ]; then
     fi
 fi
 
+# Prompt for package installation options
+echo ""
+echo "📦 Package Installation Options:"
+read -p "Install package automatically? (STORE_AND_INSTALL) [y/N]: " INSTALL_CHOICE
+if [[ $INSTALL_CHOICE =~ ^[Yy]$ ]]; then
+    INSTALL_MODE="STORE_AND_INSTALL"
+else
+    INSTALL_MODE="STORE"
+fi
+
+read -p "Fetch dependencies automatically? [y/N]: " FETCH_DEPS_CHOICE
+if [[ $FETCH_DEPS_CHOICE =~ ^[Yy]$ ]]; then
+    FETCH_DEPS="true"
+else
+    FETCH_DEPS="false"
+fi
+
+echo ""
+echo "Package Configuration:"
+echo "  installMode: $INSTALL_MODE"
+echo "  fetchDependencies: $FETCH_DEPS"
+
 echo ""
 read -p "Continue with PR generation? (y/N): " CONFIRM
 if [[ ! $CONFIRM =~ ^[Yy]$ ]]; then
@@ -89,7 +111,9 @@ PACKAGE_FILE="module-config/packages/$PACKAGE_FILE_NAME"
 cat > "$PACKAGE_FILE" <<EOF
 {
   "name": "$PACKAGE_ID",
-  "version": "$IG_VERSION"
+  "version": "$IG_VERSION",
+  "installMode": "$INSTALL_MODE",
+  "fetchDependencies": $FETCH_DEPS
 }
 EOF
 
