@@ -34,11 +34,6 @@ module "smile_cdr_dependencies" {
   helm_chart_mapped_files = [
     # Package specifications
     {
-      name     = "package-ips-2.0.0-ballot.json"
-      location = "classes/config_seeding"
-      data     = file("module-config/packages/package-ips-2.0.0-ballot.json")
-    },
-    {
       name     = "package-aubase.json"
       location = "classes/config_seeding"
       data     = file("module-config/packages/package-aubase.json")
