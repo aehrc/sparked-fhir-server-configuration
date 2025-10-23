@@ -48,19 +48,20 @@ def find_node_package_spec_line(content: str, node_name: str) -> Tuple[int, int,
     in_node = False
     in_persistence = False
     in_config = False
+    node_indent = -1
 
     for i, line in enumerate(lines):
         # Check if we're entering the target node
         if re.match(rf'^\s+{re.escape(node_name)}:\s*$', line):
             in_node = True
+            node_indent = len(line) - len(line.lstrip())
             continue
 
         # Check if we've left the node (new node at same indent level)
-        if in_node and re.match(r'^\s+\w+:\s*$', line) and 'modules' not in line:
-            # Check indent to see if it's a sibling node
+        if in_node and node_indent >= 0:
             current_indent = len(line) - len(line.lstrip())
-            node_indent = len(lines[i-1]) - len(lines[i-1].lstrip()) if i > 0 else 0
-            if current_indent <= node_indent:
+            # If we find a line at same or less indent that looks like a key, we've left the node
+            if current_indent <= node_indent and re.match(r'^\s+\w+:\s*', line):
                 break
 
         if in_node:
