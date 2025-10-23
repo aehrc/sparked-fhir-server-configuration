@@ -3,7 +3,8 @@
 Helper script to update package configurations in simplified-multinode.yaml
 
 This script adds or removes package references from specific nodes in the
-simplified-multinode.yaml configuration file.
+simplified-multinode.yaml configuration file while preserving formatting,
+comments, and quotes.
 
 Usage:
     # Add package to nodes
@@ -30,90 +31,131 @@ import argparse
 import re
 import sys
 from pathlib import Path
-from typing import List, Set
-
-try:
-    import yaml
-except ImportError:
-    print("Error: 'pyyaml' library is required. Install with: pip install pyyaml")
-    sys.exit(1)
+from typing import List, Set, Tuple
 
 
-def parse_startup_specs(specs_string: str) -> List[str]:
+def find_node_package_spec_line(content: str, node_name: str) -> Tuple[int, int, str]:
+    """
+    Find the line number and content of package_registry.startup_installation_specs
+    for a specific node.
+
+    Returns: (line_number, indent_spaces, current_value)
+    """
+    # Pattern to find the node section
+    lines = content.split('\n')
+
+    # Find the node section
+    in_node = False
+    in_persistence = False
+    in_config = False
+
+    for i, line in enumerate(lines):
+        # Check if we're entering the target node
+        if re.match(rf'^\s+{re.escape(node_name)}:\s*$', line):
+            in_node = True
+            continue
+
+        # Check if we've left the node (new node at same indent level)
+        if in_node and re.match(r'^\s+\w+:\s*$', line) and 'modules' not in line:
+            # Check indent to see if it's a sibling node
+            current_indent = len(line) - len(line.lstrip())
+            node_indent = len(lines[i-1]) - len(lines[i-1].lstrip()) if i > 0 else 0
+            if current_indent <= node_indent:
+                break
+
+        if in_node:
+            # Look for persistence module
+            if 'persistence:' in line:
+                in_persistence = True
+                continue
+
+            if in_persistence and 'config:' in line:
+                in_config = True
+                continue
+
+            # Look for the package_registry line
+            if in_config and 'package_registry.startup_installation_specs:' in line:
+                # Extract the value
+                match = re.match(r'^(\s+)package_registry\.startup_installation_specs:\s*(.*)$', line)
+                if match:
+                    indent = match.group(1)
+                    value = match.group(2).strip()
+                    # Remove quotes if present
+                    if value.startswith('"') and value.endswith('"'):
+                        value = value[1:-1]
+                    elif value.startswith("'") and value.endswith("'"):
+                        value = value[1:-1]
+                    return i, len(indent), value
+
+    return -1, 0, ""
+
+
+def parse_package_spec(spec_value: str) -> List[str]:
     """Parse the classpath-based package specifications string"""
-    if not specs_string:
+    if not spec_value:
         return []
 
     pattern = r'classpath:/config_seeding/(package-[^\s]+\.json)'
-    matches = re.findall(pattern, specs_string)
+    matches = re.findall(pattern, spec_value)
     return matches
 
 
-def build_startup_specs(packages: List[str]) -> str:
+def build_package_spec(packages: List[str]) -> str:
     """Build the classpath-based package specifications string"""
     if not packages:
-        return ""
+        return '""'
 
     classpath_refs = [f"classpath:/config_seeding/{pkg}" for pkg in packages]
-    return " ".join(classpath_refs)
+    return '"' + ' '.join(classpath_refs) + '"'
 
 
-def update_node_package(
-    config: dict,
+def update_node_package_in_file(
+    content: str,
     node_name: str,
     package_name: str,
     action: str
-) -> tuple[bool, str]:
+) -> Tuple[bool, str, str]:
     """
-    Update a single node's package configuration
+    Update a single node's package configuration in the file content
 
-    Returns: (changed, message)
+    Returns: (changed, message, new_content)
     """
-    if 'cdrNodes' not in config or node_name not in config['cdrNodes']:
-        return False, f"Node '{node_name}' not found in configuration"
+    line_num, indent_spaces, current_value = find_node_package_spec_line(content, node_name)
 
-    node_config = config['cdrNodes'][node_name]
+    if line_num == -1:
+        return False, f"Could not find package_registry.startup_installation_specs for node '{node_name}'", content
 
-    # Navigate to persistence.config.package_registry.startup_installation_specs
-    if 'modules' not in node_config:
-        node_config['modules'] = {}
-
-    if 'persistence' not in node_config['modules']:
-        node_config['modules']['persistence'] = {}
-
-    if 'config' not in node_config['modules']['persistence']:
-        node_config['modules']['persistence']['config'] = {}
-
-    persistence_config = node_config['modules']['persistence']['config']
-
-    # Get current package list
-    current_specs = persistence_config.get('package_registry.startup_installation_specs', '')
-    current_packages = parse_startup_specs(current_specs)
-
-    # Convert to set for easier manipulation
+    # Parse current packages
+    current_packages = parse_package_spec(current_value)
     package_set = set(current_packages)
 
+    # Perform action
     if action == 'add':
         if package_name in package_set:
-            return False, f"Package '{package_name}' already configured on node '{node_name}'"
+            return False, f"Package '{package_name}' already configured on node '{node_name}'", content
         package_set.add(package_name)
         message = f"Added '{package_name}' to node '{node_name}'"
 
     elif action == 'remove':
         if package_name not in package_set:
-            return False, f"Package '{package_name}' not found on node '{node_name}'"
+            return False, f"Package '{package_name}' not found on node '{node_name}'", content
         package_set.remove(package_name)
         message = f"Removed '{package_name}' from node '{node_name}'"
 
     else:
-        return False, f"Invalid action: {action}"
+        return False, f"Invalid action: {action}", content
 
-    # Update the configuration
-    new_packages = sorted(package_set)  # Sort for consistency
-    new_specs = build_startup_specs(new_packages)
-    persistence_config['package_registry.startup_installation_specs'] = new_specs
+    # Build new package spec
+    new_packages = sorted(package_set)
+    new_spec_value = build_package_spec(new_packages)
 
-    return True, message
+    # Replace the line in content
+    lines = content.split('\n')
+    indent = ' ' * indent_spaces
+    lines[line_num] = f"{indent}package_registry.startup_installation_specs: {new_spec_value}"
+
+    new_content = '\n'.join(lines)
+    return True, message, new_content
 
 
 def main():
@@ -165,7 +207,7 @@ def main():
     # Load configuration
     print(f"Loading configuration from {args.config_file}...")
     with open(args.config_file, 'r') as f:
-        config = yaml.safe_load(f)
+        content = f.read()
 
     # Parse nodes
     nodes = [n.strip() for n in args.nodes.split(',')]
@@ -182,7 +224,9 @@ def main():
 
     # Update each node
     for node_name in nodes:
-        changed, message = update_node_package(config, node_name, args.package, args.action)
+        changed, message, content = update_node_package_in_file(
+            content, node_name, args.package, args.action
+        )
 
         if changed:
             changes_made.append(message)
@@ -197,9 +241,9 @@ def main():
     if changes_made and not args.dry_run:
         print(f"\nWriting updated configuration to {args.config_file}...")
 
-        # Preserve YAML formatting as much as possible
+        # Write the modified content back (preserves all formatting)
         with open(args.config_file, 'w') as f:
-            yaml.dump(config, f, default_flow_style=False, sort_keys=False, width=120)
+            f.write(content)
 
         print(f"✅ Configuration updated successfully!")
         print(f"   {len(changes_made)} change(s) applied")
