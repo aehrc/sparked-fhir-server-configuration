@@ -1,0 +1,98 @@
+name: Manual Package Management for SmileCDR Nodes
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: "SmileCDR Base URL (without node name)"
+        required: true
+        default: "https://smile.sparked-fhir.com"
+      nodes:
+        description: "Comma-separated list of node names to update (e.g., 'aucore,hl7au,ereq' or 'all' for all nodes)"
+        required: true
+        default: "aucore"
+      package_source:
+        description: "Package source: 'config' (from simplified-multinode.yaml), 'packages-dir' (all JSON files), or 'custom' (manual JSON)"
+        required: true
+        default: "config"
+        type: choice
+        options:
+          - config
+          - packages-dir
+          - custom
+      custom_packages:
+        description: "Custom packages JSON (only if package_source=custom)"
+        required: false
+        default: '[{"name": "hl7.fhir.au.base", "version": "6.0.0-ballot", "installMode": "STORE_ONLY", "fetchDependencies": true}]'
+      dry_run:
+        description: "Dry run mode (show changes without applying)"
+        required: true
+        default: true
+        type: boolean
+      force_reinstall:
+        description: "Force reinstall all packages (even if already installed)"
+        required: true
+        default: false
+        type: boolean
+
+jobs:
+  sync-packages:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install -r scripts/requirements.txt
+
+      - name: Run package synchronization script
+        env:
+          SMILECDR_BASE_URL: ${{ github.event.inputs.base_url }}
+          SMILECDR_AUTH_BASIC: ${{ secrets.CSIRO_FHIR_AUTH_64 }}
+        run: |
+          # Build command arguments
+          ARGS="--nodes ${{ github.event.inputs.nodes }}"
+          ARGS="$ARGS --source ${{ github.event.inputs.package_source }}"
+
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            ARGS="$ARGS --dry-run"
+          fi
+
+          if [ "${{ github.event.inputs.force_reinstall }}" = "true" ]; then
+            ARGS="$ARGS --force-reinstall"
+          fi
+
+          if [ "${{ github.event.inputs.package_source }}" = "custom" ]; then
+            ARGS="$ARGS --packages '${{ github.event.inputs.custom_packages }}'"
+          fi
+
+          # Run the script
+          echo "Running: python scripts/sync_packages.py $ARGS"
+          eval "python scripts/sync_packages.py $ARGS"
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## Package Sync Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Base URL**: ${{ github.event.inputs.base_url }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Nodes**: ${{ github.event.inputs.nodes }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Package Source**: ${{ github.event.inputs.package_source }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Dry Run**: ${{ github.event.inputs.dry_run }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Force Reinstall**: ${{ github.event.inputs.force_reinstall }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            echo "### 🔍 Dry Run Mode" >> $GITHUB_STEP_SUMMARY
+            echo "No changes were made. Review the logs above and re-run with dry_run=false to apply changes." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### ✅ Changes Applied" >> $GITHUB_STEP_SUMMARY
+            echo "Packages have been synchronized. Check the logs above for details." >> $GITHUB_STEP_SUMMARY
+          fi

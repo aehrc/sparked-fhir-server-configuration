@@ -1,0 +1,3 @@
+# Requirements for SmileCDR package synchronization script
+pyyaml>=6.0
+requests>=2.31.0
