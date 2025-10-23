@@ -1,4 +1,4 @@
-name: Manual Package Management for SmileCDR Nodes
+name: Reload IG Packages for SmileCDR Nodes
 
 on:
   workflow_dispatch:
