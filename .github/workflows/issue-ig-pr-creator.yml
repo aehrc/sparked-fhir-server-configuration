@@ -79,6 +79,10 @@ jobs:
               }
             }
 
+            // Extract deployment options from checkboxes
+            const deploymentOptionsSection = extractField('Deployment Options');
+            const deployImmediately = deploymentOptionsSection.includes('[x]') || deploymentOptionsSection.includes('[X]');
+
             // Extract package options from checkboxes
             const packageOptions = extractField('Package Installation Options');
 
@@ -111,6 +115,7 @@ jobs:
             core.setOutput('safe_name', safeName);
             core.setOutput('selected_nodes', selectedNodes.join(','));
             core.setOutput('selected_nodes_count', selectedNodes.length);
+            core.setOutput('deploy_immediately', deployImmediately);
 
             // Check if we have required info
             if (!igName || !igVersion) {
@@ -303,44 +308,43 @@ jobs:
               base: 'main',
               body: `## Auto-generated IG Release PR
 
-            This PR was automatically generated from issue #${issueNumber}.
+            This PR was automatically generated from user request in issue #${issueNumber}.
 
-            ### Implementation Guide Details
+            ### User Request Summary
             - **IG Name**: ${igName}
             - **Version**: ${igVersion}
             - **Package ID**: ${packageId}
             - **Request Type**: ${requestType}
-            - **Target Nodes**: ${selectedNodes}
+            - **Requested Nodes**: ${selectedNodes}
 
-            ### Changes Made
+            ### Changes Made (Auto-generated)
             - ✅ Created \`module-config/packages/${packageFileName}\`
             - ✅ Updated \`simplified-multinode.yaml\` for nodes: ${selectedNodes}
             - ✅ Updated \`main.tf\` to reference new package
 
-            ### Next Steps
-            1. **Review** the generated files
-            2. **Verify** package ID is correct (may need manual correction)
-            3. **Verify** nodes are correct: ${selectedNodes}
-            4. **Approve** this PR
-            5. **Merge** to main branch
-            6. **Deploy** using manual-ig-load workflow or wait for next restart
-            7. **Verify** deployment in target environment
-            8. **Update** issue #${issueNumber} when verified
-
-            ### ⚠️  Manual Review Required
-            - [ ] Package ID is correct
+            ### Admin Review Checklist
+            Please verify before approving:
+            - [ ] Package ID is correct (auto-detected, may need correction)
             - [ ] Version is correct
-            - [ ] Target nodes are correct
-            - [ ] installMode is correct
-            - [ ] fetchDependencies is correct
-            - [ ] Test data requirements addressed
+            - [ ] Target nodes match user requirements: ${selectedNodes}
+            - [ ] installMode is appropriate
+            - [ ] fetchDependencies setting is appropriate
+            - [ ] Business justification is acceptable
+            - [ ] Acceptance criteria are clear
             - [ ] Terraform plan looks good
+
+            ### Post-Merge Actions
+            After merging this PR:
+            1. **Deployment** will be triggered (if requested) or scheduled
+            2. **Requester will be notified** about deployment
+            3. **Requester will verify** deployment meets acceptance criteria
+            4. **Issue will be closed** once verified
 
             ### Rollback Plan
             If issues occur after merge:
             1. Revert this PR
             2. Run terraform apply
-            3. Update issue #${issueNumber}
+            3. Update issue #${issueNumber} with rollback status
 
             ---
             Closes #${issueNumber}
@@ -376,36 +380,47 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: issueNumber,
-              body: `🤖 **Automated PR Created!**
+              body: `🤖 **Your Request is Being Processed**
 
-            I've automatically generated a Pull Request for this IG release request:
+            A Pull Request has been automatically generated for your IG release request:
 
             **PR #${prNumber}**: ${prUrl}
 
             ### What was generated:
             - ✅ Package file: \`module-config/packages/${packageFileName}\`
+            - ✅ Updated: \`simplified-multinode.yaml\` for requested nodes
             - ✅ Updated: \`main.tf\`
 
             ### Next Steps:
-            1. A maintainer will review the PR
-            2. If \`simplified-multinode.yaml\` needs updates, they'll be added manually
-            3. Once approved and merged, deployment will begin automatically
-            4. You'll be tagged for verification once deployed
+            1. **Repo admins will review** the generated configuration
+            2. **Admins will verify** package ID and version are correct
+            3. **Once approved and merged**, you'll be notified about deployment
+            4. **You'll be asked to verify** the deployment meets your requirements
 
-            ### Please Review:
-            - Is the package ID correct? **${packageId}**
-            - Is the version correct? **${igVersion}**
+            ### Auto-detected Configuration:
+            - Package ID: **${packageId}**
+            - Version: **${igVersion}**
 
-            If anything needs adjustment, please comment on the PR!
+            If you notice any issues with the auto-detected values, please comment on the PR!
             `
             });
 
             // Update labels on the issue
+            const issueLabels = ['auto-pr-created', 'status:in-progress'];
+            const prLabels = ['auto-pr-created'];
+
+            // Add deploy-immediately label if checked
+            const deployImmediately = '${{ steps.issue.outputs.deploy_immediately }}' === 'true';
+            if (deployImmediately) {
+              issueLabels.push('deploy-immediately');
+              prLabels.push('deploy-immediately');
+            }
+
             await github.rest.issues.addLabels({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: issueNumber,
-              labels: ['auto-pr-created', 'status:in-progress']
+              labels: issueLabels
             });
 
             // Also add label to the PR so post-merge workflow can detect it
@@ -413,7 +428,7 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: prNumber,
-              labels: ['auto-pr-created']
+              labels: prLabels
             });
 
             await github.rest.issues.removeLabel({

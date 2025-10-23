@@ -215,19 +215,24 @@ jobs:
             comment += '</details>\n\n';
 
             if (status === 'success' && !dryRun) {
-              comment += '### ✅ Next Steps\n\n';
-              comment += '- Packages have been deployed successfully\n';
-              comment += '- Verify the packages are working as expected\n';
-              comment += '- Close this issue once verified\n';
+              comment += '### ✅ Next Steps - Action Required\n\n';
+              comment += '**Your requested packages have been deployed successfully!**\n\n';
+              comment += 'Please verify the deployment:\n';
+              comment += '1. Test that the IG packages are working as expected\n';
+              comment += '2. Verify your acceptance criteria are met\n';
+              comment += '3. Comment on this issue with verification results\n';
+              comment += '4. A repo admin will close this issue once confirmed\n';
             } else if (status === 'failure') {
               comment += '### ⚠️ Deployment Failed\n\n';
-              comment += 'Please review the error output above and:\n';
-              comment += '1. Check the logs for specific errors\n';
-              comment += '2. Fix any issues\n';
-              comment += '3. Re-run the deployment workflow\n';
+              comment += '**Unfortunately, the deployment encountered errors.**\n\n';
+              comment += 'A repo admin will:\n';
+              comment += '1. Review the error output above\n';
+              comment += '2. Investigate and fix any issues\n';
+              comment += '3. Re-run the deployment\n';
+              comment += '4. Update you on progress\n';
             }
 
-            comment += `\n---\n*Automated deployment • ${new Date().toISOString()}*`;
+            comment += `\n---\n*Automated deployment results • ${new Date().toISOString()}*`;
 
             await github.rest.issues.createComment({
               owner: context.repo.owner,

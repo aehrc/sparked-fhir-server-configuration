@@ -154,9 +154,9 @@ jobs:
             echo "Data folder '$DATA_FOLDER' not found. Using root directory."
           fi
 
-          # Count JSON files
-          TOTAL_FILES=$(find . -name "*.json" -type f | wc -l)
-          echo "Total JSON files found: $TOTAL_FILES"
+          # Count JSON files (excluding vendor-demonstrator folder)
+          TOTAL_FILES=$(find . -name "*.json" -type f -not -path "*/vendor-demonstrator/*" | wc -l)
+          echo "Total JSON files found: $TOTAL_FILES (excluding vendor-demonstrator)"
 
           if [ $TOTAL_FILES -eq 0 ]; then
             echo "❌ No JSON files found!"
@@ -165,7 +165,7 @@ jobs:
 
           # Show sample of files
           echo "Sample files:"
-          find . -name "*.json" -type f | head -10
+          find . -name "*.json" -type f -not -path "*/vendor-demonstrator/*" | head -10
 
           echo "data_dir=$(pwd)" >> $GITHUB_OUTPUT
           echo "total_files=$TOTAL_FILES" >> $GITHUB_OUTPUT
@@ -220,11 +220,11 @@ jobs:
             -F \"error_handling=continue\" \
             -F \"use_conditional_uploads=true\""
 
-          # Add all JSON files to the curl command
+          # Add all JSON files to the curl command (excluding vendor-demonstrator folder)
           echo "Adding all $TOTAL_FILES files to upload request..."
           while IFS= read -r -d '' file; do
             CURL_CMD="$CURL_CMD -F \"test_data_files=@$file\""
-          done < <(find . -name "*.json" -type f -print0)
+          done < <(find . -name "*.json" -type f -not -path "*/vendor-demonstrator/*" -print0)
 
           echo "Executing upload..."
           echo "This may take several minutes depending on file sizes and server processing..."

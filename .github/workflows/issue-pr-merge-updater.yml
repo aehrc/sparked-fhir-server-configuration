@@ -95,9 +95,9 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: issueNumber,
-              body: `🚀 **Automatic Deployment Triggered**
+              body: `🚀 **Your Deployment Request is Being Processed**
 
-PR #${prNumber} was merged with the \`deploy-immediately\` label, so the package deployment has been automatically started.
+PR #${prNumber} has been merged and your request for immediate deployment is being fulfilled.
 
 **Deployment Details:**
 - **Nodes**: ${nodes}
@@ -109,7 +109,7 @@ You will receive another comment with the deployment results once the workflow c
 [View Workflow Runs](${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/workflows/reload-ig-config.yml)
 
 ---
-*Triggered automatically by post-merge workflow*`
+*Automated deployment triggered per your request*`
             });
 
             // Update issue labels for auto-deployment
@@ -132,7 +132,7 @@ You will receive another comment with the deployment results once the workflow c
             }
 
       - name: Post deployment options comment
-        if: steps.extract.outputs.issue_number
+        if: steps.extract.outputs.issue_number && steps.check_deploy.outputs.has_deploy_label != 'true'
         uses: actions/github-script@v7
         with:
           script: |
@@ -140,12 +140,14 @@ You will receive another comment with the deployment results once the workflow c
             const prNumber = context.payload.pull_request.number;
             const prUrl = context.payload.pull_request.html_url;
 
-            const comment = `## ✅ PR #${prNumber} Merged - Choose Deployment Method
+            const comment = `## ✅ PR #${prNumber} Merged - Deployment Options
 
-            The configuration has been updated and merged to main. Choose how to deploy the IG packages:
+            Your requested changes have been reviewed, approved, and merged to main.
 
-            ### Option A: Automatic Deployment (Recommended)
-            Deploy the packages immediately to the SmileCDR nodes without restarting the server.
+            ### Deployment Options Available
+
+            **Option A: Immediate Deployment (Recommended)**
+            A repo admin can deploy the packages immediately to the SmileCDR nodes without restarting the server.
 
             **Pros:**
             - ✅ Fast (takes ~2-5 minutes)
@@ -154,16 +156,13 @@ You will receive another comment with the deployment results once the workflow c
 
             **Cons:**
             - ⚠️ May fail if package has dependency issues
-            - ⚠️ Requires manual trigger
+            - ⚠️ Requires admin to trigger manually
 
-            👉 **[Click here to deploy now](${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/workflows/manual-ig-load.yml)**
-            - Select "Run workflow"
-            - Use default settings (reads from config)
-            - Set \`dry_run=false\` to apply changes
+            👉 **Admins: [Click here to deploy now](${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/workflows/manual-ig-load.yml)**
 
             ---
 
-            ### Option B: Wait for Next Server Restart
+            **Option B: Wait for Next Server Restart**
             Changes will be applied automatically the next time the SmileCDR nodes restart.
 
             **Pros:**
@@ -175,26 +174,20 @@ You will receive another comment with the deployment results once the workflow c
             - ⏰ May take hours or days
             - ⏰ No control over timing
 
-            👉 **No action needed** - changes will apply on next restart
-
             ---
 
             ### ℹ️ What happens next?
 
-            **If you choose Option A (Automatic Deployment):**
-            1. Run the ig-load workflow
-            2. Monitor the workflow output
-            3. Verify packages are installed correctly
-            4. Comment back on this issue with verification results
+            A repo admin will decide when to deploy based on urgency and risk assessment.
 
-            **If you choose Option B:**
-            - Update this issue when deployment is complete
-            - Verify the IG is working as expected
-            - Close this issue once verified
+            **When deployment completes:**
+            - You'll receive a notification on this issue
+            - You'll be asked to verify the deployment meets your acceptance criteria
+            - Once verified, this issue will be closed
 
             ---
 
-            *Deployment options posted automatically after PR merge*`;
+            *Awaiting admin decision on deployment timing*`;
 
             // Post to the original issue
             await github.rest.issues.createComment({
@@ -209,7 +202,7 @@ You will receive another comment with the deployment results once the workflow c
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: prNumber,
-              body: `✅ Merged! Deployment options have been posted to issue #${issueNumber}.`
+              body: `✅ Merged! The requester has been notified. Deployment options posted to issue #${issueNumber}.`
             });
 
             // Update issue labels
