@@ -400,12 +400,20 @@ jobs:
             `
             });
 
-            // Update labels
+            // Update labels on the issue
             await github.rest.issues.addLabels({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: issueNumber,
               labels: ['auto-pr-created', 'status:in-progress']
+            });
+
+            // Also add label to the PR so post-merge workflow can detect it
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              labels: ['auto-pr-created']
             });
 
             await github.rest.issues.removeLabel({

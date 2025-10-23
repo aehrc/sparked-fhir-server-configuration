@@ -10,12 +10,13 @@ permissions:
   contents: read
   issues: write
   pull-requests: write
+  actions: write
 
 jobs:
   deployment-options:
     name: Post Deployment Options
     runs-on: ubuntu-latest
-    # Only run if PR was merged and has ig-release label
+    # Only run if PR was merged and has the auto-pr-created label
     if: |
       github.event.pull_request.merged == true &&
       contains(github.event.pull_request.labels.*.name, 'auto-pr-created')
@@ -35,6 +36,100 @@ jobs:
             core.setOutput('issue_number', issueNumber);
 
             return { issueNumber };
+
+      - name: Check if deploy-immediately label is present
+        id: check_deploy
+        if: steps.extract.outputs.issue_number
+        run: |
+          # Check if PR has deploy-immediately label
+          HAS_DEPLOY_LABEL="${{ contains(github.event.pull_request.labels.*.name, 'deploy-immediately') }}"
+          echo "has_deploy_label=$HAS_DEPLOY_LABEL" >> $GITHUB_OUTPUT
+
+      - name: Extract target nodes from PR
+        id: extract_nodes
+        if: steps.extract.outputs.issue_number && steps.check_deploy.outputs.has_deploy_label == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prBody = context.payload.pull_request.body || '';
+
+            // Extract nodes from PR body (look for "Target Nodes: aucore,hl7au")
+            const nodesMatch = prBody.match(/\*\*Target Nodes\*\*[:\s]+([^\n]+)/i);
+            let nodes = 'all';  // Default to all
+
+            if (nodesMatch) {
+              nodes = nodesMatch[1].trim().replace(/\*\*/g, '').replace(/`/g, '');
+            }
+
+            core.setOutput('nodes', nodes);
+            return { nodes };
+
+      - name: Trigger deployment workflow
+        if: steps.extract.outputs.issue_number && steps.check_deploy.outputs.has_deploy_label == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issueNumber = parseInt('${{ steps.extract.outputs.issue_number }}');
+            const nodes = '${{ steps.extract_nodes.outputs.nodes }}';
+            const prNumber = context.payload.pull_request.number;
+
+            console.log(`Triggering deployment for issue #${issueNumber} with nodes: ${nodes}`);
+
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'reload-ig-config.yml',
+              ref: 'main',
+              inputs: {
+                base_url: 'https://smile.sparked-fhir.com',
+                nodes: nodes,
+                package_source: 'config',
+                dry_run: 'false',
+                force_reinstall: 'false',
+                issue_number: issueNumber.toString()
+              }
+            });
+
+            // Post comment that deployment was triggered
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              body: `🚀 **Automatic Deployment Triggered**
+
+PR #${prNumber} was merged with the \`deploy-immediately\` label, so the package deployment has been automatically started.
+
+**Deployment Details:**
+- **Nodes**: ${nodes}
+- **Package Source**: config (from simplified-multinode.yaml)
+- **Mode**: Live deployment (dry_run=false)
+
+You will receive another comment with the deployment results once the workflow completes.
+
+[View Workflow Runs](${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/workflows/reload-ig-config.yml)
+
+---
+*Triggered automatically by post-merge workflow*`
+            });
+
+            // Update issue labels for auto-deployment
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              labels: ['status:deploying']
+            });
+
+            try {
+              await github.rest.issues.removeLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                name: 'status:in-progress'
+              });
+            } catch (e) {
+              // Label might not exist
+            }
 
       - name: Post deployment options comment
         if: steps.extract.outputs.issue_number
@@ -87,7 +182,7 @@ jobs:
             ### ℹ️ What happens next?
 
             **If you choose Option A (Automatic Deployment):**
-            1. Run the manual-ig-load workflow
+            1. Run the ig-load workflow
             2. Monitor the workflow output
             3. Verify packages are installed correctly
             4. Comment back on this issue with verification results
