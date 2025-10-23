@@ -1,0 +1,420 @@
+name: Issue Lifecycle Manager
+
+on:
+  issues:
+    types: [opened, labeled, unlabeled]
+  pull_request:
+    types: [closed]
+    branches:
+      - main
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+  actions: write
+
+jobs:
+  # ============================================================================
+  # JOB: Auto-label new issues based on priority
+  # ============================================================================
+  auto-label:
+    name: Auto-label Issues
+    runs-on: ubuntu-latest
+    if: github.event_name == 'issues' && github.event.action == 'opened'
+    steps:
+      - name: Add priority labels based on urgency
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issue = context.payload.issue;
+            const body = issue.body || '';
+
+            // Extract urgency from issue body
+            if (body.includes('Critical - Blocking work')) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                labels: ['priority:critical']
+              });
+            } else if (body.includes('High - Needed within 1 week')) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                labels: ['priority:high']
+              });
+            } else if (body.includes('Medium - Needed within 2 weeks')) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                labels: ['priority:medium']
+              });
+            }
+
+  # ============================================================================
+  # JOB: Welcome message for new issues
+  # ============================================================================
+  notify-new-issue:
+    name: Notify on New Issue
+    runs-on: ubuntu-latest
+    if: github.event_name == 'issues' && github.event.action == 'opened'
+    steps:
+      - name: Add initial comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issueType = context.payload.issue.labels
+              .map(l => l.name)
+              .find(name => name === 'ig-release' || name === 'configuration' || name === 'operations');
+
+            let message = '👋 Thank you for your request!\n\n';
+
+            if (issueType === 'ig-release') {
+              message += `
+            ## Next Steps for IG Release
+
+            1. ✅ **Request received** - Your request is now in the queue
+            2. 🔍 **Validation** - Automated validation will run within 1 minute
+            3. 📋 **Admin review** - Team will review and approve if validation passes
+            4. 🤖 **PR auto-creation** - A pull request will be automatically generated
+            5. 🚀 **Deployment** - After PR merge, deployment will occur (immediate or scheduled)
+            6. ✅ **Verification** - You'll be asked to verify the deployment
+            7. 🎉 **Complete** - You can close the issue after verification
+
+            **Watch this issue for status updates** - Labels will change as work progresses.
+
+            Questions? Comment below and the team will respond.
+              `;
+            } else if (issueType === 'configuration') {
+              message += `
+            ## Next Steps for Configuration Change
+
+            1. ✅ **Request received**
+            2. 🔍 **Impact assessment** - Team will evaluate the change and potential impacts
+            3. 📋 **ADR approval** (if needed) - Major changes require Architecture Decision Record
+            4. 🚀 **Implementation** - Changes will be made and tested
+            5. ✅ **Verification** - You'll be asked to verify the change meets requirements
+            6. 📣 **Notification** - Stakeholders notified on Zulip
+
+            **Labels indicate status** - Watch for label changes as work progresses.
+              `;
+            } else if (issueType === 'operations') {
+              message += `
+            ## Next Steps for Operational Request
+
+            1. ✅ **Request received**
+            2. 🔍 **Safety review** - Team will verify scope and safety checks
+            3. 📅 **Scheduling** - Operation will be scheduled based on urgency and constraints
+            4. ⚠️  **Pre-execution notice** - You'll be notified before the operation runs
+            5. ▶️  **Execution** - Operation will be performed with monitoring
+            6. ✅ **Verification** - Results verified against your verification plan
+            7. 📣 **Completion notice** - Notification sent on Zulip
+
+            **For destructive operations** (expunge/delete), additional approval may be required.
+              `;
+            } else {
+              message += 'A team member will review your request shortly and provide next steps.';
+            }
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.issue.number,
+              body: message
+            });
+
+  # ============================================================================
+  # JOB: Track status changes via labels
+  # ============================================================================
+  status-tracking:
+    name: Track Status Changes
+    runs-on: ubuntu-latest
+    if: github.event_name == 'issues' && (github.event.action == 'labeled' || github.event.action == 'unlabeled')
+    steps:
+      - name: Update on status change
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const label = context.payload.label.name;
+            const action = context.payload.action;
+
+            if (action !== 'labeled') return;
+
+            let message = '';
+
+            switch(label) {
+              case 'status:approved':
+                message = '✅ **Status Update: Approved**\n\nThis request has been approved and will proceed to implementation.';
+                break;
+
+              case 'ready-for-automation':
+                message = '🤖 **Automation Triggered**\n\nYour request has been approved for automation. A Pull Request will be created automatically within 1-2 minutes.';
+                break;
+
+              case 'status:in-progress':
+                message = '🚀 **Status Update: In Progress**\n\nWork has started on this request. Updates will be posted as progress is made.';
+                break;
+
+              case 'auto-pr-created':
+                message = '🔧 **PR Generated**\n\nAn automated pull request has been created. Repo admins will review the changes shortly.';
+                break;
+
+              case 'status:merged-pending-deployment':
+                message = '✅ **PR Merged - Awaiting Deployment**\n\nYour changes have been merged! Deployment will occur based on the selected deployment option.';
+                break;
+
+              case 'status:deploying':
+                message = '🚀 **Deployment In Progress**\n\nYour changes are being deployed to the target nodes. This typically takes 2-5 minutes.';
+                break;
+
+              case 'status:deployed':
+                message = '🎉 **Deployment Complete**\n\nYour requested changes have been deployed successfully!\n\n**Next Steps:**\n1. Verify the deployment meets your acceptance criteria\n2. Comment with your verification results\n3. A repo admin will mark this as complete\n\n⚠️ **Please do not close this issue yet** - verification is required first.';
+                break;
+
+              case 'status:testing':
+                message = '🧪 **Status Update: Testing**\n\nChanges are being tested. You may be asked to verify functionality.';
+                break;
+
+              case 'status:complete':
+                message = '🎉 **Status Update: Complete**\n\nThis request has been completed and verified!\n\n**You can now close this issue** if you are satisfied with the results. Thank you for your request!';
+                break;
+
+              case 'needs:adr':
+                message = '📋 **ADR Required**\n\nThis change requires an Architecture Decision Record for approval before proceeding.\n\n**Expected timeline:** Add 1-2 weeks for ADR review process.';
+                break;
+
+              case 'blocked':
+                message = '⚠️  **Blocked**\n\nThis request is currently blocked. See comments for details on the blocker.';
+                break;
+
+              case 'needs-manual-intervention':
+                message = '⚠️  **Manual Intervention Required**\n\nThe automation encountered an issue and requires manual intervention from a repo admin.';
+                break;
+
+              case 'deploy-immediately':
+                message = '⚡ **Immediate Deployment Requested**\n\nThis request is flagged for immediate deployment after the PR is merged.';
+                break;
+            }
+
+            if (message) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.issue.number,
+                body: message
+              });
+            }
+
+  # ============================================================================
+  # JOB: Handle PR merge and update related issue
+  # ============================================================================
+  post-pr-merge-update:
+    name: Update Issue After PR Merge
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.merged == true &&
+      contains(github.event.pull_request.labels.*.name, 'auto-pr-created')
+
+    steps:
+      - name: Extract issue number from PR body
+        id: extract
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prBody = context.payload.pull_request.body || '';
+
+            // Extract issue number from "Related to #123" or "Issue #123"
+            const issueMatch = prBody.match(/#(\d+)/);
+            const issueNumber = issueMatch ? issueMatch[1] : null;
+
+            core.setOutput('issue_number', issueNumber);
+
+            return { issueNumber };
+
+      - name: Check if deploy-immediately label is present
+        id: check_deploy
+        if: steps.extract.outputs.issue_number
+        run: |
+          HAS_DEPLOY_LABEL="${{ contains(github.event.pull_request.labels.*.name, 'deploy-immediately') }}"
+          echo "has_deploy_label=$HAS_DEPLOY_LABEL" >> $GITHUB_OUTPUT
+
+      - name: Extract target nodes from PR
+        id: extract_nodes
+        if: steps.extract.outputs.issue_number && steps.check_deploy.outputs.has_deploy_label == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prBody = context.payload.pull_request.body || '';
+
+            // Extract nodes from PR body
+            const nodesMatch = prBody.match(/\*\*(?:Target|Requested) Nodes\*\*[:\s]+([^\n]+)/i);
+            let nodes = 'all';
+
+            if (nodesMatch) {
+              nodes = nodesMatch[1].trim().replace(/\*\*/g, '').replace(/`/g, '');
+            }
+
+            core.setOutput('nodes', nodes);
+            return { nodes };
+
+      - name: Trigger deployment workflow
+        if: steps.extract.outputs.issue_number && steps.check_deploy.outputs.has_deploy_label == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issueNumber = parseInt('${{ steps.extract.outputs.issue_number }}');
+            const nodes = '${{ steps.extract_nodes.outputs.nodes }}';
+            const prNumber = context.payload.pull_request.number;
+
+            console.log(`Triggering deployment for issue #${issueNumber} with nodes: ${nodes}`);
+
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'reload-ig-config.yml',
+              ref: 'main',
+              inputs: {
+                base_url: 'https://smile.sparked-fhir.com',
+                nodes: nodes,
+                package_source: 'config',
+                dry_run: 'false',
+                force_reinstall: 'false',
+                issue_number: issueNumber.toString()
+              }
+            });
+
+            // Post comment that deployment was triggered
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              body: `🚀 **Your Deployment Request is Being Processed**
+
+            PR #${prNumber} has been merged and your request for immediate deployment is being fulfilled.
+
+            **Deployment Details:**
+            - Target Nodes: \`${nodes}\`
+            - Package Source: Configuration files
+
+            You will receive another comment with deployment results shortly.
+
+            **Next Steps:**
+            1. Wait for deployment to complete (typically 2-5 minutes)
+            2. Verify the deployment meets your acceptance criteria
+            3. Comment with your verification results
+            4. A repo admin will mark the issue as complete
+
+            ⚠️ **Note**: Please do not close this issue manually. It will remain open for verification.`
+            });
+
+            // Update issue labels - mark as deploying
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              labels: ['status:deploying']
+            });
+
+            // Remove in-progress label
+            await github.rest.issues.removeLabel({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              name: 'status:in-progress'
+            }).catch(() => {});
+
+      - name: Post deployment options (no immediate deployment)
+        if: steps.extract.outputs.issue_number && steps.check_deploy.outputs.has_deploy_label != 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issueNumber = parseInt('${{ steps.extract.outputs.issue_number }}');
+            const prNumber = context.payload.pull_request.number;
+            const prTitle = context.payload.pull_request.title;
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              body: `## ✅ PR #${prNumber} Merged Successfully
+
+            Your requested changes have been approved and merged into the main branch.
+
+            **What was merged:**
+            ${prTitle}
+
+            **Deployment Options:**
+
+            ### Option A: Immediate Deployment
+            A repo admin can trigger immediate deployment:
+            - **Time**: 2-5 minutes
+            - **Downtime**: None (rolling update)
+            - **Risk**: Low (can be rolled back)
+
+            To deploy immediately, a repo admin can run the "Reload IG Packages" workflow manually.
+
+            ### Option B: Wait for Next Server Restart
+            Changes will be applied automatically on the next scheduled server restart:
+            - **Time**: Variable (hours to days)
+            - **Risk**: Zero (changes are already in configuration)
+            - **Effort**: None required
+
+            ---
+
+            **A repo admin will decide when to deploy based on urgency and current server status.**
+
+            Once deployed, you'll be asked to verify the deployment meets your acceptance criteria.
+
+            ⚠️ **Note**: Please do not close this issue manually. It will remain open for verification.`
+            });
+
+            // Update issue labels - mark as merged, waiting for deployment
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              labels: ['status:merged-pending-deployment']
+            });
+
+            // Remove in-progress label
+            await github.rest.issues.removeLabel({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              name: 'status:in-progress'
+            }).catch(() => {});
+
+      - name: Handle failure
+        if: failure() && steps.extract.outputs.issue_number
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issueNumber = parseInt('${{ steps.extract.outputs.issue_number }}');
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              body: `❌ **Post-Merge Automation Failed**
+
+            The automation encountered an error while processing the merged PR.
+
+            **Error details**: Check the [workflow run](${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}) for details.
+
+            **Next steps**:
+            - A maintainer will review and handle deployment manually
+            - You will be notified when deployment occurs
+
+            This issue has been labeled \`needs-manual-intervention\`.`
+            });
+
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              labels: ['needs-manual-intervention']
+            });
