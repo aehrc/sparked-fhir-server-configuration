@@ -229,7 +229,8 @@ jobs:
           echo "Executing upload..."
           echo "This may take several minutes depending on file sizes and server processing..."
 
-          # Execute the upload and capture response
+          # Execute the upload and capture response (hide progress bars with -s, show errors with -S)
+          CURL_CMD="$CURL_CMD -s -S"
           RESPONSE=$(eval $CURL_CMD 2>&1)
           UPLOAD_EXIT_CODE=$?
 
@@ -239,7 +240,10 @@ jobs:
           if [ $UPLOAD_EXIT_CODE -eq 0 ]; then
             echo "✅ Upload completed successfully! Uploaded $TOTAL_FILES files."
             echo "upload_success=true" >> $GITHUB_OUTPUT
-            echo "response=$RESPONSE" >> $GITHUB_OUTPUT
+            # Store only first 1000 chars of response to avoid GitHub Actions output format issues
+            echo "response<<EOF" >> $GITHUB_OUTPUT
+            echo "${RESPONSE:0:1000}" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
           else
             echo "❌ Upload failed with exit code: $UPLOAD_EXIT_CODE"
             echo "upload_success=false" >> $GITHUB_OUTPUT

@@ -1,4 +1,4 @@
-name: Post-Merge IG Deployment
+name: Post-Merge Issue Updater
 
 on:
   pull_request:
@@ -13,8 +13,8 @@ permissions:
   actions: write
 
 jobs:
-  deployment-options:
-    name: Post Deployment Options
+  update-issue-status:
+    name: Update Issue Status After PR Merge
     runs-on: ubuntu-latest
     # Only run if PR was merged and has the auto-pr-created label
     if: |
@@ -29,7 +29,7 @@ jobs:
           script: |
             const prBody = context.payload.pull_request.body || '';
 
-            // Extract issue number from "Closes #123" or "Issue #123"
+            // Extract issue number from "Related to #123" or "Issue #123"
             const issueMatch = prBody.match(/#(\d+)/);
             const issueNumber = issueMatch ? issueMatch[1] : null;
 
@@ -53,8 +53,8 @@ jobs:
           script: |
             const prBody = context.payload.pull_request.body || '';
 
-            // Extract nodes from PR body (look for "Target Nodes: aucore,hl7au")
-            const nodesMatch = prBody.match(/\*\*Target Nodes\*\*[:\s]+([^\n]+)/i);
+            // Extract nodes from PR body (look for "Target Nodes: aucore,hl7au" or "Requested Nodes:")
+            const nodesMatch = prBody.match(/\*\*(?:Target|Requested) Nodes\*\*[:\s]+([^\n]+)/i);
             let nodes = 'all';  // Default to all
 
             if (nodesMatch) {
@@ -97,22 +97,24 @@ jobs:
               issue_number: issueNumber,
               body: `🚀 **Your Deployment Request is Being Processed**
 
-PR #${prNumber} has been merged and your request for immediate deployment is being fulfilled.
+            PR #${prNumber} has been merged and your request for immediate deployment is being fulfilled.
 
-**Deployment Details:**
-- **Nodes**: ${nodes}
-- **Package Source**: config (from simplified-multinode.yaml)
-- **Mode**: Live deployment (dry_run=false)
+            **Deployment Details:**
+            - Target Nodes: \`${nodes}\`
+            - Package Source: Configuration files
 
-You will receive another comment with the deployment results once the workflow completes.
+            You will receive another comment with deployment results shortly.
 
-[View Workflow Runs](${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/workflows/reload-ig-config.yml)
+            **Next Steps:**
+            1. Wait for deployment to complete (typically 2-5 minutes)
+            2. Verify the deployment meets your acceptance criteria
+            3. Comment with your verification results
+            4. A repo admin will mark the issue as complete
 
----
-*Automated deployment triggered per your request*`
+            ⚠️ **Note**: Please do not close this issue manually. It will remain open for verification.`
             });
 
-            // Update issue labels for auto-deployment
+            // Update issue labels - mark as deploying
             await github.rest.issues.addLabels({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -120,106 +122,102 @@ You will receive another comment with the deployment results once the workflow c
               labels: ['status:deploying']
             });
 
-            try {
-              await github.rest.issues.removeLabel({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: issueNumber,
-                name: 'status:in-progress'
-              });
-            } catch (e) {
-              // Label might not exist
-            }
+            // Remove in-progress label
+            await github.rest.issues.removeLabel({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              name: 'status:in-progress'
+            }).catch(() => {});
 
-      - name: Post deployment options comment
+      - name: Post deployment options (no immediate deployment)
         if: steps.extract.outputs.issue_number && steps.check_deploy.outputs.has_deploy_label != 'true'
         uses: actions/github-script@v7
         with:
           script: |
             const issueNumber = parseInt('${{ steps.extract.outputs.issue_number }}');
             const prNumber = context.payload.pull_request.number;
-            const prUrl = context.payload.pull_request.html_url;
+            const prTitle = context.payload.pull_request.title;
 
-            const comment = `## ✅ PR #${prNumber} Merged - Deployment Options
-
-            Your requested changes have been reviewed, approved, and merged to main.
-
-            ### Deployment Options Available
-
-            **Option A: Immediate Deployment (Recommended)**
-            A repo admin can deploy the packages immediately to the SmileCDR nodes without restarting the server.
-
-            **Pros:**
-            - ✅ Fast (takes ~2-5 minutes)
-            - ✅ No server downtime
-            - ✅ Changes applied immediately
-
-            **Cons:**
-            - ⚠️ May fail if package has dependency issues
-            - ⚠️ Requires admin to trigger manually
-
-            👉 **Admins: [Click here to deploy now](${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/workflows/manual-ig-load.yml)**
-
-            ---
-
-            **Option B: Wait for Next Server Restart**
-            Changes will be applied automatically the next time the SmileCDR nodes restart.
-
-            **Pros:**
-            - ✅ Zero risk
-            - ✅ Fully automated
-            - ✅ No manual intervention needed
-
-            **Cons:**
-            - ⏰ May take hours or days
-            - ⏰ No control over timing
-
-            ---
-
-            ### ℹ️ What happens next?
-
-            A repo admin will decide when to deploy based on urgency and risk assessment.
-
-            **When deployment completes:**
-            - You'll receive a notification on this issue
-            - You'll be asked to verify the deployment meets your acceptance criteria
-            - Once verified, this issue will be closed
-
-            ---
-
-            *Awaiting admin decision on deployment timing*`;
-
-            // Post to the original issue
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: issueNumber,
-              body: comment
+              body: `## ✅ PR #${prNumber} Merged Successfully
+
+            Your requested changes have been approved and merged into the main branch.
+
+            **What was merged:**
+            ${prTitle}
+
+            **Deployment Options:**
+
+            ### Option A: Immediate Deployment
+            A repo admin can trigger immediate deployment:
+            - **Time**: 2-5 minutes
+            - **Downtime**: None (rolling update)
+            - **Risk**: Low (can be rolled back)
+
+            To deploy immediately, a repo admin can run the "Reload IG Packages" workflow manually.
+
+            ### Option B: Wait for Next Server Restart
+            Changes will be applied automatically on the next scheduled server restart:
+            - **Time**: Variable (hours to days)
+            - **Risk**: Zero (changes are already in configuration)
+            - **Effort**: None required
+
+            ---
+
+            **A repo admin will decide when to deploy based on urgency and current server status.**
+
+            Once deployed, you'll be asked to verify the deployment meets your acceptance criteria.
+
+            ⚠️ **Note**: Please do not close this issue manually. It will remain open for verification.`
             });
 
-            // Also post to the PR
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: prNumber,
-              body: `✅ Merged! The requester has been notified. Deployment options posted to issue #${issueNumber}.`
-            });
-
-            // Update issue labels
+            // Update issue labels - mark as merged, waiting for deployment
             await github.rest.issues.addLabels({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: issueNumber,
-              labels: ['status:merged', 'awaiting-deployment']
+              labels: ['status:merged-pending-deployment']
             });
 
-            try {
-              await github.rest.issues.removeLabel({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: issueNumber,
-                name: 'status:in-progress'
-              });
-            } catch (e) {
-              // Label might not exist
-            }
+            // Remove in-progress label
+            await github.rest.issues.removeLabel({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              name: 'status:in-progress'
+            }).catch(() => {});
+
+      - name: Handle failure
+        if: failure() && steps.extract.outputs.issue_number
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issueNumber = parseInt('${{ steps.extract.outputs.issue_number }}');
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              body: `❌ **Post-Merge Automation Failed**
+
+            The automation encountered an error while processing the merged PR.
+
+            **Error details**: Check the [workflow run](${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}) for details.
+
+            **Next steps**:
+            - A maintainer will review and handle deployment manually
+            - You will be notified when deployment occurs
+
+            This issue has been labeled \`needs-manual-intervention\`.`
+            });
+
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              labels: ['needs-manual-intervention']
+            });
