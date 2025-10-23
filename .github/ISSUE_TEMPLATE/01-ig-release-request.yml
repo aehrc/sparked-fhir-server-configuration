@@ -74,6 +74,27 @@ body:
     validations:
       required: true
 
+  - type: checkboxes
+    id: target-nodes
+    attributes:
+      label: Target SmileCDR Nodes
+      description: |
+        Select which SmileCDR nodes should have this IG package loaded.
+
+        **Node Descriptions:**
+        - **aucore**: AU Core FHIR Server - General Australian FHIR profiles and validation
+        - **hl7au**: HL7 AU Base Server - Base Australian specifications and extensions
+        - **ereq**: eRequesting Server - Electronic requesting workflows and integrations
+
+        💡 **Tip**: Most Australian IGs should be on both `aucore` and `hl7au`. eRequesting-specific IGs should also include `ereq`.
+      options:
+        - label: aucore (AU Core FHIR Server)
+          required: false
+        - label: hl7au (HL7 AU Base Server)
+          required: false
+        - label: ereq (eRequesting Server)
+          required: false
+
   - type: textarea
     id: business-justification
     attributes:

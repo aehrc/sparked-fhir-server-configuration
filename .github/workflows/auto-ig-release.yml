@@ -33,6 +33,10 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Install dependencies
+        run: |
+          pip install -r scripts/requirements.txt
+
       - name: Get issue details
         id: issue
         uses: actions/github-script@v7
@@ -59,6 +63,21 @@ jobs:
             const igVersion = extractField('IG Version');
             const packageId = extractField('NPM Package ID \\(if known\\)') || '';
             const requestType = extractField('Request Type');
+
+            // Extract target nodes from checkboxes
+            const targetNodesSection = extractField('Target SmileCDR Nodes');
+            const selectedNodes = [];
+
+            if (targetNodesSection.includes('[x]') || targetNodesSection.includes('[X]')) {
+              const lines = targetNodesSection.split('\n');
+              for (const line of lines) {
+                if (line.includes('[x]') || line.includes('[X]')) {
+                  if (line.includes('aucore')) selectedNodes.push('aucore');
+                  if (line.includes('hl7au')) selectedNodes.push('hl7au');
+                  if (line.includes('ereq')) selectedNodes.push('ereq');
+                }
+              }
+            }
 
             // Extract package options from checkboxes
             const packageOptions = extractField('Package Installation Options');
@@ -90,10 +109,17 @@ jobs:
             core.setOutput('branch_name', branchName);
             core.setOutput('package_file_name', packageFileName);
             core.setOutput('safe_name', safeName);
+            core.setOutput('selected_nodes', selectedNodes.join(','));
+            core.setOutput('selected_nodes_count', selectedNodes.length);
 
             // Check if we have required info
             if (!igName || !igVersion) {
               core.setFailed('Missing required fields: IG Name or Version');
+              return;
+            }
+
+            if (selectedNodes.length === 0) {
+              core.setFailed('No target nodes selected');
               return;
             }
 
@@ -162,6 +188,21 @@ jobs:
           # Validate JSON
           jq empty "$PACKAGE_FILE"
 
+      - name: Update simplified-multinode.yaml for selected nodes
+        run: |
+          SELECTED_NODES="${{ steps.issue.outputs.selected_nodes }}"
+          PACKAGE_FILE_NAME="${{ steps.issue.outputs.package_file_name }}"
+
+          echo "Updating simplified-multinode.yaml for nodes: $SELECTED_NODES"
+
+          # Use the helper script to add package to selected nodes
+          python scripts/update_node_packages.py \
+            --action add \
+            --nodes "$SELECTED_NODES" \
+            --package "$PACKAGE_FILE_NAME"
+
+          echo "✅ Updated simplified-multinode.yaml"
+
       - name: Update main.tf
         run: |
           PACKAGE_FILE_NAME="${{ steps.issue.outputs.package_file_name }}"
@@ -213,6 +254,7 @@ jobs:
       - name: Commit changes
         run: |
           git add "module-config/packages/${{ steps.issue.outputs.package_file_name }}"
+          git add "module-config/simplified-multinode.yaml"
           git add main.tf
 
           git commit -m "Add ${{ steps.issue.outputs.ig_name }} ${{ steps.issue.outputs.ig_version }}
@@ -221,6 +263,7 @@ jobs:
 
           Changes:
           - Created module-config/packages/${{ steps.issue.outputs.package_file_name }}
+          - Updated simplified-multinode.yaml for nodes: ${{ steps.issue.outputs.selected_nodes }}
           - Updated main.tf to reference new package
 
           Implements: #${{ steps.issue.outputs.issue_number }}"
@@ -239,6 +282,7 @@ jobs:
           REQUEST_TYPE: ${{ steps.issue.outputs.request_type }}
           PACKAGE_FILE_NAME: ${{ steps.issue.outputs.package_file_name }}
           BRANCH_NAME: ${{ steps.issue.outputs.branch_name }}
+          SELECTED_NODES: ${{ steps.issue.outputs.selected_nodes }}
         uses: actions/github-script@v7
         with:
           script: |
@@ -249,11 +293,12 @@ jobs:
             const requestType = process.env.REQUEST_TYPE;
             const packageFileName = process.env.PACKAGE_FILE_NAME;
             const branchName = process.env.BRANCH_NAME;
+            const selectedNodes = process.env.SELECTED_NODES;
 
             const { data: pr } = await github.rest.pulls.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              title: `Add ${igName} ${igVersion} (Issue #${issueNumber})`,
+              title: `Add ${igName} ${igVersion} to ${selectedNodes} (Issue #${issueNumber})`,
               head: branchName,
               base: 'main',
               body: `## Auto-generated IG Release PR
@@ -265,26 +310,29 @@ jobs:
             - **Version**: ${igVersion}
             - **Package ID**: ${packageId}
             - **Request Type**: ${requestType}
+            - **Target Nodes**: ${selectedNodes}
 
             ### Changes Made
             - ✅ Created \`module-config/packages/${packageFileName}\`
+            - ✅ Updated \`simplified-multinode.yaml\` for nodes: ${selectedNodes}
             - ✅ Updated \`main.tf\` to reference new package
 
             ### Next Steps
             1. **Review** the generated files
             2. **Verify** package ID is correct (may need manual correction)
-            3. **Check** if \`simplified-multinode.yaml\` needs updates
+            3. **Verify** nodes are correct: ${selectedNodes}
             4. **Approve** this PR
-            5. **Merge** to trigger deployment
-            6. **Verify** deployment in target environment
-            7. **Update** issue #${issueNumber} when verified
+            5. **Merge** to main branch
+            6. **Deploy** using manual-ig-load workflow or wait for next restart
+            7. **Verify** deployment in target environment
+            8. **Update** issue #${issueNumber} when verified
 
             ### ⚠️  Manual Review Required
             - [ ] Package ID is correct
             - [ ] Version is correct
+            - [ ] Target nodes are correct
             - [ ] installMode is correct
             - [ ] fetchDependencies is correct
-            - [ ] simplified-multinode.yaml updated if needed
             - [ ] Test data requirements addressed
             - [ ] Terraform plan looks good
 
