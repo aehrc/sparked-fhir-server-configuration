@@ -40,7 +40,12 @@ module "smile_cdr_dependencies" {
       data     = file("module-config/packages/package-international-patient-summary-2.0.0.json")
     },
     
-    # # Users configuration
+    #
+    {
+      name     = "package-aups-0.3.0-ballot.json"
+      location = "classes/config_seeding"
+      data     = file("module-config/packages/package-aups-0.3.0-ballot.json")
+    }, # Users configuration
     # {
     #   name     = "users.json"
     #   location = "classes/config_seeding"
