@@ -1,4 +1,4 @@
-name: Reload IG Packages for SmileCDR Nodes
+name: Re/load IG Packages
 
 on:
   workflow_dispatch:

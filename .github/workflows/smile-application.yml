@@ -1,4 +1,4 @@
-name: 'Smile CDR Configuration Deployment'
+name: 'Smile Configuration Deployment'
 
 on:
   pull_request:

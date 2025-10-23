@@ -1,4 +1,4 @@
-name: Issue Management
+name: Issue Commenter
 
 on:
   issues:

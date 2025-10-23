@@ -1,4 +1,4 @@
-name: Load Test Data
+name: Test Data Loader
 
 on:
   issues:

@@ -399,32 +399,3 @@ Include:
 2. Describe the improvement
 3. Explain the benefit
 4. Tag relevant stakeholders
-
-## Security
-
-- ✅ Credentials stored in GitHub Secrets
-- ✅ No secrets in logs or comments
-- ✅ Branch protection on main
-- ✅ Required PR reviews
-- ✅ Complete audit trail in git
-- ✅ Dry-run by default
-
-## Success Metrics
-
-Since automation implementation:
-- ⏱️ **50% reduction** in time to deploy IGs
-- ✅ **90%** of deployments require zero manual intervention
-- 🎯 **100%** of requests get validation within 1 minute
-- ❌ **<5% error rate** (validation catches issues early)
-
----
-
-**Ready to get started?**
-
-👉 [Create an IG Release Request](../../issues/new/choose)
-
-👉 [Read the Workflow Guide](docs/WORKFLOWS.md)
-
----
-
-**Status**: ✅ Automated workflows active | 🤖 90% automation rate | 📊 <5% error rate

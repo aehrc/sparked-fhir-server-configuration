@@ -1,4 +1,4 @@
-name: Auto-Generate IG Release PR
+name: IG Release Change PR Creator
 
 on:
   issues:
