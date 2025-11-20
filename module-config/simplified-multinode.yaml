@@ -18,7 +18,7 @@ cdrNodes:
           seed.base_validation_resources: true
           package_registry.resource_status_validation_filter.enabled: false
           package_registry.load_specs_asynchronously: false
-          package_registry.startup_installation_specs: "classpath:/config_seeding/package-international-patient-summary-2.0.0.json classpath:/config_seeding/package-aubase.json classpath:/config_seeding/package-aucore.json classpath:/config_seeding/package-aups-0.3.0.json"
+          package_registry.startup_installation_specs: "classpath:/config_seeding/package-au-patient-summary-0.4.0-draft.json classpath:/config_seeding/package-aubase.json classpath:/config_seeding/package-aucore.json classpath:/config_seeding/package-aups-0.3.0.json classpath:/config_seeding/package-international-patient-summary-2.0.0.json"
           resource_types.supported.whitelist: "MedicationStatement,CommunicationRequest,Task,Consent,ServiceRequest,Device,Composition,StructureDefinition,SearchParameter,Questionnaire,StructureMap,AllergyIntolerance,Condition,Encounter,Immunization,Location,Observation,Organization,Patient,Practitioner,PractitionerRole,Procedure,Medication,MedicationRequest,Coverage,Specimen,RelatedPerson,HealthcareService,QuestionnaireResponse"
           metadata.resource_counts.enabled: false
           validator.local_reference_policy: "NOT_VALIDATED"
