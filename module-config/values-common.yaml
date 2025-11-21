@@ -25,12 +25,26 @@ mappedFiles:
     path: /home/smile/smilecdr/classes/config_seeding
   package-auereq-1.0.0.json:
     path: /home/smile/smilecdr/classes/config_seeding
-  package-aups-0.3.0.json:
+  package-au-patient-summary-0.4.0-draft.json:
     path: /home/smile/smilecdr/classes/config_seeding
   package-international-patient-summary-2.0.0.json:
     path: /home/smile/smilecdr/classes/config_seeding
-  # users.json:
-  #   path: /home/smile/smilecdr/classes/config_seeding
+
+# Mount users.json from AWS Secrets Manager
+secrets:
+  usersConfig:
+    name: smilecdr-users-json
+    type: sscsi
+    provider: aws
+    secretName: smilecdr-users-json
+    secretArn: "arn:aws:secretsmanager:ap-southeast-2:471112546300:secret:smilecdr-users-json-IInyPo"  # Will be set via terraform
+    secretKeyMap:
+      users-json:
+        secretKeyName: content  # Extract the "content" field which contains the users.json
+        k8sSecretKeyName: users-json  # Name of the key in the Kubernetes secret
+        mountSpec:
+          mountPath: /home/smile/smilecdr/classes/config_seeding/users.json
+          subPath: users-json  # Mount only the users-json key as a file, not a directory
 
 
 copyFiles:

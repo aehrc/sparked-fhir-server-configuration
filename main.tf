@@ -25,11 +25,6 @@ module "smile_cdr_dependencies" {
       data     = file("module-config/packages/package-aucore.json")
     },
     {
-      name     = "package-aups-0.3.0.json"
-      location = "classes/config_seeding"
-      data     = file("module-config/packages/package-aups-0.3.0.json")
-    },
-    {
       name     = "package-auereq-1.0.0.json"
       location = "classes/config_seeding"
       data     = file("module-config/packages/package-auereq-1.0.0.json")
@@ -39,27 +34,26 @@ module "smile_cdr_dependencies" {
       location = "classes/config_seeding"
       data     = file("module-config/packages/package-international-patient-summary-2.0.0.json")
     },
-    
-    #
-    {
-      name     = "package-aups-0.3.0-ballot.json"
-      location = "classes/config_seeding"
-      data     = file("module-config/packages/package-aups-0.3.0-ballot.json")
-    },
     {
       name     = "package-au-patient-summary-0.4.0-draft.json"
       location = "classes/config_seeding"
       data     = file("module-config/packages/package-au-patient-summary-0.4.0-draft.json")
-    }, # Users configuration
-    # {
-    #   name     = "users.json"
-    #   location = "classes/config_seeding"
-    #   data     = local.users_json  # Use the templated version
-    # }
+    }
+    # Users configuration moved to AWS Secrets Manager - see extra_secrets below
+  ]
+
+  # Mount users.json from AWS Secrets Manager instead of inline data
+  extra_secrets = [
+    {
+      name         = "users-json"
+      existing_arn = data.aws_secretsmanager_secret.smilecdr_users_json.arn
+    }
   ]
 
   helm_chart_values_set_overrides = {
-    "replicaCount"                                          = 1
+    "replicaCount" = 1
+    # Set the secret ARN for users.json
+    "secrets.usersConfig.secretArn" = data.aws_secretsmanager_secret.smilecdr_users_json.arn
   }
 
   s3_read_buckets = ["examplebucket-fhir-aws"]
@@ -192,11 +186,6 @@ module "smile_cdr_dependencies" {
 locals {
   cdr_regcred_secret_arn = "arn:aws:secretsmanager:ap-southeast-2:471112546300:secret:example-key-value-x7qP8R"
   route53_create_record = true
-
-  users_json = templatefile("${path.module}/module-config/users.json.tpl", { #switch to external secrets later
-    admin_password = jsondecode(data.aws_secretsmanager_secret_version.smilecdr-user-passwords.secret_string)["smilecdr-admin-password"]
-    devtester_password = jsondecode(data.aws_secretsmanager_secret_version.smilecdr-user-passwords.secret_string)["smilecdr-devtester-password"]
-  })
 
   tags = {
     Name       = var.name

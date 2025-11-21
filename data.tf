@@ -14,3 +14,8 @@ data "aws_iam_openid_connect_provider" "this" {
 data "aws_secretsmanager_secret_version" "smilecdr-user-passwords" {
   secret_id = "smilecdr-user-passwords"
 }
+
+# Data source for users.json secret (will be created separately)
+data "aws_secretsmanager_secret" "smilecdr_users_json" {
+  name = "smilecdr-users-json"
+}
