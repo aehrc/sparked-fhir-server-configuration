@@ -80,10 +80,13 @@ jobs:
 
             // Extract package options
             const packageOptions = extractField('Package Installation Options');
-            const installModeChecked = packageOptions.includes('[X]') || packageOptions.includes('[x]');
+            const lines = packageOptions.split('\n');
+
+            // Check first checkbox for STORE_AND_INSTALL
+            const installModeChecked = lines.length > 0 && (lines[0].includes('[X]') || lines[0].includes('[x]'));
             const installMode = installModeChecked ? 'STORE_AND_INSTALL' : 'STORE_ONLY';
 
-            const lines = packageOptions.split('\n');
+            // Check second checkbox for fetch dependencies
             const fetchDepsChecked = lines.length > 1 && (lines[1].includes('[X]') || lines[1].includes('[x]'));
 
             // Generate safe filename
