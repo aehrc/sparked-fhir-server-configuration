@@ -33,7 +33,7 @@ module "smile_cdr_dependencies" {
       name     = "package-au-patient-summary-0.4.0-draft.json"
       location = "classes/config_seeding"
       data     = file("module-config/packages/package-au-patient-summary-0.4.0-draft.json")
-    }
+    },
     {
       name     = "package-aucore-2.0.0-preview.json"
       location = "classes/config_seeding"
