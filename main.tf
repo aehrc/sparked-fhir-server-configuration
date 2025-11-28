@@ -39,6 +39,11 @@ module "smile_cdr_dependencies" {
       location = "classes/config_seeding"
       data     = file("module-config/packages/package-aucore-2.0.0-preview.json")
     },
+    {
+      name     = "package-aubase-6.0.0-preview.json"
+      location = "classes/config_seeding"
+      data     = file("module-config/packages/package-aubase-6.0.0-preview.json")
+    },
     # Users configuration moved to AWS Secrets Manager - see extra_secrets below
   ]
 
