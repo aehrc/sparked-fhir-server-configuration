@@ -126,6 +126,41 @@ if ! jq empty "$PACKAGE_FILE" 2>/dev/null; then
     exit 1
 fi
 
+# Update values-common.yaml mappedFiles section
+echo ""
+echo "📝 Updating values-common.yaml mappedFiles..."
+
+python3 <<PYTHON_SCRIPT
+import yaml
+import os
+
+package_file_name = "$PACKAGE_FILE_NAME"
+values_file = 'module-config/values-common.yaml'
+
+# Read the YAML file
+with open(values_file, 'r') as f:
+    data = yaml.safe_load(f)
+
+# Ensure mappedFiles exists
+if 'mappedFiles' not in data:
+    data['mappedFiles'] = {}
+
+# Add the new package file if it doesn't already exist
+if package_file_name not in data['mappedFiles']:
+    data['mappedFiles'][package_file_name] = {
+        'path': '/home/smile/smilecdr/classes/config_seeding'
+    }
+    print(f"✅ Added {package_file_name} to mappedFiles")
+else:
+    print(f"ℹ️  {package_file_name} already exists in mappedFiles")
+
+# Write back to file with proper formatting
+with open(values_file, 'w') as f:
+    yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+
+print("✅ Updated values-common.yaml")
+PYTHON_SCRIPT
+
 # Check if package already exists in main.tf
 echo ""
 echo "🔍 Checking main.tf..."
@@ -165,6 +200,7 @@ echo ""
 echo "💾 Committing changes..."
 
 git add "$PACKAGE_FILE"
+git add module-config/values-common.yaml
 git add main.tf
 
 git commit -m "Add $IG_NAME $IG_VERSION
@@ -173,6 +209,7 @@ Auto-generated from issue #$ISSUE_NUMBER
 
 Changes:
 - Created $PACKAGE_FILE
+- Updated values-common.yaml mappedFiles section
 - Updated main.tf to reference new package
 
 Implements: #$ISSUE_NUMBER"
@@ -199,6 +236,7 @@ This PR was generated from issue #$ISSUE_NUMBER.
 
 ### Changes Made
 - ✅ Created \`$PACKAGE_FILE\`
+- ✅ Updated \`values-common.yaml\` mappedFiles section
 - ✅ Updated \`main.tf\` to reference new package
 
 ### Next Steps
@@ -249,6 +287,7 @@ Pull Request has been created: $PR_URL
 
 ### What was generated:
 - ✅ Package file: \`$PACKAGE_FILE\`
+- ✅ Updated: \`values-common.yaml\` mappedFiles section
 - ✅ Updated: \`main.tf\`
 
 ### Next Steps:

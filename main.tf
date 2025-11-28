@@ -20,11 +20,6 @@ module "smile_cdr_dependencies" {
       data     = file("module-config/packages/package-aubase.json")
     },
     {
-      name     = "package-aucore.json"
-      location = "classes/config_seeding"
-      data     = file("module-config/packages/package-aucore.json")
-    },
-    {
       name     = "package-auereq-1.0.0.json"
       location = "classes/config_seeding"
       data     = file("module-config/packages/package-auereq-1.0.0.json")
