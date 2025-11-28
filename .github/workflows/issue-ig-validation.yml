@@ -54,7 +54,9 @@ jobs:
             const extractField = (label) => {
               const regex = new RegExp(`### ${label}\\s*([\\s\\S]*?)(?=###|$)`, 'i');
               const match = body.match(regex);
-              return match ? match[1].trim() : '';
+              const value = match ? match[1].trim() : '';
+              // Treat GitHub's "_No response_" as empty
+              return value === '_No response_' ? '' : value;
             };
 
             const igName = extractField('Implementation Guide Name');

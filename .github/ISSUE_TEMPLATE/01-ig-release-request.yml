@@ -34,11 +34,11 @@ body:
   - type: input
     id: ig-package-id
     attributes:
-      label: NPM Package ID (if known)
-      description: The NPM package identifier (e.g., "hl7.fhir.uv.ips"). Leave blank if unsure.
+      label: NPM Package ID
+      description: The NPM package identifier (e.g., "hl7.fhir.uv.ips"). This can be found in the IG's package.json file.
       placeholder: "hl7.fhir.uv.ips"
     validations:
-      required: false
+      required: true
 
   - type: input
     id: ig-url
@@ -111,15 +111,6 @@ body:
           required: false
 
   - type: textarea
-    id: business-justification
-    attributes:
-      label: Business Justification
-      description: Why is this IG needed? What use case does it support? Is this for a specific event?
-      placeholder: "We need IPS 3.0.0 to support the upcoming December Connectathon event."
-    validations:
-      required: true
-
-  - type: textarea
     id: test-data
     attributes:
       label: Test Data or Examples Requirements
@@ -132,19 +123,6 @@ body:
         - Need /examples folder from the IPS IG
     validations:
       required: false
-
-  - type: textarea
-    id: acceptance-criteria
-    attributes:
-      label: Acceptance Criteria
-      description: How will you verify this is working correctly? What tests should pass?
-      placeholder: |
-        - Can retrieve IG resources via FHIR API
-        - StructureDefinitions validate correctly
-        - Sample test data loads without errors
-        - Documentation updated with new endpoints
-    validations:
-      required: true
 
   - type: checkboxes
     id: package-options
@@ -164,24 +142,18 @@ body:
         - label: Request package be installed automatically (STORE_AND_INSTALL)
         - label: Request dependencies be fetched automatically
 
-  - type: checkboxes
-    id: rollback
-    attributes:
-      label: Rollback Plan
-      description: Please confirm understanding of rollback procedures
-      options:
-        - label: I understand that if issues are found, this may be rolled back to the previous version
-          required: true
-        - label: I will be available to verify the deployment works as expected
-          required: false
-
   - type: textarea
     id: additional-context
     attributes:
-      label: Additional Context
+      label: Additional Context or Acceptance Criteria
       description: |
         Any additional context or configuration changes that might be required.
       placeholder: |
+        Example Acceptance Criteria:
+        - Can retrieve IG resources via FHIR API
+        - StructureDefinitions validate correctly
+        - Sample test data loads without errors
+        - Documentation updated with new endpoints
         Example additional details:
         - New modules, endpoints or access requirements
         - Custom packageUrl if not using packages.fhir.org
