@@ -130,36 +130,62 @@ fi
 echo ""
 echo "📝 Updating values-common.yaml mappedFiles..."
 
-python3 <<PYTHON_SCRIPT
-import yaml
+python3 <<'PYTHON_SCRIPT'
 import os
+import re
 
-package_file_name = "$PACKAGE_FILE_NAME"
+package_file_name = os.environ['PACKAGE_FILE_NAME']
 values_file = 'module-config/values-common.yaml'
 
-# Read the YAML file
+# Read the file as text to preserve formatting and comments
 with open(values_file, 'r') as f:
-    data = yaml.safe_load(f)
+    content = f.read()
 
-# Ensure mappedFiles exists
-if 'mappedFiles' not in data:
-    data['mappedFiles'] = {}
-
-# Add the new package file if it doesn't already exist
-if package_file_name not in data['mappedFiles']:
-    data['mappedFiles'][package_file_name] = {
-        'path': '/home/smile/smilecdr/classes/config_seeding'
-    }
-    print(f"✅ Added {package_file_name} to mappedFiles")
-else:
+# Check if the package already exists
+if f"  {package_file_name}:" in content:
     print(f"ℹ️  {package_file_name} already exists in mappedFiles")
+else:
+    # Find the last entry in mappedFiles and add after it
+    # Look for the last "    path: /home/smile/smilecdr/classes/config_seeding" line under mappedFiles
+    lines = content.split('\n')
+    new_lines = []
+    inserted = False
+    in_mapped_files = False
+    last_mapped_file_index = -1
 
-# Write back to file with proper formatting
-with open(values_file, 'w') as f:
-    yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+    for i, line in enumerate(lines):
+        if line.startswith('mappedFiles:'):
+            in_mapped_files = True
+        elif in_mapped_files and line and not line.startswith(' '):
+            # We've reached the next section
+            in_mapped_files = False
+        elif in_mapped_files and '    path: /home/smile/smilecdr/classes/config_seeding' in line:
+            last_mapped_file_index = i
+
+    if last_mapped_file_index >= 0:
+        # Insert after the last mappedFiles entry
+        for i, line in enumerate(lines):
+            new_lines.append(line)
+            if i == last_mapped_file_index:
+                new_lines.append(f"  {package_file_name}:")
+                new_lines.append("    path: /home/smile/smilecdr/classes/config_seeding")
+                inserted = True
+
+        if inserted:
+            content = '\n'.join(new_lines)
+            print(f"✅ Added {package_file_name} to mappedFiles")
+        else:
+            print("⚠️  Could not find insertion point")
+    else:
+        print("⚠️  Could not find mappedFiles section")
+
+    # Write back to file
+    with open(values_file, 'w') as f:
+        f.write(content)
 
 print("✅ Updated values-common.yaml")
 PYTHON_SCRIPT
+export PACKAGE_FILE_NAME="$PACKAGE_FILE_NAME"
 
 # Check if package already exists in main.tf
 echo ""

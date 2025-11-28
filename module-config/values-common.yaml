@@ -19,7 +19,7 @@ serviceAccount:
 mappedFiles:
   # logback.xml:
   #   path: /home/smile/smilecdr/classes
-  package-aubase.json:
+  package-aubase-6.0.0-preview.json:
     path: /home/smile/smilecdr/classes/config_seeding
   package-aucore-2.0.0-preview.json:
     path: /home/smile/smilecdr/classes/config_seeding

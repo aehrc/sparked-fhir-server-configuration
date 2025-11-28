@@ -15,11 +15,6 @@ module "smile_cdr_dependencies" {
   helm_chart_mapped_files = [
     # Package specifications
     {
-      name     = "package-aubase.json"
-      location = "classes/config_seeding"
-      data     = file("module-config/packages/package-aubase.json")
-    },
-    {
       name     = "package-auereq-1.0.0.json"
       location = "classes/config_seeding"
       data     = file("module-config/packages/package-auereq-1.0.0.json")
@@ -38,6 +33,11 @@ module "smile_cdr_dependencies" {
       name     = "package-aucore-2.0.0-preview.json"
       location = "classes/config_seeding"
       data     = file("module-config/packages/package-aucore-2.0.0-preview.json")
+    },
+    {
+      name     = "package-aubase-6.0.0-preview.json"
+      location = "classes/config_seeding"
+      data     = file("module-config/packages/package-aubase-6.0.0-preview.json")
     },
     # Users configuration moved to AWS Secrets Manager - see extra_secrets below
   ]
