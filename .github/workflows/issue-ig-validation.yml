@@ -61,7 +61,7 @@ jobs:
 
             const igName = extractField('Implementation Guide Name');
             const igVersion = extractField('IG Version');
-            const packageId = extractField('NPM Package ID \\(if known\\)') || '';
+            const packageId = extractField('NPM Package ID') || '';
 
             // Extract target nodes from checkboxes
             const targetNodesSection = extractField('Target SmileCDR Nodes');
