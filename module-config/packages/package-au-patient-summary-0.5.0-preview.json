@@ -1,0 +1,6 @@
+{
+  "name": "hl7.fhir.au-patient-summary",
+  "version": "0.5.0-preview",
+  "installMode": "STORE_ONLY",
+  "fetchDependencies": false
+}
