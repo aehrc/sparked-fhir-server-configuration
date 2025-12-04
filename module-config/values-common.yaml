@@ -29,6 +29,8 @@ mappedFiles:
     path: /home/smile/smilecdr/classes/config_seeding
   package-international-patient-summary-2.0.0.json:
     path: /home/smile/smilecdr/classes/config_seeding
+  package-au-patient-summary-0.5.0-preview.json:
+    path: /home/smile/smilecdr/classes/config_seeding
 
 # Mount users.json from AWS Secrets Manager
 secrets:
