@@ -1,0 +1,6 @@
+{
+  "name": "hl7.fhir.au-erequesting",
+  "version": "1.0.0-preview",
+  "installMode": "STORE_AND_INSTALL",
+  "fetchDependencies": true
+}
