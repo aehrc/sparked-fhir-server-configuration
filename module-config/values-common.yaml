@@ -33,6 +33,8 @@ mappedFiles:
     path: /home/smile/smilecdr/classes/config_seeding
   package-au-erequesting-1.0.0-preview.json:
     path: /home/smile/smilecdr/classes/config_seeding
+  package-au-base-6.0.0.json:
+    path: /home/smile/smilecdr/classes/config_seeding
 
 # Mount users.json from AWS Secrets Manager
 secrets:

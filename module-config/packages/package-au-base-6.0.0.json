@@ -1,0 +1,6 @@
+{
+  "name": "hl7.fhir.au.base",
+  "version": "6.0.0",
+  "installMode": "STORE_ONLY",
+  "fetchDependencies": false
+}
