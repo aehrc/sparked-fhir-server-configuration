@@ -1,10 +1,10 @@
 module "smile_cdr_dependencies" {
-  source           = "git::https://gitlab.com/smilecdr-public/smile-dh-helm-charts//src/main/terraform/smile-cdr-deps?ref=terraform-module"
-  name             = var.name
-  eks_cluster_name = var.cluster_name
+  source                 = "git::https://gitlab.com/smilecdr-public/smile-dh-helm-charts//src/main/terraform/smile-cdr-deps?ref=terraform-module"
+  name                   = var.name
+  eks_cluster_name       = var.cluster_name
   cdr_regcred_secret_arn = local.cdr_regcred_secret_arn
-  prod_mode = false
-  helm_chart_version = "7.1.0"
+  prod_mode              = false
+  helm_chart_version     = "7.1.0"
 
 
   helm_chart_values = [                       #alpha order
@@ -35,11 +35,6 @@ module "smile_cdr_dependencies" {
       data     = file("module-config/packages/package-aucore-2.0.0-preview.json")
     },
     {
-      name     = "package-aubase-6.0.0-preview.json"
-      location = "classes/config_seeding"
-      data     = file("module-config/packages/package-aubase-6.0.0-preview.json")
-    },
-    {
       name     = "package-au-patient-summary-0.5.0-preview.json"
       location = "classes/config_seeding"
       data     = file("module-config/packages/package-au-patient-summary-0.5.0-preview.json")
@@ -48,6 +43,11 @@ module "smile_cdr_dependencies" {
       name     = "package-au-erequesting-1.0.0-preview.json"
       location = "classes/config_seeding"
       data     = file("module-config/packages/package-au-erequesting-1.0.0-preview.json")
+    },
+    {
+      name     = "package-au-base-6.0.0.json"
+      location = "classes/config_seeding"
+      data     = file("module-config/packages/package-au-base-6.0.0.json")
     },
     # Users configuration moved to AWS Secrets Manager - see extra_secrets below
   ]
@@ -143,40 +143,40 @@ module "smile_cdr_dependencies" {
 
   db_users = [
     {
-      name                = "clustermgr"
-      dbusername          = "clustermgr"
-      dbname              = "clustermgr"
-      db_instance_name    = "SmileCluster"
-    }, {
-      name                = "persistence"
-      dbusername          = "persistence"
-      dbname              = "persistence"
-      db_instance_name    = "SmileCluster"
-    }, {
-      name                = "ereq"
-      dbusername          = "ereq"
-      dbname              = "ereq"
-      db_instance_name    = "SmileCluster"
-    }, {
-      name                = "hl7au"
-      dbusername          = "hl7au"
-      dbname              = "hl7au"
-      db_instance_name    = "SmileCluster"
-    }, {
-      name                = "aucore"
-      dbusername          = "aucore"
-      dbname              = "aucore"
-      db_instance_name    = "SmileCluster"
-    }, {
-      name                = "audit"
-      dbusername          = "audit"
-      dbname              = "audit"
-      db_instance_name    = "SmileCluster"
-    }, {
-      name                = "transaction"
-      dbusername          = "transaction"
-      dbname              = "transaction"
-      db_instance_name    = "SmileCluster"
+      name             = "clustermgr"
+      dbusername       = "clustermgr"
+      dbname           = "clustermgr"
+      db_instance_name = "SmileCluster"
+      }, {
+      name             = "persistence"
+      dbusername       = "persistence"
+      dbname           = "persistence"
+      db_instance_name = "SmileCluster"
+      }, {
+      name             = "ereq"
+      dbusername       = "ereq"
+      dbname           = "ereq"
+      db_instance_name = "SmileCluster"
+      }, {
+      name             = "hl7au"
+      dbusername       = "hl7au"
+      dbname           = "hl7au"
+      db_instance_name = "SmileCluster"
+      }, {
+      name             = "aucore"
+      dbusername       = "aucore"
+      dbname           = "aucore"
+      db_instance_name = "SmileCluster"
+      }, {
+      name             = "audit"
+      dbusername       = "audit"
+      dbname           = "audit"
+      db_instance_name = "SmileCluster"
+      }, {
+      name             = "transaction"
+      dbusername       = "transaction"
+      dbname           = "transaction"
+      db_instance_name = "SmileCluster"
     }
   ]
 
@@ -187,7 +187,7 @@ module "smile_cdr_dependencies" {
   ingress_config = {
     public = {
       route53_create_record = local.route53_create_record
-      parent_domain = var.domain
+      parent_domain         = var.domain
     }
   }
 
@@ -195,7 +195,7 @@ module "smile_cdr_dependencies" {
 
 locals {
   cdr_regcred_secret_arn = "arn:aws:secretsmanager:ap-southeast-2:471112546300:secret:example-key-value-x7qP8R"
-  route53_create_record = true
+  route53_create_record  = true
 
   tags = {
     Name       = var.name

@@ -1,3 +1,3 @@
 cluster_name = "sparked-smilecdr"
-name = "smile"
-hostname = "smile.sparked-fhir.com"
+name         = "smile"
+hostname     = "smile.sparked-fhir.com"
