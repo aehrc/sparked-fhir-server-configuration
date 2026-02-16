@@ -15,6 +15,10 @@
   color: "5319e7"
   description: "Operational request (data load, expunge, etc.)"
 
+- name: "tx-content"
+  color: "006b75"
+  description: "Terminology server content change request"
+
 # Status Labels
 - name: "needs-review"
   color: "fbca04"

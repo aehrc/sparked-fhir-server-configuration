@@ -68,7 +68,7 @@ jobs:
           script: |
             const issueType = context.payload.issue.labels
               .map(l => l.name)
-              .find(name => name === 'ig-release' || name === 'configuration' || name === 'operations');
+              .find(name => name === 'ig-release' || name === 'configuration' || name === 'operations' || name === 'tx-content');
 
             let message = '👋 Thank you for your request!\n\n';
 
@@ -114,6 +114,21 @@ jobs:
             7. 📣 **Completion notice** - Notification sent on Zulip
 
             **For destructive operations** (expunge/delete), additional approval may be required.
+              `;
+            } else if (issueType === 'tx-content') {
+              message += `
+            ## Next Steps for Terminology Server Content Change
+
+            1. **Request received** - Your request is now in the queue
+            2. **Validation** - Automated validation and dry-run preview will run within 1 minute
+            3. **Admin review** - Team will review and approve if validation passes
+            4. **PR auto-creation** - A pull request will be automatically generated
+            5. **Merge & deploy** - After PR merge, the atomio-ig-feeder will pick up the change on the next sync cycle
+            6. **Verification** - You'll be asked to verify the content change took effect
+
+            **Watch this issue for status updates** - Labels will change as work progresses.
+
+            Questions? Comment below and the team will respond.
               `;
             } else {
               message += 'A team member will review your request shortly and provide next steps.';
