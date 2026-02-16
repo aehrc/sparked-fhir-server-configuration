@@ -53,10 +53,11 @@ feeds:
         versionMode: latest
       - packageId: hl7.fhir.au.ereq
         packageListUrl: https://hl7.org.au/fhir/core/package-list.json
-        statuses: [ballot, preview, draft, trial-use]
-        versionMode: latest
+        statuses: [trial-use, ballot, preview]
+        versionMode: all
 
 
+        displayName: Au Ereq
 resources:
   requests:
     cpu: 50m
