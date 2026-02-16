@@ -18,7 +18,7 @@ permissions:
 jobs:
   generate-ig-pr:
     name: Generate IG Release PR
-    runs-on: ubuntu-latest
+    runs-on: arc-runner-set
     # Only run when 'ready-for-automation' label is added to an IG release issue
     if: |
       (github.event_name == 'issues' && github.event.label.name == 'ready-for-automation' && contains(github.event.issue.labels.*.name, 'ig-release')) ||

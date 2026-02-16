@@ -17,7 +17,7 @@ permissions:
 jobs:
   validate-and-preview:
     name: Validate IG Request and Generate Preview
-    runs-on: ubuntu-latest
+    runs-on: arc-runner-set
     # Only run for ig-release issues
     if: |
       (github.event_name == 'issues' && contains(github.event.issue.labels.*.name, 'ig-release')) ||

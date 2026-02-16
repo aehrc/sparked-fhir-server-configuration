@@ -17,7 +17,7 @@ on:
 jobs:
   validate-yaml:
     name: Validate YAML Configuration
-    runs-on: ubuntu-latest
+    runs-on: arc-runner-set
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -47,7 +47,7 @@ jobs:
 
   # validate-terraform:
   #   name: Validate Terraform
-  #   runs-on: ubuntu-latest
+  #   runs-on: arc-runner-set
   #   steps:
   #     - name: Checkout code
   #       uses: actions/checkout@v4
@@ -81,7 +81,7 @@ jobs:
 
   validate-packages:
     name: Validate FHIR Packages
-    runs-on: ubuntu-latest
+    runs-on: arc-runner-set
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -115,7 +115,7 @@ jobs:
 
   security-scan:
     name: Security Scan
-    runs-on: ubuntu-latest
+    runs-on: arc-runner-set
     steps:
       - name: Checkout code
         uses: actions/checkout@v4

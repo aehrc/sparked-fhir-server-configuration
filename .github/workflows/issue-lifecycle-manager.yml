@@ -20,7 +20,7 @@ jobs:
   # ============================================================================
   auto-label:
     name: Auto-label Issues
-    runs-on: ubuntu-latest
+    runs-on: arc-runner-set
     if: github.event_name == 'issues' && github.event.action == 'opened'
     steps:
       - name: Add priority labels based on urgency
@@ -59,7 +59,7 @@ jobs:
   # ============================================================================
   notify-new-issue:
     name: Notify on New Issue
-    runs-on: ubuntu-latest
+    runs-on: arc-runner-set
     if: github.event_name == 'issues' && github.event.action == 'opened'
     steps:
       - name: Add initial comment
@@ -146,7 +146,7 @@ jobs:
   # ============================================================================
   status-tracking:
     name: Track Status Changes
-    runs-on: ubuntu-latest
+    runs-on: arc-runner-set
     if: github.event_name == 'issues' && (github.event.action == 'labeled' || github.event.action == 'unlabeled')
     steps:
       - name: Update on status change
@@ -228,7 +228,7 @@ jobs:
   # ============================================================================
   post-pr-merge-update:
     name: Update Issue After PR Merge
-    runs-on: ubuntu-latest
+    runs-on: arc-runner-set
     if: |
       github.event_name == 'pull_request' &&
       github.event.pull_request.merged == true &&

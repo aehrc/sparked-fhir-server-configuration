@@ -27,7 +27,7 @@ on:
 jobs:
   trigger-test-data-load:
     name: Trigger Test Data Load
-    runs-on: ubuntu-latest
+    runs-on: arc-runner-set
     # Only run when:
     # 1. An operations issue with "Load test data" is approved (labeled with status:approved)
     # 2. Manual workflow dispatch
