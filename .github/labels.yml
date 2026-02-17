@@ -19,24 +19,24 @@
   color: "006b75"
   description: "Terminology server content change request"
 
-# Status Labels
+# Status Labels (simplified flow: needs-review → approved → in-progress → deployed → complete)
 - name: "needs-review"
   color: "fbca04"
   description: "Awaiting technical review"
 
-- name: "status:approved"
+- name: "approved"
   color: "0e8a16"
   description: "Request approved, ready to implement"
 
-- name: "status:in-progress"
+- name: "in-progress"
   color: "0075ca"
   description: "Work in progress"
 
-- name: "status:testing"
-  color: "8b78e6"
+- name: "deployed"
+  color: "28a745"
   description: "Changes deployed, awaiting verification"
 
-- name: "status:complete"
+- name: "complete"
   color: "28a745"
   description: "Completed and verified"
 
@@ -61,15 +61,7 @@
   color: "c5def5"
   description: "Low - Can wait for next scheduled release"
 
-# Special Labels
-- name: "needs:adr"
-  color: "d876e3"
-  description: "Requires Architecture Decision Record approval"
-
-- name: "needs:verification"
-  color: "fbca04"
-  description: "Awaiting requestor verification"
-
+# General Labels
 - name: "automation"
   color: "bfdadc"
   description: "Request to automate an operation"
@@ -102,3 +94,7 @@
 - name: "needs-manual-intervention"
   color: "d93f0b"
   description: "Automation failed, requires manual implementation"
+
+- name: "deploy-immediately"
+  color: "d93f0b"
+  description: "Request immediate deployment after PR merge"

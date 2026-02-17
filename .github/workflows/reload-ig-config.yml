@@ -247,16 +247,16 @@ jobs:
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: issueNumber,
-                labels: ['status:deployed']
+                labels: ['deployed']
               });
 
-              // Remove awaiting-deployment label
+              // Remove in-progress label
               try {
                 await github.rest.issues.removeLabel({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
                   issue_number: issueNumber,
-                  name: 'awaiting-deployment'
+                  name: 'in-progress'
                 });
               } catch (e) {
                 // Label might not exist

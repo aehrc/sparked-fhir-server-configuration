@@ -68,7 +68,7 @@
     },
     {
       "username": "placer",
-      "password": "<EDITED>",
+      "password": "<example>",
       "familyName": "placer",
       "givenName": "placer",
       "authorities": [
@@ -126,7 +126,7 @@
     },
     {
       "username": "filler",
-      "password": "<EDITED>",
+      "password": "<example>",
       "familyName": "filler",
       "givenName": "filler",
       "authorities": [

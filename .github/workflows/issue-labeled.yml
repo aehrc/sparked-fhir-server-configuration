@@ -1,0 +1,1208 @@
+name: Issue Labeled
+
+on:
+  issues:
+    types: [labeled]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: 'Issue number to process'
+        required: true
+        type: number
+      job_type:
+        description: 'Which job to run'
+        required: true
+        type: choice
+        options:
+          - create-ig-pr
+          - create-tx-pr
+          - load-test-data
+      data_source:
+        description: 'Data source URL (load-test-data only)'
+        required: false
+        default: 'https://github.com/hl7au/au-fhir-test-data'
+        type: string
+      upload_mode:
+        description: 'Upload mode (load-test-data only)'
+        required: false
+        default: 'individual'
+        type: choice
+        options:
+          - individual
+          - bundle
+          - transaction
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  # ============================================================================
+  # JOB: Generate IG Release PR
+  # ============================================================================
+  create-ig-pr:
+    name: Generate IG Release PR
+    runs-on: arc-runner-set
+    if: |
+      (github.event_name == 'issues' && github.event.label.name == 'ready-for-automation' && contains(github.event.issue.labels.*.name, 'ig-release')) ||
+      (github.event_name == 'workflow_dispatch' && inputs.job_type == 'create-ig-pr')
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r scripts/requirements.txt
+
+      - name: Get issue details
+        id: issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issueNumber = context.payload.issue?.number || parseInt('${{ inputs.issue_number }}') || null;
+            const { data: issue } = await github.rest.issues.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber
+            });
+
+            const body = issue.body || '';
+
+            const extractField = (label) => {
+              const regex = new RegExp(`### ${label}\\s*([\\s\\S]*?)(?=###|$)`, 'i');
+              const match = body.match(regex);
+              return match ? match[1].trim() : '';
+            };
+
+            const igName = extractField('Implementation Guide Name');
+            const igVersion = extractField('IG Version');
+            const packageId = extractField('NPM Package ID') || '';
+            const requestType = extractField('Request Type');
+
+            // Extract target nodes from checkboxes
+            const targetNodesSection = extractField('Target SmileCDR Nodes');
+            const selectedNodes = [];
+
+            if (targetNodesSection.includes('[x]') || targetNodesSection.includes('[X]')) {
+              const lines = targetNodesSection.split('\n');
+              for (const line of lines) {
+                if (line.includes('[x]') || line.includes('[X]')) {
+                  if (line.includes('aucore')) selectedNodes.push('aucore');
+                  if (line.includes('hl7au')) selectedNodes.push('hl7au');
+                  if (line.includes('ereq')) selectedNodes.push('ereq');
+                }
+              }
+            }
+
+            // Extract deployment options from checkboxes
+            const deploymentOptionsSection = extractField('Deployment Options');
+            const deployImmediately = deploymentOptionsSection.includes('[x]') || deploymentOptionsSection.includes('[X]');
+
+            // Extract package options from checkboxes
+            const packageOptions = extractField('Package Installation Options');
+
+            const installModeChecked = packageOptions.includes('[X]') || packageOptions.includes('[x]');
+            const installMode = installModeChecked ? 'STORE_AND_INSTALL' : 'STORE_ONLY';
+
+            const lines = packageOptions.split('\n');
+            const fetchDepsChecked = lines.length > 1 && (lines[1].includes('[X]') || lines[1].includes('[x]'));
+            const fetchDependencies = fetchDepsChecked;
+
+            const safeName = igName.toLowerCase()
+              .replace(/[^a-z0-9]+/g, '-')
+              .replace(/^-|-$/g, '');
+
+            const branchName = `ig-release/issue-${issueNumber}-${safeName}-${igVersion}`;
+            const packageFileName = `package-${safeName}-${igVersion}.json`;
+
+            core.setOutput('issue_number', issueNumber);
+            core.setOutput('ig_name', igName);
+            core.setOutput('ig_version', igVersion);
+            core.setOutput('package_id', packageId);
+            core.setOutput('request_type', requestType);
+            core.setOutput('install_mode', installMode);
+            core.setOutput('fetch_dependencies', fetchDependencies);
+            core.setOutput('branch_name', branchName);
+            core.setOutput('package_file_name', packageFileName);
+            core.setOutput('safe_name', safeName);
+            core.setOutput('selected_nodes', selectedNodes.join(','));
+            core.setOutput('selected_nodes_count', selectedNodes.length);
+            core.setOutput('deploy_immediately', deployImmediately);
+
+            if (!igName || !igVersion) {
+              core.setFailed('Missing required fields: IG Name or Version');
+              return;
+            }
+
+            if (selectedNodes.length === 0) {
+              core.setFailed('No target nodes selected');
+              return;
+            }
+
+      - name: Check if required fields present
+        if: steps.issue.outputs.ig_name == '' || steps.issue.outputs.ig_version == ''
+        run: |
+          echo "::error::Missing required fields in issue"
+          gh issue comment ${{ steps.issue.outputs.issue_number }} --body "**Automation Failed**
+
+          Missing required information:
+          - IG Name: ${{ steps.issue.outputs.ig_name }}
+          - IG Version: ${{ steps.issue.outputs.ig_version }}
+
+          Please ensure these fields are filled in the issue and try again."
+          gh issue edit ${{ steps.issue.outputs.issue_number }} --add-label "needs-manual-intervention" --remove-label "ready-for-automation"
+          exit 1
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Create branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "${{ steps.issue.outputs.branch_name }}"
+
+      - name: Generate package JSON file
+        run: |
+          PACKAGE_FILE="module-config/packages/${{ steps.issue.outputs.package_file_name }}"
+
+          PACKAGE_ID="${{ steps.issue.outputs.package_id }}"
+          if [ -z "$PACKAGE_ID" ]; then
+            PACKAGE_ID="hl7.fhir.${{ steps.issue.outputs.safe_name }}"
+            echo "No package ID provided, using generated: $PACKAGE_ID"
+          fi
+
+          INSTALL_MODE="${{ steps.issue.outputs.install_mode }}"
+          FETCH_DEPS="${{ steps.issue.outputs.fetch_dependencies }}"
+
+          cat > "$PACKAGE_FILE" <<EOF
+          {
+            "name": "$PACKAGE_ID",
+            "version": "${{ steps.issue.outputs.ig_version }}",
+            "installMode": "$INSTALL_MODE",
+            "fetchDependencies": $FETCH_DEPS
+          }
+          EOF
+
+          echo "Created $PACKAGE_FILE"
+          cat "$PACKAGE_FILE"
+
+          jq empty "$PACKAGE_FILE"
+
+      - name: Update simplified-multinode.yaml for selected nodes
+        run: |
+          SELECTED_NODES="${{ steps.issue.outputs.selected_nodes }}"
+          PACKAGE_FILE_NAME="${{ steps.issue.outputs.package_file_name }}"
+
+          echo "Updating simplified-multinode.yaml for nodes: $SELECTED_NODES"
+
+          python scripts/update_node_packages.py \
+            --action add \
+            --nodes "$SELECTED_NODES" \
+            --package "$PACKAGE_FILE_NAME"
+
+          echo "Updated simplified-multinode.yaml"
+
+      - name: Update values-common.yaml mappedFiles
+        run: |
+          PACKAGE_FILE_NAME="${{ steps.issue.outputs.package_file_name }}"
+
+          echo "Updating values-common.yaml mappedFiles with: $PACKAGE_FILE_NAME"
+
+          python3 <<'PYTHON_SCRIPT'
+          import os
+          import re
+
+          package_file_name = os.environ['PACKAGE_FILE_NAME']
+          values_file = 'module-config/values-common.yaml'
+
+          with open(values_file, 'r') as f:
+              content = f.read()
+
+          if f"  {package_file_name}:" in content:
+              print(f"{package_file_name} already exists in mappedFiles")
+          else:
+              if re.search(r'mappedFiles:', content):
+                  lines = content.split('\n')
+                  new_lines = []
+                  inserted = False
+                  in_mapped_files = False
+                  last_mapped_file_index = -1
+
+                  for i, line in enumerate(lines):
+                      if line.startswith('mappedFiles:'):
+                          in_mapped_files = True
+                      elif in_mapped_files and line and not line.startswith(' '):
+                          in_mapped_files = False
+                      elif in_mapped_files and '    path: /home/smile/smilecdr/classes/config_seeding' in line:
+                          last_mapped_file_index = i
+
+                  if last_mapped_file_index >= 0:
+                      for i, line in enumerate(lines):
+                          new_lines.append(line)
+                          if i == last_mapped_file_index:
+                              new_lines.append(f"  {package_file_name}:")
+                              new_lines.append("    path: /home/smile/smilecdr/classes/config_seeding")
+                              inserted = True
+
+                      if inserted:
+                          content = '\n'.join(new_lines)
+                          print(f"Added {package_file_name} to mappedFiles")
+                      else:
+                          print("Could not find insertion point")
+                  else:
+                      print("Could not find mappedFiles section")
+
+              with open(values_file, 'w') as f:
+                  f.write(content)
+
+          print("Updated values-common.yaml")
+          PYTHON_SCRIPT
+        env:
+          PACKAGE_FILE_NAME: ${{ steps.issue.outputs.package_file_name }}
+
+      - name: Update main.tf
+        run: |
+          PACKAGE_FILE_NAME="${{ steps.issue.outputs.package_file_name }}"
+
+          if grep -q "module-config/packages/$PACKAGE_FILE_NAME" main.tf; then
+            echo "Package already referenced in main.tf (update scenario)"
+          else
+            echo "Adding new package reference to main.tf"
+
+            PACKAGE_FILE_NAME="$PACKAGE_FILE_NAME" python3 <<'PYTHON_SCRIPT'
+          import re
+          import os
+
+          package_file_name = os.environ['PACKAGE_FILE_NAME']
+
+          with open('main.tf', 'r') as f:
+              content = f.read()
+
+          pattern = r'(helm_chart_mapped_files\s*=\s*\[)(.*?)(\s+# Users configuration)'
+
+          def replacer(match):
+              before = match.group(1)
+              packages = match.group(2)
+              after = match.group(3)
+
+              new_entry = f"""
+              {{
+                name     = "{package_file_name}"
+                location = "classes/config_seeding"
+                data     = file("module-config/packages/{package_file_name}")
+              }},"""
+
+              return before + packages + new_entry + after
+
+          new_content = re.sub(pattern, replacer, content, flags=re.DOTALL)
+
+          with open('main.tf', 'w') as f:
+              f.write(new_content)
+
+          print("Updated main.tf with new package reference")
+          PYTHON_SCRIPT
+          fi
+
+      - name: Commit changes
+        run: |
+          git add "module-config/packages/${{ steps.issue.outputs.package_file_name }}"
+          git add "module-config/simplified-multinode.yaml"
+          git add "module-config/values-common.yaml"
+          git add main.tf
+
+          git commit -m "Add ${{ steps.issue.outputs.ig_name }} ${{ steps.issue.outputs.ig_version }}
+
+          Auto-generated from issue #${{ steps.issue.outputs.issue_number }}
+
+          Changes:
+          - Created module-config/packages/${{ steps.issue.outputs.package_file_name }}
+          - Updated simplified-multinode.yaml for nodes: ${{ steps.issue.outputs.selected_nodes }}
+          - Updated values-common.yaml mappedFiles section
+          - Updated main.tf to reference new package
+
+          Implements: #${{ steps.issue.outputs.issue_number }}"
+
+      - name: Push branch
+        run: |
+          git push origin "${{ steps.issue.outputs.branch_name }}"
+
+      - name: Create Pull Request
+        id: create_pr
+        env:
+          IG_NAME: ${{ steps.issue.outputs.ig_name }}
+          IG_VERSION: ${{ steps.issue.outputs.ig_version }}
+          ISSUE_NUMBER: ${{ steps.issue.outputs.issue_number }}
+          PACKAGE_ID: ${{ steps.issue.outputs.package_id }}
+          REQUEST_TYPE: ${{ steps.issue.outputs.request_type }}
+          PACKAGE_FILE_NAME: ${{ steps.issue.outputs.package_file_name }}
+          BRANCH_NAME: ${{ steps.issue.outputs.branch_name }}
+          SELECTED_NODES: ${{ steps.issue.outputs.selected_nodes }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const igName = process.env.IG_NAME;
+            const igVersion = process.env.IG_VERSION;
+            const issueNumber = process.env.ISSUE_NUMBER;
+            const packageId = process.env.PACKAGE_ID || 'Auto-generated';
+            const requestType = process.env.REQUEST_TYPE;
+            const packageFileName = process.env.PACKAGE_FILE_NAME;
+            const branchName = process.env.BRANCH_NAME;
+            const selectedNodes = process.env.SELECTED_NODES;
+
+            const { data: pr } = await github.rest.pulls.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Add ${igName} ${igVersion} to ${selectedNodes} (Issue #${issueNumber})`,
+              head: branchName,
+              base: 'main',
+              body: `## Auto-generated IG Release PR
+
+            This PR was automatically generated from user request in issue #${issueNumber}.
+
+            ### User Request Summary
+            - **IG Name**: ${igName}
+            - **Version**: ${igVersion}
+            - **Package ID**: ${packageId}
+            - **Request Type**: ${requestType}
+            - **Requested Nodes**: ${selectedNodes}
+
+            ### Changes Made (Auto-generated)
+            - Created \`module-config/packages/${packageFileName}\`
+            - Updated \`simplified-multinode.yaml\` for nodes: ${selectedNodes}
+            - Updated \`values-common.yaml\` mappedFiles section
+            - Updated \`main.tf\` to reference new package
+
+            ### Admin Review Checklist
+            Please verify before approving:
+            - [ ] Package ID is correct (auto-detected, may need correction)
+            - [ ] Version is correct
+            - [ ] Target nodes match user requirements: ${selectedNodes}
+            - [ ] installMode is appropriate
+            - [ ] fetchDependencies setting is appropriate
+            - [ ] Business justification is acceptable
+            - [ ] Acceptance criteria are clear
+            - [ ] Terraform plan looks good
+
+            ### Post-Merge Actions
+            After merging this PR:
+            1. **Deployment** will be triggered (if requested) or scheduled
+            2. **Requester will be notified** about deployment
+            3. **Requester will verify** deployment meets acceptance criteria
+            4. **Issue will be closed** once verified
+
+            ### Rollback Plan
+            If issues occur after merge:
+            1. Revert this PR
+            2. Run terraform apply
+            3. Update issue #${issueNumber} with rollback status
+
+            ---
+            Related to #${issueNumber}
+
+            > **Note**: This issue will remain open for verification after deployment.
+
+            This PR was automatically generated by the [IG Release workflow](${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID})
+            `
+            });
+
+            core.setOutput('pr_number', pr.number);
+            core.setOutput('pr_url', pr.html_url);
+
+      - name: Update issue with PR link
+        env:
+          ISSUE_NUMBER: ${{ steps.issue.outputs.issue_number }}
+          PR_NUMBER: ${{ steps.create_pr.outputs.pr_number }}
+          PR_URL: ${{ steps.create_pr.outputs.pr_url }}
+          PACKAGE_FILE_NAME: ${{ steps.issue.outputs.package_file_name }}
+          PACKAGE_ID: ${{ steps.issue.outputs.package_id }}
+          IG_VERSION: ${{ steps.issue.outputs.ig_version }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issueNumber = parseInt(process.env.ISSUE_NUMBER);
+            const prNumber = process.env.PR_NUMBER;
+            const prUrl = process.env.PR_URL;
+            const packageFileName = process.env.PACKAGE_FILE_NAME;
+            const packageId = process.env.PACKAGE_ID || 'Auto-generated - please verify!';
+            const igVersion = process.env.IG_VERSION;
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              body: `**Your Request is Being Processed**
+
+            A Pull Request has been automatically generated for your IG release request:
+
+            **PR #${prNumber}**: ${prUrl}
+
+            ### What was generated:
+            - Package file: \`module-config/packages/${packageFileName}\`
+            - Updated: \`simplified-multinode.yaml\` for requested nodes
+            - Updated: \`values-common.yaml\` mappedFiles section
+            - Updated: \`main.tf\`
+
+            ### Next Steps:
+            1. **Repo admins will review** the generated configuration
+            2. **Admins will verify** package ID and version are correct
+            3. **Once approved and merged**, you'll be notified about deployment
+            4. **You'll be asked to verify** the deployment meets your requirements
+
+            ### Auto-detected Configuration:
+            - Package ID: **${packageId}**
+            - Version: **${igVersion}**
+
+            If you notice any issues with the auto-detected values, please comment on the PR!
+            `
+            });
+
+            // Update labels on the issue
+            const issueLabels = ['auto-pr-created', 'in-progress'];
+            const prLabels = ['auto-pr-created'];
+
+            const deployImmediately = '${{ steps.issue.outputs.deploy_immediately }}' === 'true';
+            if (deployImmediately) {
+              issueLabels.push('deploy-immediately');
+              prLabels.push('deploy-immediately');
+            }
+
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              labels: issueLabels
+            });
+
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              labels: prLabels
+            });
+
+            await github.rest.issues.removeLabel({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              name: 'ready-for-automation'
+            }).catch(() => {});
+
+      - name: Handle failure
+        if: failure()
+        env:
+          ISSUE_NUMBER: ${{ steps.issue.outputs.issue_number }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issueNumber = parseInt(process.env.ISSUE_NUMBER);
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              body: `**Automated PR Generation Failed**
+
+            The automation encountered an error while trying to generate the PR.
+
+            **Error details**: Check the [workflow run](${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}) for details.
+
+            **Next steps**:
+            - A maintainer will review this issue manually
+            - The PR will be created manually instead
+
+            This issue has been labeled \`needs-manual-intervention\`.
+            `
+            });
+
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              labels: ['needs-manual-intervention']
+            });
+
+            await github.rest.issues.removeLabel({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              name: 'ready-for-automation'
+            }).catch(() => {});
+
+  # ============================================================================
+  # JOB: Generate TX Content Change PR
+  # ============================================================================
+  create-tx-pr:
+    name: Generate TX Content Change PR
+    runs-on: arc-runner-set
+    if: |
+      (github.event_name == 'issues' && github.event.label.name == 'ready-for-automation' && contains(github.event.issue.labels.*.name, 'tx-content')) ||
+      (github.event_name == 'workflow_dispatch' && inputs.job_type == 'create-tx-pr')
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r scripts/requirements.txt
+
+      - name: Get issue details
+        id: issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issueNumber = context.payload.issue?.number || parseInt('${{ inputs.issue_number }}') || null;
+            const { data: issue } = await github.rest.issues.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber
+            });
+
+            const body = issue.body || '';
+
+            const extractField = (label) => {
+              const regex = new RegExp(`### ${label}\\s*([\\s\\S]*?)(?=###|$)`, 'i');
+              const match = body.match(regex);
+              const value = match ? match[1].trim() : '';
+              return value === '_No response_' ? '' : value;
+            };
+
+            const actionType = extractField('Action Type');
+            const packageId = extractField('Package ID');
+            const packageListUrl = extractField('Package List URL');
+            const displayName = extractField('Display Name');
+            const versionMode = extractField('Version Mode');
+            const pinnedVersions = extractField('Pinned Versions');
+            const feedName = extractField('Feed Name');
+
+            // Extract target servers from checkboxes
+            const targetSection = extractField('Target Terminology Server');
+            const selectedServers = [];
+            if (targetSection.includes('[x]') || targetSection.includes('[X]')) {
+              const lines = targetSection.split('\n');
+              for (const line of lines) {
+                if (line.includes('[x]') || line.includes('[X]')) {
+                  if (line.includes('tx.dev')) selectedServers.push('tx-dev');
+                  if (line.includes('tx.hl7')) selectedServers.push('tx-hl7');
+                }
+              }
+            }
+
+            // Extract statuses from checkboxes
+            const statusSection = extractField('Release Statuses to Include');
+            const selectedStatuses = [];
+            if (statusSection) {
+              const lines = statusSection.split('\n');
+              for (const line of lines) {
+                if (line.includes('[x]') || line.includes('[X]')) {
+                  if (line.includes('trial-use')) selectedStatuses.push('trial-use');
+                  else if (line.includes('ballot')) selectedStatuses.push('ballot');
+                  else if (line.includes('preview')) selectedStatuses.push('preview');
+                  else if (line.includes('draft')) selectedStatuses.push('draft');
+                }
+              }
+            }
+
+            // Determine CLI action name
+            let cliAction = '';
+            let actionVerb = '';
+            if (actionType.includes('Add')) { cliAction = 'add-watch'; actionVerb = 'add'; }
+            else if (actionType.includes('Remove')) { cliAction = 'remove-watch'; actionVerb = 'remove'; }
+            else if (actionType.includes('Modify')) { cliAction = 'modify-watch'; actionVerb = 'modify'; }
+
+            const safeName = packageId.toLowerCase()
+              .replace(/[^a-z0-9]+/g, '-')
+              .replace(/^-|-$/g, '');
+
+            const branchName = `tx-content/issue-${issueNumber}-${actionVerb}-${safeName}`;
+
+            core.setOutput('issue_number', issueNumber);
+            core.setOutput('action_type', actionType);
+            core.setOutput('cli_action', cliAction);
+            core.setOutput('action_verb', actionVerb);
+            core.setOutput('package_id', packageId);
+            core.setOutput('package_list_url', packageListUrl);
+            core.setOutput('display_name', displayName);
+            core.setOutput('version_mode', versionMode);
+            core.setOutput('pinned_versions', pinnedVersions);
+            core.setOutput('feed_name', feedName);
+            core.setOutput('selected_servers', selectedServers.join(','));
+            core.setOutput('selected_servers_count', selectedServers.length);
+            core.setOutput('selected_statuses', selectedStatuses.join(','));
+            core.setOutput('safe_name', safeName);
+            core.setOutput('branch_name', branchName);
+
+            if (!packageId) {
+              core.setFailed('Missing required field: Package ID');
+              return;
+            }
+
+            if (selectedServers.length === 0) {
+              core.setFailed('No target servers selected');
+              return;
+            }
+
+            if (!cliAction) {
+              core.setFailed('Could not determine action type');
+              return;
+            }
+
+      - name: Check if required fields present
+        if: steps.issue.outputs.package_id == '' || steps.issue.outputs.selected_servers_count == '0'
+        run: |
+          echo "::error::Missing required fields in issue"
+          gh issue comment ${{ steps.issue.outputs.issue_number }} --body "**Automation Failed**
+
+          Missing required information:
+          - Package ID: ${{ steps.issue.outputs.package_id }}
+          - Selected Servers: ${{ steps.issue.outputs.selected_servers }}
+
+          Please ensure these fields are filled in the issue and try again."
+          gh issue edit ${{ steps.issue.outputs.issue_number }} --add-label "needs-manual-intervention" --remove-label "ready-for-automation"
+          exit 1
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Create branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "${{ steps.issue.outputs.branch_name }}"
+
+      - name: Update helm values files
+        run: |
+          SERVERS="${{ steps.issue.outputs.selected_servers }}"
+          ACTION="${{ steps.issue.outputs.cli_action }}"
+          PACKAGE_ID="${{ steps.issue.outputs.package_id }}"
+
+          CMD="python scripts/update_tx_helm_values.py --action $ACTION --server $SERVERS --package-id $PACKAGE_ID"
+
+          PACKAGE_LIST_URL="${{ steps.issue.outputs.package_list_url }}"
+          if [ -n "$PACKAGE_LIST_URL" ]; then
+            CMD="$CMD --package-list-url $PACKAGE_LIST_URL"
+          fi
+
+          DISPLAY_NAME="${{ steps.issue.outputs.display_name }}"
+          if [ -n "$DISPLAY_NAME" ]; then
+            CMD="$CMD --display-name \"$DISPLAY_NAME\""
+          fi
+
+          STATUSES="${{ steps.issue.outputs.selected_statuses }}"
+          if [ -n "$STATUSES" ]; then
+            CMD="$CMD --statuses $STATUSES"
+          fi
+
+          VERSION_MODE="${{ steps.issue.outputs.version_mode }}"
+          if [ -n "$VERSION_MODE" ]; then
+            CMD="$CMD --version-mode $VERSION_MODE"
+          fi
+
+          PINNED_VERSIONS="${{ steps.issue.outputs.pinned_versions }}"
+          if [ -n "$PINNED_VERSIONS" ]; then
+            CLEANED_VERSIONS=$(echo "$PINNED_VERSIONS" | tr -d ' ')
+            CMD="$CMD --versions $CLEANED_VERSIONS"
+          fi
+
+          FEED_NAME="${{ steps.issue.outputs.feed_name }}"
+          if [ -n "$FEED_NAME" ]; then
+            CMD="$CMD --feed-name $FEED_NAME"
+          fi
+
+          echo "Running: $CMD"
+          eval "$CMD"
+
+      - name: Commit changes
+        run: |
+          git add terminology-servers/
+          git commit -m "${{ steps.issue.outputs.action_type }} ${{ steps.issue.outputs.package_id }} on ${{ steps.issue.outputs.selected_servers }}
+
+          Auto-generated from issue #${{ steps.issue.outputs.issue_number }}
+
+          Changes:
+          - Action: ${{ steps.issue.outputs.action_type }}
+          - Package: ${{ steps.issue.outputs.package_id }}
+          - Servers: ${{ steps.issue.outputs.selected_servers }}
+          - Version Mode: ${{ steps.issue.outputs.version_mode }}
+
+          Implements: #${{ steps.issue.outputs.issue_number }}"
+
+      - name: Push branch
+        run: |
+          git push origin "${{ steps.issue.outputs.branch_name }}"
+
+      - name: Create Pull Request
+        id: create_pr
+        env:
+          ISSUE_NUMBER: ${{ steps.issue.outputs.issue_number }}
+          ACTION_TYPE: ${{ steps.issue.outputs.action_type }}
+          PACKAGE_ID: ${{ steps.issue.outputs.package_id }}
+          SELECTED_SERVERS: ${{ steps.issue.outputs.selected_servers }}
+          VERSION_MODE: ${{ steps.issue.outputs.version_mode }}
+          SELECTED_STATUSES: ${{ steps.issue.outputs.selected_statuses }}
+          PINNED_VERSIONS: ${{ steps.issue.outputs.pinned_versions }}
+          DISPLAY_NAME: ${{ steps.issue.outputs.display_name }}
+          FEED_NAME: ${{ steps.issue.outputs.feed_name }}
+          BRANCH_NAME: ${{ steps.issue.outputs.branch_name }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issueNumber = process.env.ISSUE_NUMBER;
+            const actionType = process.env.ACTION_TYPE;
+            const packageId = process.env.PACKAGE_ID;
+            const selectedServers = process.env.SELECTED_SERVERS;
+            const versionMode = process.env.VERSION_MODE;
+            const selectedStatuses = process.env.SELECTED_STATUSES;
+            const pinnedVersions = process.env.PINNED_VERSIONS;
+            const displayName = process.env.DISPLAY_NAME;
+            const feedName = process.env.FEED_NAME;
+            const branchName = process.env.BRANCH_NAME;
+
+            let details = '';
+            details += `- **Action**: ${actionType}\n`;
+            details += `- **Package ID**: ${packageId}\n`;
+            details += `- **Target Servers**: ${selectedServers}\n`;
+            if (displayName) details += `- **Display Name**: ${displayName}\n`;
+            if (selectedStatuses) details += `- **Statuses**: ${selectedStatuses}\n`;
+            details += `- **Version Mode**: ${versionMode}\n`;
+            if (pinnedVersions) details += `- **Pinned Versions**: ${pinnedVersions}\n`;
+            if (feedName) details += `- **Feed Name**: ${feedName}\n`;
+
+            const filesList = selectedServers.split(',')
+              .map(s => s.trim() === 'tx-dev'
+                ? '`terminology-servers/tx-dev-helm-values.yaml`'
+                : '`terminology-servers/tx-hl7-helm-values.yaml`')
+              .join('\n- ');
+
+            const { data: pr } = await github.rest.pulls.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `${actionType}: ${packageId} on ${selectedServers} (Issue #${issueNumber})`,
+              head: branchName,
+              base: 'main',
+              body: `## Auto-generated TX Content Change PR
+
+            This PR was automatically generated from the request in issue #${issueNumber}.
+
+            ### Request Summary
+            ${details}
+
+            ### Files Modified
+            - ${filesList}
+
+            ### Admin Review Checklist
+            Please verify before approving:
+            - [ ] Package ID is correct
+            - [ ] Target servers are correct: ${selectedServers}
+            - [ ] Version mode and statuses are appropriate
+            - [ ] Helm values YAML is well-formed
+            - [ ] Business justification is acceptable
+            - [ ] No unintended changes to existing watches
+
+            ### Post-Merge Actions
+            After merging this PR:
+            1. The atomio-ig-feeder deployment will need to be updated with the new helm values
+            2. On next sync cycle, the feeder will pick up the configuration change
+            3. Requester will be notified about the change
+
+            ### Rollback Plan
+            If issues occur after merge:
+            1. Revert this PR
+            2. Re-deploy the helm values to the affected server(s)
+            3. Update issue #${issueNumber} with rollback status
+
+            ---
+            Related to #${issueNumber}
+
+            > **Note**: This issue will remain open for verification after deployment.
+
+            This PR was automatically generated by the [TX Content Change workflow](${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID})
+            `
+            });
+
+            core.setOutput('pr_number', pr.number);
+            core.setOutput('pr_url', pr.html_url);
+
+      - name: Update issue with PR link
+        env:
+          ISSUE_NUMBER: ${{ steps.issue.outputs.issue_number }}
+          PR_NUMBER: ${{ steps.create_pr.outputs.pr_number }}
+          PR_URL: ${{ steps.create_pr.outputs.pr_url }}
+          ACTION_TYPE: ${{ steps.issue.outputs.action_type }}
+          PACKAGE_ID: ${{ steps.issue.outputs.package_id }}
+          SELECTED_SERVERS: ${{ steps.issue.outputs.selected_servers }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issueNumber = parseInt(process.env.ISSUE_NUMBER);
+            const prNumber = process.env.PR_NUMBER;
+            const prUrl = process.env.PR_URL;
+            const actionType = process.env.ACTION_TYPE;
+            const packageId = process.env.PACKAGE_ID;
+            const selectedServers = process.env.SELECTED_SERVERS;
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              body: `**Your Request is Being Processed**
+
+            A Pull Request has been automatically generated for your TX content change request:
+
+            **PR #${prNumber}**: ${prUrl}
+
+            ### What was generated:
+            - Updated helm values for: ${selectedServers}
+            - Action: ${actionType}
+            - Package: ${packageId}
+
+            ### Next Steps:
+            1. **Repo admins will review** the generated configuration changes
+            2. **Once approved and merged**, the terminology server will pick up the changes on the next sync cycle
+            3. **You'll be asked to verify** the change took effect
+
+            If you notice any issues with the generated changes, please comment on the PR!
+            `
+            });
+
+            // Update labels
+            const issueLabels = ['auto-pr-created', 'in-progress'];
+            const prLabels = ['auto-pr-created'];
+
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              labels: issueLabels
+            });
+
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              labels: prLabels
+            });
+
+            await github.rest.issues.removeLabel({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              name: 'ready-for-automation'
+            }).catch(() => {});
+
+      - name: Handle failure
+        if: failure()
+        env:
+          ISSUE_NUMBER: ${{ steps.issue.outputs.issue_number }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issueNumber = parseInt(process.env.ISSUE_NUMBER);
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              body: `**Automated PR Generation Failed**
+
+            The automation encountered an error while trying to generate the PR.
+
+            **Error details**: Check the [workflow run](${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}) for details.
+
+            **Next steps**:
+            - A maintainer will review this issue manually
+            - The changes will be made manually instead
+
+            This issue has been labeled \`needs-manual-intervention\`.
+            `
+            });
+
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              labels: ['needs-manual-intervention']
+            });
+
+            await github.rest.issues.removeLabel({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              name: 'ready-for-automation'
+            }).catch(() => {});
+
+  # ============================================================================
+  # JOB: Trigger Test Data Load
+  # ============================================================================
+  load-test-data:
+    name: Trigger Test Data Load
+    runs-on: arc-runner-set
+    if: |
+      (github.event_name == 'issues' &&
+       github.event.label.name == 'approved' &&
+       contains(github.event.issue.labels.*.name, 'operations') &&
+       contains(github.event.issue.body, 'Load test data')) ||
+      (github.event_name == 'workflow_dispatch' && inputs.job_type == 'load-test-data')
+
+    steps:
+      - name: Extract issue details
+        id: issue-details
+        uses: actions/github-script@v7
+        with:
+          script: |
+            let issueNumber, issueBody, issueTitle;
+
+            if (context.eventName === 'workflow_dispatch') {
+              issueNumber = context.payload.inputs.issue_number || null;
+              if (issueNumber) {
+                const { data: issue } = await github.rest.issues.get({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: issueNumber
+                });
+                issueBody = issue.body;
+                issueTitle = issue.title;
+              } else {
+                issueBody = '';
+                issueTitle = 'Manual test data load';
+              }
+            } else {
+              issueNumber = context.payload.issue.number;
+              issueBody = context.payload.issue.body || '';
+              issueTitle = context.payload.issue.title;
+            }
+
+            let dataSource = context.payload.inputs?.data_source || 'https://github.com/hl7au/au-fhir-test-data';
+            const dataSourceMatch = issueBody.match(/Data Source.*?```\s*([\s\S]*?)\s*```/i);
+            if (dataSourceMatch && dataSourceMatch[1].trim()) {
+              dataSource = dataSourceMatch[1].trim().split('\n')[0];
+            }
+
+            let uploadMode = context.payload.inputs?.upload_mode || 'individual';
+            if (issueBody.includes('bundle upload') || issueBody.includes('as bundle')) {
+              uploadMode = 'bundle';
+            } else if (issueBody.includes('transaction')) {
+              uploadMode = 'transaction';
+            }
+
+            core.setOutput('issue_number', issueNumber || '');
+            core.setOutput('data_source', dataSource);
+            core.setOutput('upload_mode', uploadMode);
+            core.setOutput('issue_title', issueTitle);
+
+      - name: Comment on issue - Starting
+        if: steps.issue-details.outputs.issue_number != ''
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: ${{ steps.issue-details.outputs.issue_number }},
+              body: `**Test Data Load Starting**
+
+            The test data loading operation has been initiated.
+
+            **Details:**
+            - Data Source: \`${{ steps.issue-details.outputs.data_source }}\`
+            - Upload Mode: \`${{ steps.issue-details.outputs.upload_mode }}\`
+            - Workflow Run: [View Progress](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+            The FHIRFlare service will process this request. This may take several minutes depending on the data volume.
+
+            You will receive an update when the operation completes.`
+            });
+
+      - name: Update issue label
+        if: steps.issue-details.outputs.issue_number != ''
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: ${{ steps.issue-details.outputs.issue_number }},
+              labels: ['in-progress']
+            });
+
+      - name: Clone test data repository
+        id: clone-data
+        env:
+          DATA_SOURCE: ${{ steps.issue-details.outputs.data_source }}
+        run: |
+          echo "Cloning test data repository..."
+          GITHUB_REPO="${DATA_SOURCE:-https://github.com/hl7au/au-fhir-test-data}"
+          DATA_FOLDER="au-fhir-test-data-set"
+          WORK_DIR="/tmp/fhir-data"
+
+          mkdir -p $WORK_DIR
+          cd $WORK_DIR
+
+          git clone $GITHUB_REPO .
+
+          if [ -d "$DATA_FOLDER" ]; then
+            cd $DATA_FOLDER
+          else
+            echo "Data folder '$DATA_FOLDER' not found. Using root directory."
+          fi
+
+          TOTAL_FILES=$(find . -name "*.json" -type f -not -path "*/vendor-demonstrator/*" | wc -l)
+          echo "Total JSON files found: $TOTAL_FILES (excluding vendor-demonstrator)"
+
+          if [ $TOTAL_FILES -eq 0 ]; then
+            echo "No JSON files found!"
+            exit 1
+          fi
+
+          echo "Sample files:"
+          find . -name "*.json" -type f -not -path "*/vendor-demonstrator/*" | head -10
+
+          echo "data_dir=$(pwd)" >> $GITHUB_OUTPUT
+          echo "total_files=$TOTAL_FILES" >> $GITHUB_OUTPUT
+
+      - name: Wait for FHIRFlare to be ready
+        env:
+          FHIRFLARE_URL: ${{ secrets.FHIRFLARE_URL || 'http://fhirflare-service.fhirflare.svc.cluster.local:5000' }}
+        run: |
+          echo "Waiting for FHIRFlare service to be ready..."
+          MAX_ATTEMPTS=30
+          ATTEMPT=0
+
+          until curl -f "$FHIRFLARE_URL/health" 2>/dev/null || curl -f "$FHIRFLARE_URL/" 2>/dev/null; do
+            ATTEMPT=$((ATTEMPT + 1))
+            if [ $ATTEMPT -ge $MAX_ATTEMPTS ]; then
+              echo "FHIRFlare service not ready after $MAX_ATTEMPTS attempts"
+              exit 1
+            fi
+            echo "Waiting for FHIRFlare... (attempt $ATTEMPT/$MAX_ATTEMPTS)"
+            sleep 10
+          done
+
+          echo "FHIRFlare is ready!"
+
+      - name: Upload test data to FHIRFlare
+        id: upload-data
+        env:
+          FHIRFLARE_URL: ${{ secrets.FHIRFLARE_URL || 'http://fhirflare-service.fhirflare.svc.cluster.local:5000' }}
+          FHIRFLARE_API_KEY: ${{ secrets.FHIRFLARE_API_KEY }}
+          DATA_DIR: ${{ steps.clone-data.outputs.data_dir }}
+          UPLOAD_MODE: ${{ steps.issue-details.outputs.upload_mode }}
+          FHIR_SERVER_URL: ${{ secrets.FHIR_SERVER_URL || 'https://smile.sparked-fhir.com/aucore/fhir/DEFAULT' }}
+          FHIR_AUTH_TYPE: ${{ secrets.FHIR_AUTH_TYPE || 'basic' }}
+          FHIR_USERNAME: ${{ secrets.FHIR_USERNAME }}
+          FHIR_PASSWORD: ${{ secrets.FHIR_PASSWORD }}
+          TOTAL_FILES: ${{ steps.clone-data.outputs.total_files }}
+        run: |
+          echo "Starting upload of $TOTAL_FILES files to FHIRFlare..."
+          echo "URL: $FHIRFLARE_URL/api/upload-test-data"
+
+          cd "$DATA_DIR"
+
+          CURL_CMD="curl -X POST \"$FHIRFLARE_URL/api/upload-test-data\" \
+            -H \"X-API-Key: $FHIRFLARE_API_KEY\" \
+            -H \"Accept: application/x-ndjson\" \
+            -F \"fhir_server_url=$FHIR_SERVER_URL\" \
+            -F \"auth_type=$FHIR_AUTH_TYPE\" \
+            -F \"username=$FHIR_USERNAME\" \
+            -F \"password=$FHIR_PASSWORD\" \
+            -F \"upload_mode=${UPLOAD_MODE:-individual}\" \
+            -F \"error_handling=continue\" \
+            -F \"use_conditional_uploads=true\""
+
+          echo "Adding all $TOTAL_FILES files to upload request..."
+          while IFS= read -r -d '' file; do
+            CURL_CMD="$CURL_CMD -F \"test_data_files=@$file\""
+          done < <(find . -name "*.json" -type f -not -path "*/vendor-demonstrator/*" -print0)
+
+          echo "Executing upload..."
+          echo "This may take several minutes depending on file sizes and server processing..."
+
+          CURL_CMD="$CURL_CMD -s -S"
+          RESPONSE=$(eval $CURL_CMD 2>&1)
+          UPLOAD_EXIT_CODE=$?
+
+          echo "Upload response:"
+          echo "$RESPONSE"
+
+          if [ $UPLOAD_EXIT_CODE -eq 0 ]; then
+            echo "Upload completed successfully! Uploaded $TOTAL_FILES files."
+            echo "upload_success=true" >> $GITHUB_OUTPUT
+            echo "response<<EOF" >> $GITHUB_OUTPUT
+            echo "${RESPONSE:0:1000}" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+          else
+            echo "Upload failed with exit code: $UPLOAD_EXIT_CODE"
+            echo "upload_success=false" >> $GITHUB_OUTPUT
+            echo "error_message=Upload failed with exit code $UPLOAD_EXIT_CODE" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+      - name: Comment on issue - Success
+        if: steps.issue-details.outputs.issue_number != '' && steps.upload-data.outputs.upload_success == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: ${{ steps.issue-details.outputs.issue_number }},
+              body: `**Test Data Load Complete**
+
+            The test data has been successfully loaded into SmileCDR via FHIRFlare.
+
+            **Details:**
+            - Data Source: \`${{ steps.issue-details.outputs.data_source }}\`
+            - Upload Mode: \`${{ steps.issue-details.outputs.upload_mode }}\`
+            - Total Files: ${{ steps.clone-data.outputs.total_files }}
+            - Workflow Run: [View Logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+            Please verify the data has been loaded as expected and close this issue when satisfied.`
+            });
+
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: ${{ steps.issue-details.outputs.issue_number }},
+              labels: ['complete']
+            });
+
+      - name: Comment on issue - Failure
+        if: steps.issue-details.outputs.issue_number != '' && failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            let errorMsg = '${{ steps.upload-data.outputs.error_message }}' || 'Upload operation failed. Check workflow logs for details.';
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: ${{ steps.issue-details.outputs.issue_number }},
+              body: `**Test Data Load Failed**
+
+            The test data loading operation encountered an error.
+
+            **Error:** ${errorMsg}
+
+            **Details:**
+            - Data Source: \`${{ steps.issue-details.outputs.data_source }}\`
+            - Upload Mode: \`${{ steps.issue-details.outputs.upload_mode }}\`
+            - Workflow Run: [View Logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+            Please review the error and try again, or contact the infrastructure team for assistance.`
+            });
+
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: ${{ steps.issue-details.outputs.issue_number }},
+              labels: ['blocked']
+            });
