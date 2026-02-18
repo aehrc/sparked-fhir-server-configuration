@@ -76,6 +76,8 @@ permissions:
 jobs:
   sync-packages:
     runs-on: arc-runner-set
+    container:
+      image: python:3.12-slim
     outputs:
       sync_result: ${{ steps.sync.outputs.result }}
       sync_status: ${{ steps.sync.outputs.status }}
@@ -84,14 +86,8 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
       - name: Install dependencies
-        run: |
-          pip install -r scripts/requirements.txt
+        run: pip install -r scripts/requirements.txt
 
       - name: Determine input source
         id: inputs

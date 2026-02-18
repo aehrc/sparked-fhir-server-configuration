@@ -119,6 +119,8 @@ jobs:
   validate-ig:
     name: Validate IG Request
     runs-on: arc-runner-set
+    container:
+      image: python:3.12-slim
     if: |
       (github.event_name == 'issues' && contains(github.event.issue.labels.*.name, 'ig-release')) ||
       (github.event_name == 'workflow_dispatch' && inputs.job_type == 'validate-ig')
@@ -126,11 +128,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
 
       - name: Install dependencies
         run: pip install -r scripts/requirements.txt
@@ -386,6 +383,8 @@ jobs:
   validate-tx:
     name: Validate TX Content Request
     runs-on: arc-runner-set
+    container:
+      image: python:3.12-slim
     if: |
       (github.event_name == 'issues' && contains(github.event.issue.labels.*.name, 'tx-content')) ||
       (github.event_name == 'workflow_dispatch' && inputs.job_type == 'validate-tx')
@@ -393,11 +392,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
 
       - name: Install dependencies
         run: pip install -r scripts/requirements.txt

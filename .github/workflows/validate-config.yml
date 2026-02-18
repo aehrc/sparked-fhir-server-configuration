@@ -18,15 +18,14 @@ jobs:
   validate-yaml:
     name: Validate YAML Configuration
     runs-on: arc-runner-set
+    container:
+      image: python:3.12-slim
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y python3-pip
-          pip install yamllint
+        run: pip install -r scripts/requirements.txt
 
       - name: Validate YAML files
         run: |
@@ -85,9 +84,16 @@ jobs:
   validate-packages:
     name: Validate FHIR Packages
     runs-on: arc-runner-set
+    container:
+      image: python:3.12-slim
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          apt-get update
+          apt-get install -y jq
 
       - name: Validate JSON syntax
         run: |

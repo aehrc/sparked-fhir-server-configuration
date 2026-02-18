@@ -44,18 +44,24 @@ jobs:
   create-ig-pr:
     name: Generate IG Release PR
     runs-on: arc-runner-set
+    container:
+      image: python:3.12-slim
     if: |
       (github.event_name == 'issues' && github.event.label.name == 'ready-for-automation' && contains(github.event.issue.labels.*.name, 'ig-release')) ||
       (github.event_name == 'workflow_dispatch' && inputs.job_type == 'create-ig-pr')
 
     steps:
+      - name: Install system dependencies
+        run: |
+          apt-get update
+          apt-get install -y git jq curl
+          curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg 2>/dev/null
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list
+          apt-get update
+          apt-get install -y gh
+
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
 
       - name: Install dependencies
         run: pip install -r scripts/requirements.txt
@@ -540,18 +546,24 @@ jobs:
   create-tx-pr:
     name: Generate TX Content Change PR
     runs-on: arc-runner-set
+    container:
+      image: python:3.12-slim
     if: |
       (github.event_name == 'issues' && github.event.label.name == 'ready-for-automation' && contains(github.event.issue.labels.*.name, 'tx-content')) ||
       (github.event_name == 'workflow_dispatch' && inputs.job_type == 'create-tx-pr')
 
     steps:
+      - name: Install system dependencies
+        run: |
+          apt-get update
+          apt-get install -y git curl
+          curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg 2>/dev/null
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list
+          apt-get update
+          apt-get install -y gh
+
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
 
       - name: Install dependencies
         run: pip install -r scripts/requirements.txt
