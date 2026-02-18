@@ -15,11 +15,6 @@ module "smile_cdr_dependencies" {
   helm_chart_mapped_files = [
     # Package specifications
     {
-      name     = "package-auereq-1.0.0.json"
-      location = "classes/config_seeding"
-      data     = file("module-config/packages/package-auereq-1.0.0.json")
-    },
-    {
       name     = "package-international-patient-summary-2.0.0.json"
       location = "classes/config_seeding"
       data     = file("module-config/packages/package-international-patient-summary-2.0.0.json")
@@ -38,11 +33,6 @@ module "smile_cdr_dependencies" {
       name     = "package-au-patient-summary-0.5.0-preview.json"
       location = "classes/config_seeding"
       data     = file("module-config/packages/package-au-patient-summary-0.5.0-preview.json")
-    },
-    {
-      name     = "package-au-erequesting-1.0.0-preview.json"
-      location = "classes/config_seeding"
-      data     = file("module-config/packages/package-au-erequesting-1.0.0-preview.json")
     },
     {
       name     = "package-au-base-6.0.0.json"
