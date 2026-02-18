@@ -49,6 +49,11 @@ module "smile_cdr_dependencies" {
       location = "classes/config_seeding"
       data     = file("module-config/packages/package-au-base-6.0.0.json")
     },
+    {
+      name     = "package-au-erequesting-1.0.0.json"
+      location = "classes/config_seeding"
+      data     = file("module-config/packages/package-au-erequesting-1.0.0.json")
+    },
     # Users configuration moved to AWS Secrets Manager - see extra_secrets below
   ]
 
