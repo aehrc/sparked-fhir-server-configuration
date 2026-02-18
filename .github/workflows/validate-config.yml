@@ -22,8 +22,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install yamllint
-        run: pip install yamllint
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-pip
+          pip install yamllint
 
       - name: Validate YAML files
         run: |
