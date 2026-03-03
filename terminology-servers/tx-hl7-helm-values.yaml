@@ -1,0 +1,74 @@
+# -- Run mode: "server" deploys a Deployment with web UI + poll loop.
+# -- "cron" deploys a CronJob that syncs on a schedule.
+# -- "both" deploys both.
+mode: server
+
+# -- CronJob schedule (only used when mode is "cron" or "both")
+cronSchedule: "*/30 * * * *"
+
+# -- Atomio syndication server URL
+target:
+  type: atomio
+  baseUrl: https://synd.tx.hl7.org.au
+
+# -- Keycloak OAuth2 configuration
+keycloak:
+  url: https://auth.tx.hl7.org.au
+  realm: hl7au
+  clientId: "exampleid"     # override via KEYCLOAK_CLIENT_ID env var
+  clientSecret: "examplesecret" # override via KEYCLOAK_CLIENT_SECRET env var
+  scopes:
+    - onto/synd.read
+    - onto/synd.write
+    - syndication-server
+  # -- Use an existing k8s Secret instead of creating one from clientId/clientSecret.
+  # -- The secret must have keys: keycloak-client-id, keycloak-client-secret
+  existingSecret: ""
+
+server:
+  port: 8080
+
+pollInterval: "5m"
+
+# -- Feed configuration. Each feed targets an Atomio feed and has watches.
+
+feeds:
+  - feedName: reference
+    feedTitle: HL7AU Reference
+    createIfAbsent: false
+    packageFeedUrl: https://hl7.org.au/fhir/package-feed.xml
+    watches:
+      - packageId: hl7.fhir.au.base
+        packageListUrl: https://hl7.org.au/fhir/package-list.json
+        displayName: AU Base
+        statuses: [trial-use]
+        versionMode: pinned
+        versions: ["6.0.0"]
+      - packageId: hl7.fhir.au.core
+        packageListUrl: https://hl7.org.au/fhir/core/package-list.json
+        displayName: AU Core
+        statuses: [trial-use]
+        versionMode: pinned
+        versions: ["2.0.0"]
+      - packageId: hl7.fhir.au.ereq
+        packageListUrl: https://hl7.org.au/fhir/ereq/package-list.json
+        displayName: AU eRequesting
+        statuses: [trial-use]
+        versionMode: pinned
+        versions: ["1.0.0"]
+      - packageId: hl7.terminology.r4
+        packageListUrl: https://terminology.hl7.org/package-list.json
+        packageFeedUrl: https://terminology.hl7.org/package-feed.xml
+        displayName: HL7 Terminology R4
+        statuses: [active, release]
+        versionMode: pinned
+        versions: ["7.0.1"]
+
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 200m
+    memory: 128Mi

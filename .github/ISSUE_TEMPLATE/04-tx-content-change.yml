@@ -1,0 +1,164 @@
+name: Terminology Server Content Change
+description: Request changes to the content loaded on a terminology server (tx.dev or tx.hl7)
+title: "[TX Content]: "
+labels: ["tx-content", "needs-review"]
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Terminology Server Content Change Request
+        Use this template to request changes to the IG packages loaded on the Sparked terminology servers via [atomio-ig-feeder](https://github.com/aehrc/atomio-ig-feeder/).
+
+        **Examples**: Add a new IG package watch, remove a package, change version mode or status filters.
+
+  - type: dropdown
+    id: action-type
+    attributes:
+      label: Action Type
+      description: What change do you need?
+      options:
+        - Add new package watch
+        - Remove package watch
+        - Modify existing watch
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: target-server
+    attributes:
+      label: Target Terminology Server
+      description: |
+        Which terminology server(s) should be updated?
+
+        **Server Descriptions:**
+        - **tx.dev**: Development server (`synd.ontoserver.csiro.au`) - syncs latest versions of ballot/preview/draft/trial-use packages
+        - **tx.hl7**: HL7 AU Reference server (`synd.tx.hl7.org.au`) - syncs all versions of trial-use packages
+      options:
+        - label: tx.dev (Development Server)
+          required: false
+        - label: tx.hl7 (HL7 AU Reference Server)
+          required: false
+
+  - type: input
+    id: package-id
+    attributes:
+      label: Package ID
+      description: The FHIR package identifier to watch (e.g. `hl7.fhir.au.base`). This can be found in the IG's `package.json` or on the IG landing page.
+      placeholder: "hl7.fhir.au.base"
+    validations:
+      required: true
+
+  - type: input
+    id: package-list-url
+    attributes:
+      label: Package List URL
+      description: URL to the IG's `package-list.json` file. Required for adding a new watch.
+      placeholder: "https://hl7.org.au/fhir/package-list.json"
+    validations:
+      required: false
+
+  - type: input
+    id: display-name
+    attributes:
+      label: Display Name
+      description: Optional display name for entry titles (e.g. `AU Base`). If omitted, it will be auto-derived from the package ID.
+      placeholder: "AU Base"
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: statuses
+    attributes:
+      label: Release Statuses to Include
+      description: |
+        Which release statuses should be synced? Select all that apply.
+        Leave unchecked to keep existing statuses (for modify) or use server defaults (for add).
+      options:
+        - label: trial-use
+        - label: ballot
+        - label: preview
+        - label: draft
+
+  - type: dropdown
+    id: version-mode
+    attributes:
+      label: Version Mode
+      description: |
+        How should versions be selected?
+        - **latest**: Only sync the newest version matching the status filter
+        - **all**: Sync every version matching the status filter
+        - **pinned**: Only sync explicitly listed versions
+      options:
+        - latest
+        - all
+        - pinned
+    validations:
+      required: true
+
+  - type: input
+    id: pinned-versions
+    attributes:
+      label: Pinned Versions
+      description: Comma-separated list of specific versions to sync. Only used when Version Mode is `pinned`.
+      placeholder: "6.0.0, 5.0.0"
+    validations:
+      required: false
+
+  - type: input
+    id: feed-name
+    attributes:
+      label: Feed Name
+      description: |
+        The Atomio feed name to target. Leave blank to use the default feed for the selected server.
+        - tx.dev default: `hl7au-dev`
+        - tx.hl7 default: `reference`
+      placeholder: "hl7au-dev"
+    validations:
+      required: false
+
+  - type: dropdown
+    id: urgency
+    attributes:
+      label: Urgency
+      description: How urgent is this request?
+      options:
+        - Low - Can wait for next scheduled release
+        - Medium - Needed within 2 weeks
+        - High - Needed within 1 week
+        - Critical - Blocking work
+    validations:
+      required: true
+
+  - type: textarea
+    id: business-justification
+    attributes:
+      label: Business Justification
+      description: Why is this content change needed?
+      placeholder: "We need AU eRequesting terminology loaded on tx.dev for connectathon testing next month."
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional Context
+      description: Any other relevant information or special requirements?
+      placeholder: |
+        - Package feed URL if not the default HL7 AU feed
+        - Special timing requirements
+        - Related IG release issues
+    validations:
+      required: false
+
+  - type: markdown
+    attributes:
+      value: |
+        ---
+        ### What happens next?
+        1. **Automated validation** will check your request within 1 minute
+        2. **Repo admins will review** and approve the request
+        3. **Automated PR will be created** modifying the terminology server helm values
+        4. **After PR merge**, the change will take effect on the next atomio-ig-feeder sync cycle
+        5. **You'll be notified** when the change is deployed

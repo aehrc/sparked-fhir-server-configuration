@@ -1,0 +1,172 @@
+name: Configuration Change Request
+description: Request changes to Smile CDR configuration (modules, endpoints, settings)
+title: "[Config]: "
+labels: ["configuration", "needs-review"]
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Configuration Change Request
+        Use this template to request changes to the Smile CDR server configuration.
+
+        **Examples**: Adding new FHIR modules, changing endpoint settings, security updates, module settings
+
+  - type: dropdown
+    id: change-type
+    attributes:
+      label: Type of Configuration Change
+      description: What kind of configuration change is needed?
+      options:
+        - New FHIR module/endpoint
+        - Modify existing module settings
+        - Security/access control changes
+        - Database configuration
+        - Performance tuning
+        - Other (describe below)
+    validations:
+      required: true
+
+  - type: textarea
+    id: current-state
+    attributes:
+      label: Current State
+      description: What is the current configuration or behavior?
+      placeholder: "Currently, we only have the persistence module enabled..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: desired-state
+    attributes:
+      label: Desired State
+      description: What should the configuration be after this change?
+      placeholder: "We need to add a subscription module to support FHIR subscriptions..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: business-justification
+    attributes:
+      label: Business Justification
+      description: Why is this configuration change needed?
+      placeholder: "The content team needs real-time notifications when certain resources are created or updated to support the new alerting system."
+    validations:
+      required: true
+
+  - type: dropdown
+    id: urgency
+    attributes:
+      label: Urgency
+      description: How urgent is this request?
+      options:
+        - Low - Can wait for next scheduled release
+        - Medium - Needed within 2 weeks
+        - High - Needed within 1 week
+        - Critical - Blocking work
+    validations:
+      required: true
+
+  - type: textarea
+    id: technical-details
+    attributes:
+      label: Technical Details (if known)
+      description: |
+        If you know which files need to be modified, list them here.
+        **Most users can leave this blank.**
+
+        For technical users:
+        - Changes to `simplified-multinode.yaml`
+        - Changes to `terraform/main.tf`
+        - Package additions/updates
+        - Database schema changes
+      placeholder: |
+        Example:
+        - Need to add subscription module in simplified-multinode.yaml
+        - Add endpoint configuration for /fhir/r4/subscription
+    validations:
+      required: false
+
+  - type: textarea
+    id: impact-analysis
+    attributes:
+      label: Impact Analysis
+      description: |
+        What might be affected by this change?
+        - Will this impact existing functionality?
+        - Does this require downtime?
+        - Will users need to be notified?
+      placeholder: |
+        - Should not impact existing FHIR endpoints
+        - May require 5 minute restart of server
+        - Content team should be notified of new capabilities
+    validations:
+      required: false
+
+  - type: textarea
+    id: testing-plan
+    attributes:
+      label: Testing & Verification Plan
+      description: How should we verify this change works correctly?
+      placeholder: |
+        - Create test subscription via API
+        - Verify subscription triggers on matching resources
+        - Check subscription logs for proper delivery
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: dependencies
+    attributes:
+      label: Dependencies & Prerequisites
+      description: Are there any prerequisites or dependencies?
+      options:
+        - label: This change depends on other work (describe in Additional Context)
+        - label: This requires database changes
+        - label: This requires infrastructure/Terraform changes
+        - label: This requires new secrets or credentials
+        - label: This needs ADR approval before proceeding
+
+  - type: textarea
+    id: rollback-plan
+    attributes:
+      label: Rollback Plan
+      description: How can this change be reverted if issues occur?
+      placeholder: |
+        - Revert to previous simplified-multinode.yaml
+        - Terraform apply with previous configuration
+        - No database migrations, so clean rollback possible
+    validations:
+      required: false
+
+  - type: textarea
+    id: stakeholders
+    attributes:
+      label: Stakeholders & Approvers
+      description: Who should be notified? Who needs to approve this?
+      placeholder: |
+        - Requestor: @username
+        - Technical Lead: @username
+        - Requires ADR approval: Yes/No
+        - Notify: Sparked content team
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional Context
+      description: Any other relevant information?
+    validations:
+      required: false
+
+  - type: markdown
+    attributes:
+      value: |
+        ---
+        ### What happens next?
+        1. Technical team will review and assess the change
+        2. If ADR is needed, it will be created and routed for approval
+        3. Status updates will be posted as labels change
+        4. You'll be notified on Zulip when deployment is complete

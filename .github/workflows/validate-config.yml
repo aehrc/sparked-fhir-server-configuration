@@ -1,0 +1,154 @@
+name: Validate Configuration
+
+on:
+  pull_request:
+    paths:
+      - 'module-config/**'
+      # - 'terraform/**'
+  push:
+    branches:
+      - main
+    paths:
+      - 'module-config/**'
+      # - 'terraform/**'
+
+jobs:
+  validate-yaml:
+    # Only run on PRs from the same repo, not forks
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    name: Validate YAML Configuration
+    runs-on: arc-runner-set
+    container:
+      image: python:3.12-slim
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: pip install -r scripts/requirements.txt
+
+      - name: Validate YAML files
+        run: |
+          yamllint -d "{extends: default, rules: {line-length: {max: 200}, indentation: {spaces: 2}}}" module-config/*.yaml || true
+          echo "✅ YAML syntax validation complete"
+
+      - name: Check for common issues
+        run: |
+          echo "Checking for common configuration issues..."
+
+          # Check if package files referenced in terraform/main.tf exist
+          echo "📦 Verifying package file references..."
+          grep -o '\.\./module-config/packages/[^"]*' terraform/main.tf | sed 's|\.\./||' | while read filepath; do
+            if [ -f "$filepath" ]; then
+              echo "  ✅ Found: $filepath"
+            else
+              echo "  ❌ Missing: $filepath"
+              exit 1
+            fi
+          done
+
+  # validate-terraform:
+  #   name: Validate Terraform
+  #   runs-on: arc-runner-set
+  #   steps:
+  #     - name: Checkout code
+  #       uses: actions/checkout@v4
+
+  #     - name: Setup Terraform
+  #       uses: hashicorp/setup-terraform@v3
+  #       with:
+  #         terraform_version: "1.13.4"
+
+  #     - name: Terraform Format Check
+  #       run: terraform fmt -check -recursive
+  #       continue-on-error: true
+
+  #     - name: Terraform Init
+  #       run: terraform init -backend=false
+
+  #     - name: Terraform Validate
+  #       run: terraform validate
+
+  #     - name: Comment on PR
+  #       if: github.event_name == 'pull_request'
+  #       uses: actions/github-script@v7
+  #       with:
+  #         script: |
+  #           github.rest.issues.createComment({
+  #             issue_number: context.issue.number,
+  #             owner: context.repo.owner,
+  #             repo: context.repo.repo,
+  #             body: '✅ Terraform validation passed! Configuration syntax is valid.'
+  #           })
+
+  validate-packages:
+    name: Validate FHIR Packages
+    runs-on: arc-runner-set
+    container:
+      image: python:3.12-slim
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          apt-get update
+          apt-get install -y jq
+
+      - name: Validate JSON syntax
+        run: |
+          echo "Validating package JSON files..."
+          find module-config/packages -name "*.json" -type f | while read file; do
+            echo "Checking $file..."
+            if jq empty "$file" 2>/dev/null; then
+              echo "  ✅ Valid JSON: $file"
+            else
+              echo "  ❌ Invalid JSON: $file"
+              exit 1
+            fi
+          done
+
+      - name: Check package structure
+        run: |
+          echo "Checking package file structure..."
+          find module-config/packages -name "package-*.json" -type f | while read file; do
+            # Check for required fields
+            if jq -e '.name and .version' "$file" >/dev/null 2>&1; then
+              name=$(jq -r '.name' "$file")
+              version=$(jq -r '.version' "$file")
+              echo "  ✅ $file: $name@$version"
+            else
+              echo "  ⚠️  $file: Missing name or version field"
+            fi
+          done
+
+  security-scan:
+    name: Security Scan
+    runs-on: arc-runner-set
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Trivy security scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'config'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+        continue-on-error: true
+
+      - name: Check for sensitive data
+        run: |
+          echo "Scanning for potential secrets..."
+
+          # Check for common patterns that might be secrets
+          if grep -r "password.*=.*['\"].*['\"]" --include="*.tf" --include="*.yaml" --exclude-dir=".git" .; then
+            echo "⚠️  Warning: Found potential hardcoded passwords"
+          fi
+
+          if grep -r "secret.*=.*['\"].*['\"]" --include="*.tf" --include="*.yaml" --exclude-dir=".git" .; then
+            echo "⚠️  Warning: Found potential hardcoded secrets"
+          fi
+
+          echo "✅ Security scan complete"

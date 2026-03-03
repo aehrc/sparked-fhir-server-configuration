@@ -1,0 +1,69 @@
+# -- Run mode: "server" deploys a Deployment with web UI + poll loop.
+# -- "cron" deploys a CronJob that syncs on a schedule.
+# -- "both" deploys both.
+mode: server
+
+# -- CronJob schedule (only used when mode is "cron" or "both")
+cronSchedule: "*/30 * * * *"
+
+# -- Atomio syndication server URL
+target:
+  type: atomio
+  baseUrl: https://synd.ontoserver.csiro.au
+
+# -- Keycloak OAuth2 configuration
+keycloak:
+  url: https://auth.ontoserver.csiro.au
+  realm: aehrc
+  clientId: "exampleid"     # override via KEYCLOAK_CLIENT_ID env var
+  clientSecret: "examplesecret" # override via KEYCLOAK_CLIENT_SECRET env var
+  scopes:
+    - onto/synd.read
+    - onto/synd.write
+    - syndication-server
+  # -- Use an existing k8s Secret instead of creating one from clientId/clientSecret.
+  # -- The secret must have keys: keycloak-client-id, keycloak-client-secret
+  existingSecret: ""
+
+server:
+  port: 8080
+
+pollInterval: "5m"
+
+# -- Feed configuration. Each feed targets an Atomio feed and has watches.
+
+feeds:
+  - feedName: hl7au-dev
+    feedTitle: HL7 Australia Develop Server
+    createIfAbsent: false
+    packageFeedUrl: https://hl7.org.au/fhir/package-feed.xml
+    watches:
+      - packageId: hl7.fhir.au.base
+        packageListUrl: https://hl7.org.au/fhir/package-list.json
+        displayName: AU Base  # optional, auto-derived if omitted
+        statuses: [ballot, preview, draft, trial-use]
+        versionMode: latest
+      - packageId: hl7.fhir.au.core
+        packageListUrl: https://hl7.org.au/fhir/core/package-list.json
+        statuses: [ballot, preview, draft, trial-use]
+        versionMode: latest
+      - packageId: hl7.fhir.au.ereq
+        packageListUrl: https://hl7.org.au/fhir/ereq/package-list.json
+        statuses: [ballot, preview, draft, trial-use]
+        versionMode: latest
+      - packageId: hl7.fhir.au.ps
+        packageListUrl: https://hl7.org.au/fhir/ps/package-list.json
+        statuses:
+          - ballot
+        versionMode: pinned
+        versions:
+          - 1.0.0-ballot
+
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 200m
+    memory: 128Mi

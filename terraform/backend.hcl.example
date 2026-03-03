@@ -1,0 +1,4 @@
+# Copy this file to backend.hcl and fill in your S3 bucket name.
+# Then run: terraform init -backend-config=backend.hcl
+
+bucket = "your-terraform-state-bucket"

@@ -1,0 +1,42 @@
+name: 'Smile Configuration Deployment'
+
+on:
+  pull_request:
+    paths:
+      - 'module-config/**'
+      - 'terraform/**'
+  push:
+    branches:
+      - main
+    paths:
+      - 'module-config/**'
+      - 'terraform/**'
+  workflow_dispatch: # Manual trigger
+
+jobs:
+  terraform-plan:
+    # Only run on PRs from the same repo, not forks
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    uses: aehrc/sparked-infrastructure/.github/workflows/template-terraform-plan.yml@main
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: write
+    with:
+      working_dir: "terraform"
+      aws_oidc_role: ${{ vars.AWS_OIDC_ROLE_ARN }}
+      aws_region: ap-southeast-2
+
+  terraform-apply:
+    uses: aehrc/sparked-infrastructure/.github/workflows/template-terraform-apply.yml@main
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: write
+    needs: [terraform-plan]
+    # Only apply on main branch pushes when there are changes (exitcode == 2)
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && needs.terraform-plan.outputs.tfplanExitCode == '2'
+    with:
+      working_dir: "terraform"
+      aws_oidc_role: ${{ vars.AWS_OIDC_ROLE_ARN }}
+      aws_region: ap-southeast-2

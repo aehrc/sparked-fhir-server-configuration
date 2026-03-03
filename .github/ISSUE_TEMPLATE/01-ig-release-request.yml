@@ -1,0 +1,172 @@
+name: Implementation Guide Release Request
+description: Request to add or update a FHIR Implementation Guide on the Sparked FHIR Server
+title: "[IG Release]: "
+labels: ["ig-release", "needs-review"]
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Implementation Guide Release Request
+        Use this template to request deployment of a new or updated FHIR Implementation Guide (IG) to the Sparked FHIR Server.
+
+        **For non-technical users**: Please fill out as much as you can. Our team will help with technical details.
+
+  - type: input
+    id: ig-name
+    attributes:
+      label: Implementation Guide Name
+      description: What is the name of the IG? (e.g., "International Patient Summary", "AU eRequesting")
+      placeholder: "International Patient Summary"
+    validations:
+      required: true
+
+  - type: input
+    id: ig-version
+    attributes:
+      label: IG Version
+      description: Which version should be deployed? (e.g., "3.0.0", "1.2.0-ballot")
+      placeholder: "3.0.0"
+    validations:
+      required: true
+
+  - type: input
+    id: ig-package-id
+    attributes:
+      label: NPM Package ID
+      description: The NPM package identifier (e.g., "hl7.fhir.uv.ips"). This can be found in the IG's package.json file.
+      placeholder: "hl7.fhir.uv.ips"
+    validations:
+      required: true
+
+  - type: input
+    id: ig-url
+    attributes:
+      label: IG URL or Documentation Link
+      description: Link to the IG specification or documentation
+      placeholder: "https://hl7.org/fhir/uv/ips/"
+    validations:
+      required: false
+
+  - type: dropdown
+    id: urgency
+    attributes:
+      label: Urgency
+      description: How urgent is this request?
+      options:
+        - Low - Can wait for next scheduled release
+        - Medium - Needed within 2 weeks
+        - High - Needed within 1 week
+        - Critical - Blocking work
+    validations:
+      required: true
+
+  - type: dropdown
+    id: request-type
+    attributes:
+      label: Request Type
+      description: Is this a new IG or an update to an existing one?
+      options:
+        - New IG - Not currently on the server
+        - Update - Upgrading existing IG to new version
+        - Rollback - Revert to previous version
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: target-nodes
+    attributes:
+      label: Target SmileCDR Nodes
+      description: |
+        Which SmileCDR nodes should this IG package be deployed to?
+
+        **Node Descriptions:**
+        - **aucore**: AU Core FHIR Server - General Australian FHIR profiles and validation
+        - **hl7au**: HL7 AU Base Server - Base Australian specifications and extensions
+        - **ereq**: eRequesting Server - Electronic requesting workflows and integrations
+
+        💡 **Tip**: Most Australian IGs should be requested for both `aucore` and `hl7au`. eRequesting-specific IGs should also include `ereq`.
+      options:
+        - label: aucore (AU Core FHIR Server)
+          required: false
+        - label: hl7au (HL7 AU Base Server)
+          required: false
+        - label: ereq (eRequesting Server)
+          required: false
+
+  - type: checkboxes
+    id: deployment-options
+    attributes:
+      label: Deployment Preferences
+      description: |
+        How would you like the deployment to be handled after approval?
+
+        **Deploy Immediately**: Request that deployment happens automatically after the change is previewed and approved.
+        - ✅ Fast (2-5 minutes after PR merge)
+        - ✅ No manual intervention needed
+        - ⚠️ Repo admins will verify configuration before approving
+      options:
+        - label: Request immediate deployment after change is approved and merged
+          required: false
+
+  - type: textarea
+    id: test-data
+    attributes:
+      label: Test Data or Examples Requirements
+      description: |
+        Do you need test data or specific examples loaded for this IG?
+        - How much test data? (e.g., "50 sample patients", "minimal examples")
+        - How often should it refresh?
+      placeholder: |
+        - Need latest branch of https://github.com/hl7au/au-fhir-test-data 
+        - Need /examples folder from the IPS IG
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: package-options
+    attributes:
+      label: Package Installation Options
+      description: |
+        Request specific configuration for how this IG package should be loaded (leave unchecked for defaults)
+
+        **installMode**: Controls whether the package is just stored or also installed
+        - Unchecked (default): `STORE_ONLY` - Package is stored but not automatically installed
+        - Checked: `STORE_AND_INSTALL` - Package is both stored and installed
+
+        **fetchDependencies**: Controls whether to automatically fetch package dependencies
+        - Unchecked (default): `false` - Dependencies not fetched
+        - Checked: `true` - Dependencies automatically fetched
+      options:
+        - label: Request package be installed automatically (STORE_AND_INSTALL)
+        - label: Request dependencies be fetched automatically
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional Context or Acceptance Criteria
+      description: |
+        Any additional context or configuration changes that might be required.
+      placeholder: |
+        Example Acceptance Criteria:
+        - Can retrieve IG resources via FHIR API
+        - StructureDefinitions validate correctly
+        - Sample test data loads without errors
+        - Documentation updated with new endpoints
+        Example additional details:
+        - New modules, endpoints or access requirements
+        - Custom packageUrl if not using packages.fhir.org
+    validations:
+      required: false
+
+  - type: markdown
+    attributes:
+      value: |
+        ---
+        ### What happens next?
+        1. **Repo admins will review** this request and add implementation details
+        2. **You'll receive updates** as status labels change: `needs-review` → `approved` → `in-progress` → `deployed`
+        3. **Automated PR will be created** if approved for automation
+        4. **Deployment will occur** either immediately after PR merge (if requested) or on next server restart
+        5. **You'll be notified** when deployment is complete and asked to verify it meets your requirements

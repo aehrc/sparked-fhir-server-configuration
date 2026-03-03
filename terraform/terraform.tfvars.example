@@ -1,0 +1,6 @@
+# Copy this file to terraform.tfvars and fill in your values.
+# terraform.tfvars is gitignored and must NEVER be committed.
+
+cdr_regcred_secret_arn = "arn:aws:secretsmanager:REGION:ACCOUNT_ID:secret:SECRET_NAME"
+s3_bucket_name         = "your-fhir-s3-bucket"
+smilecdr_iam_role_name = "your-smilecdr-iam-role-name"

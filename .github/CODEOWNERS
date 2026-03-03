@@ -1,0 +1,6 @@
+# Default code owners
+* @aehrc/sparked-team
+
+# Workflow and infrastructure changes require team review
+.github/workflows/** @aehrc/sparked-team
+terraform/** @aehrc/sparked-team

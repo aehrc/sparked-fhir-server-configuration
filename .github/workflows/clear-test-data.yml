@@ -1,0 +1,397 @@
+name: Clear Test Data
+
+on:
+  workflow_dispatch:
+    inputs:
+      delete_mode:
+        description: "Delete mode: 'targeted' (match test data files) or 'wipe-all' (all resources on node)"
+        required: true
+        type: choice
+        default: "targeted"
+        options:
+          - targeted
+          - wipe-all
+      target_node:
+        description: "Target FHIR server node"
+        required: true
+        type: choice
+        default: "aucore"
+        options:
+          - aucore
+          - hl7au
+          - ereq
+          - custom
+      custom_fhir_url:
+        description: "Custom FHIR server URL (only when target_node=custom)"
+        required: false
+        type: string
+      data_source:
+        description: "Test data Git repository URL (targeted mode only)"
+        required: false
+        default: "https://github.com/hl7au/au-fhir-test-data"
+        type: string
+      data_folder:
+        description: "Folder within repo containing test data (targeted mode only)"
+        required: false
+        default: "au-fhir-test-data-set"
+        type: string
+      resource_types:
+        description: "Comma-separated resource types to delete (optional filter)"
+        required: false
+        type: string
+      exclude_patterns:
+        description: "Comma-separated directory patterns to exclude (targeted mode)"
+        required: false
+        default: "vendor-demonstrator"
+        type: string
+      expunge:
+        description: "Also $expunge resources after deletion (physical removal)"
+        required: false
+        default: false
+        type: boolean
+      batch_size:
+        description: "Number of resources per batch"
+        required: false
+        default: "50"
+        type: string
+      dry_run:
+        description: "Dry run (show what would be deleted without making changes)"
+        required: false
+        default: false
+        type: boolean
+      continue_on_error:
+        description: "Continue deleting after errors"
+        required: false
+        default: true
+        type: boolean
+      issue_number:
+        description: "Issue number to post results to (optional)"
+        required: false
+        type: number
+
+  workflow_call:
+    inputs:
+      delete_mode:
+        required: true
+        type: string
+        default: "targeted"
+      target_node:
+        required: true
+        type: string
+        default: "aucore"
+      custom_fhir_url:
+        required: false
+        type: string
+      data_source:
+        required: false
+        type: string
+        default: "https://github.com/hl7au/au-fhir-test-data"
+      data_folder:
+        required: false
+        type: string
+        default: "au-fhir-test-data-set"
+      resource_types:
+        required: false
+        type: string
+      exclude_patterns:
+        required: false
+        type: string
+        default: "vendor-demonstrator"
+      expunge:
+        required: false
+        type: boolean
+        default: false
+      batch_size:
+        required: false
+        type: string
+        default: "50"
+      dry_run:
+        required: false
+        type: boolean
+        default: false
+      continue_on_error:
+        required: false
+        type: boolean
+        default: true
+      issue_number:
+        required: false
+        type: number
+    secrets:
+      CSIRO_FHIR_AUTH_64:
+        required: false
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  clear-data:
+    name: Clear FHIR Test Data
+    runs-on: arc-runner-set
+    container:
+      image: python:3.12-slim
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          apt-get update && apt-get install -y --no-install-recommends git
+          pip install -r scripts/requirements.txt
+
+      - name: Resolve inputs
+        id: inputs
+        run: |
+          DELETE_MODE="${{ inputs.delete_mode || 'targeted' }}"
+          TARGET_NODE="${{ inputs.target_node || 'aucore' }}"
+          CUSTOM_FHIR_URL="${{ inputs.custom_fhir_url }}"
+          DATA_SOURCE="${{ inputs.data_source || 'https://github.com/hl7au/au-fhir-test-data' }}"
+          DATA_FOLDER="${{ inputs.data_folder || 'au-fhir-test-data-set' }}"
+          RESOURCE_TYPES="${{ inputs.resource_types }}"
+          EXCLUDE="${{ inputs.exclude_patterns || 'vendor-demonstrator' }}"
+          EXPUNGE="${{ inputs.expunge }}"
+          BATCH_SIZE="${{ inputs.batch_size || '50' }}"
+          DRY_RUN="${{ inputs.dry_run }}"
+          CONTINUE_ON_ERROR="${{ inputs.continue_on_error }}"
+          ISSUE_NUMBER="${{ inputs.issue_number }}"
+
+          # Resolve FHIR URL from node name
+          case "$TARGET_NODE" in
+            aucore) FHIR_URL="https://smile.sparked-fhir.com/aucore/fhir/DEFAULT" ;;
+            hl7au)  FHIR_URL="https://smile.sparked-fhir.com/hl7au/fhir/DEFAULT" ;;
+            ereq)   FHIR_URL="https://smile.sparked-fhir.com/ereq/fhir/DEFAULT" ;;
+            custom) FHIR_URL="$CUSTOM_FHIR_URL" ;;
+            *)      echo "::error::Unknown target node: $TARGET_NODE"; exit 1 ;;
+          esac
+
+          if [ -z "$FHIR_URL" ]; then
+            echo "::error::FHIR URL is empty. If target_node=custom, provide custom_fhir_url."
+            exit 1
+          fi
+
+          echo "delete_mode=$DELETE_MODE" >> $GITHUB_OUTPUT
+          echo "fhir_url=$FHIR_URL" >> $GITHUB_OUTPUT
+          echo "target_node=$TARGET_NODE" >> $GITHUB_OUTPUT
+          echo "data_source=$DATA_SOURCE" >> $GITHUB_OUTPUT
+          echo "data_folder=$DATA_FOLDER" >> $GITHUB_OUTPUT
+          echo "resource_types=$RESOURCE_TYPES" >> $GITHUB_OUTPUT
+          echo "exclude_patterns=$EXCLUDE" >> $GITHUB_OUTPUT
+          echo "expunge=$EXPUNGE" >> $GITHUB_OUTPUT
+          echo "batch_size=$BATCH_SIZE" >> $GITHUB_OUTPUT
+          echo "dry_run=$DRY_RUN" >> $GITHUB_OUTPUT
+          echo "continue_on_error=$CONTINUE_ON_ERROR" >> $GITHUB_OUTPUT
+          echo "issue_number=$ISSUE_NUMBER" >> $GITHUB_OUTPUT
+
+      - name: Comment on issue - Starting
+        if: steps.inputs.outputs.issue_number != ''
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: parseInt('${{ steps.inputs.outputs.issue_number }}'),
+              body: `## Test Data Clear Starting
+
+            **Details:**
+            - Delete Mode: \`${{ steps.inputs.outputs.delete_mode }}\`
+            - Target: \`${{ steps.inputs.outputs.fhir_url }}\`
+            - Expunge: \`${{ steps.inputs.outputs.expunge }}\`
+            - Dry Run: \`${{ steps.inputs.outputs.dry_run }}\`
+            - Workflow Run: [View Progress](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+            This may take several minutes depending on the number of resources.`
+            });
+
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: parseInt('${{ steps.inputs.outputs.issue_number }}'),
+              labels: ['in-progress']
+            });
+
+      - name: Clone test data repository
+        if: steps.inputs.outputs.delete_mode == 'targeted'
+        id: clone
+        run: |
+          WORK_DIR="/tmp/fhir-data"
+          mkdir -p "$WORK_DIR"
+          git clone "${{ steps.inputs.outputs.data_source }}" "$WORK_DIR"
+
+          DATA_DIR="$WORK_DIR/${{ steps.inputs.outputs.data_folder }}"
+          if [ ! -d "$DATA_DIR" ]; then
+            echo "::error::Data folder not found: $DATA_DIR"
+            echo "Available contents:"
+            ls -la "$WORK_DIR"
+            exit 1
+          fi
+
+          TOTAL_FILES=$(find "$DATA_DIR" -name "*.json" -type f | wc -l)
+          echo "Found $TOTAL_FILES JSON files in $DATA_DIR"
+          echo "data_dir=$DATA_DIR" >> $GITHUB_OUTPUT
+
+      - name: Clear test data
+        id: clear
+        env:
+          FHIR_AUTH_HEADER: ${{ secrets.CSIRO_FHIR_AUTH_64 }}
+        run: |
+          ARGS="--mode ${{ steps.inputs.outputs.delete_mode }}"
+          ARGS="$ARGS --fhir-url ${{ steps.inputs.outputs.fhir_url }}"
+          ARGS="$ARGS --batch-size ${{ steps.inputs.outputs.batch_size }}"
+          ARGS="$ARGS --summary-file /tmp/clear-summary.json"
+
+          # Add data-dir for targeted mode
+          if [ "${{ steps.inputs.outputs.delete_mode }}" = "targeted" ]; then
+            ARGS="$ARGS --data-dir ${{ steps.clone.outputs.data_dir }}"
+            ARGS="$ARGS --exclude-patterns ${{ steps.inputs.outputs.exclude_patterns }}"
+          fi
+
+          # Add resource types filter if specified
+          if [ -n "${{ steps.inputs.outputs.resource_types }}" ]; then
+            ARGS="$ARGS --resource-types ${{ steps.inputs.outputs.resource_types }}"
+          fi
+
+          if [ "${{ steps.inputs.outputs.expunge }}" = "true" ]; then
+            ARGS="$ARGS --expunge"
+          fi
+
+          if [ "${{ steps.inputs.outputs.dry_run }}" = "true" ]; then
+            ARGS="$ARGS --dry-run"
+          fi
+
+          if [ "${{ steps.inputs.outputs.continue_on_error }}" != "true" ]; then
+            ARGS="$ARGS --fail-on-error"
+          fi
+
+          set +e
+          python scripts/clear_test_data.py $ARGS
+          EXIT_CODE=$?
+          set -e
+
+          if [ $EXIT_CODE -eq 0 ]; then
+            echo "status=success" >> $GITHUB_OUTPUT
+          else
+            echo "status=failure" >> $GITHUB_OUTPUT
+          fi
+
+          # Read summary as single-line JSON for output
+          if [ -f /tmp/clear-summary.json ]; then
+            DELIMITER="SUMMARY_$(date +%s%N)"
+            echo "summary<<${DELIMITER}" >> $GITHUB_OUTPUT
+            python -c "import json,sys; json.dump(json.load(open('/tmp/clear-summary.json')), sys.stdout)" >> $GITHUB_OUTPUT
+            echo "" >> $GITHUB_OUTPUT
+            echo "${DELIMITER}" >> $GITHUB_OUTPUT
+          fi
+
+          exit $EXIT_CODE
+
+      - name: Post results to issue - Success
+        if: always() && steps.inputs.outputs.issue_number != '' && steps.clear.outputs.status == 'success'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issueNumber = parseInt('${{ steps.inputs.outputs.issue_number }}');
+            const runUrl = `${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}`;
+
+            let summaryText = '';
+            try {
+              const summary = JSON.parse(`${{ steps.clear.outputs.summary }}`);
+              summaryText = `- Total Resources: ${summary.total}
+            - Deleted: ${summary.succeeded}
+            - Already Gone: ${summary.already_gone}
+            - Failed: ${summary.failed}
+            - Duration: ${summary.duration_seconds}s`;
+            } catch (e) {
+              summaryText = '- See workflow logs for details';
+            }
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              body: `## Test Data Clear Complete
+
+            The test data has been successfully cleared.
+
+            **Results:**
+            ${summaryText}
+
+            - Workflow Run: [View Logs](${runUrl})
+
+            The node is ready for fresh data loading.`
+            });
+
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              labels: ['complete']
+            });
+
+            try {
+              await github.rest.issues.removeLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                name: 'in-progress'
+              });
+            } catch (e) {}
+
+      - name: Post results to issue - Failure
+        if: always() && steps.inputs.outputs.issue_number != '' && steps.clear.outputs.status == 'failure'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issueNumber = parseInt('${{ steps.inputs.outputs.issue_number }}');
+            const runUrl = `${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}`;
+
+            let errorDetails = '';
+            try {
+              const summary = JSON.parse(`${{ steps.clear.outputs.summary }}`);
+              errorDetails = `- Total Resources: ${summary.total}
+            - Deleted: ${summary.succeeded}
+            - Already Gone: ${summary.already_gone}
+            - Failed: ${summary.failed}
+            - Duration: ${summary.duration_seconds}s`;
+              if (summary.errors && summary.errors.length > 0) {
+                errorDetails += '\n\n**First errors:**\n';
+                for (const err of summary.errors.slice(0, 5)) {
+                  errorDetails += `- \`${err.resource_type}/${err.resource_id}\`: ${err.status_code || 'N/A'} - ${err.error?.substring(0, 100) || 'Unknown'}\n`;
+                }
+              }
+            } catch (e) {
+              errorDetails = '- See workflow logs for details';
+            }
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              body: `## Test Data Clear Failed
+
+            The test data clearing operation encountered errors.
+
+            **Results:**
+            ${errorDetails}
+
+            - Workflow Run: [View Logs](${runUrl})
+
+            Please review the errors and try again, or contact the infrastructure team.`
+            });
+
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              labels: ['blocked']
+            });
+
+            try {
+              await github.rest.issues.removeLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                name: 'in-progress'
+              });
+            } catch (e) {}

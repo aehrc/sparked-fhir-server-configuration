@@ -1,0 +1,260 @@
+name: Re/load IG Packages
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: "SmileCDR Base URL (without node name)"
+        required: true
+        default: "https://smile.sparked-fhir.com"
+      nodes:
+        description: "Comma-separated list of node names to update (e.g., 'aucore,hl7au,ereq' or 'all' for all nodes)"
+        required: true
+        default: "aucore"
+      package_source:
+        description: "Package source: 'config' (from simplified-multinode.yaml), 'packages-dir' (all JSON files), or 'custom' (manual JSON)"
+        required: true
+        default: "config"
+        type: choice
+        options:
+          - config
+          - packages-dir
+          - custom
+      custom_packages:
+        description: "Custom packages JSON (only if package_source=custom)"
+        required: false
+        default: '[{"name": "hl7.fhir.au.base", "version": "6.0.0-ballot", "installMode": "STORE_ONLY", "fetchDependencies": true}]'
+      dry_run:
+        description: "Dry run mode (show changes without applying)"
+        required: true
+        default: true
+        type: boolean
+      force_reinstall:
+        description: "Force reinstall all packages (even if already installed)"
+        required: true
+        default: false
+        type: boolean
+      issue_number:
+        description: "Issue number to post results to (optional)"
+        required: false
+        type: number
+  workflow_call:
+    inputs:
+      base_url:
+        required: true
+        type: string
+        default: "https://smile.sparked-fhir.com"
+      nodes:
+        required: true
+        type: string
+      package_source:
+        required: false
+        type: string
+        default: "config"
+      custom_packages:
+        required: false
+        type: string
+      dry_run:
+        required: false
+        type: boolean
+        default: false
+      force_reinstall:
+        required: false
+        type: boolean
+        default: false
+      issue_number:
+        required: false
+        type: number
+    secrets:
+      auth_token:
+        required: true
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  sync-packages:
+    runs-on: arc-runner-set
+    container:
+      image: python:3.12-slim
+    outputs:
+      sync_result: ${{ steps.sync.outputs.result }}
+      sync_status: ${{ steps.sync.outputs.status }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: pip install -r scripts/requirements.txt
+
+      - name: Determine input source
+        id: inputs
+        run: |
+          # Use workflow_call inputs if available, otherwise use workflow_dispatch inputs
+          BASE_URL="${{ inputs.base_url || github.event.inputs.base_url }}"
+          NODES="${{ inputs.nodes || github.event.inputs.nodes }}"
+          PACKAGE_SOURCE="${{ inputs.package_source || github.event.inputs.package_source }}"
+          CUSTOM_PACKAGES="${{ inputs.custom_packages || github.event.inputs.custom_packages }}"
+          DRY_RUN="${{ inputs.dry_run != '' && inputs.dry_run || github.event.inputs.dry_run }}"
+          FORCE_REINSTALL="${{ inputs.force_reinstall != '' && inputs.force_reinstall || github.event.inputs.force_reinstall }}"
+          ISSUE_NUMBER="${{ inputs.issue_number || github.event.inputs.issue_number }}"
+
+          echo "base_url=$BASE_URL" >> $GITHUB_OUTPUT
+          echo "nodes=$NODES" >> $GITHUB_OUTPUT
+          echo "package_source=$PACKAGE_SOURCE" >> $GITHUB_OUTPUT
+          echo "custom_packages=$CUSTOM_PACKAGES" >> $GITHUB_OUTPUT
+          echo "dry_run=$DRY_RUN" >> $GITHUB_OUTPUT
+          echo "force_reinstall=$FORCE_REINSTALL" >> $GITHUB_OUTPUT
+          echo "issue_number=$ISSUE_NUMBER" >> $GITHUB_OUTPUT
+
+      - name: Run package synchronization script
+        id: sync
+        env:
+          SMILECDR_BASE_URL: ${{ steps.inputs.outputs.base_url }}
+          SMILECDR_AUTH_BASIC: ${{ secrets.auth_token || secrets.CSIRO_FHIR_AUTH_64 }}
+        run: |
+          # Build command arguments
+          ARGS="--nodes ${{ steps.inputs.outputs.nodes }}"
+          ARGS="$ARGS --source ${{ steps.inputs.outputs.package_source }}"
+
+          if [ "${{ steps.inputs.outputs.dry_run }}" = "true" ]; then
+            ARGS="$ARGS --dry-run"
+          fi
+
+          if [ "${{ steps.inputs.outputs.force_reinstall }}" = "true" ]; then
+            ARGS="$ARGS --force-reinstall"
+          fi
+
+          if [ "${{ steps.inputs.outputs.package_source }}" = "custom" ]; then
+            ARGS="$ARGS --packages ${{ steps.inputs.outputs.custom_packages }}"
+          fi
+
+          # Run the script and capture output
+          echo "Running: python scripts/sync_packages.py $ARGS"
+          set +e  # Don't exit on error
+          OUTPUT=$(python scripts/sync_packages.py $ARGS 2>&1)
+          EXIT_CODE=$?
+          set -e
+
+          # Save output for later use
+          echo "$OUTPUT" > sync_output.txt
+          echo "$OUTPUT"
+
+          # Set outputs
+          if [ $EXIT_CODE -eq 0 ]; then
+            echo "status=success" >> $GITHUB_OUTPUT
+            echo "result<<EOF" >> $GITHUB_OUTPUT
+            echo "$OUTPUT" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+          else
+            echo "status=failure" >> $GITHUB_OUTPUT
+            echo "result<<EOF" >> $GITHUB_OUTPUT
+            echo "$OUTPUT" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+            exit $EXIT_CODE
+          fi
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## Package Sync Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Base URL**: ${{ steps.inputs.outputs.base_url }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Nodes**: ${{ steps.inputs.outputs.nodes }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Package Source**: ${{ steps.inputs.outputs.package_source }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Dry Run**: ${{ steps.inputs.outputs.dry_run }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Force Reinstall**: ${{ steps.inputs.outputs.force_reinstall }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status**: ${{ steps.sync.outputs.status }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ steps.inputs.outputs.dry_run }}" = "true" ]; then
+            echo "### 🔍 Dry Run Mode" >> $GITHUB_STEP_SUMMARY
+            echo "No changes were made. Review the logs above and re-run with dry_run=false to apply changes." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### ✅ Changes Applied" >> $GITHUB_STEP_SUMMARY
+            echo "Packages have been synchronized. Check the logs above for details." >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Post results to issue
+        if: always() && steps.inputs.outputs.issue_number != ''
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issueNumber = parseInt('${{ steps.inputs.outputs.issue_number }}');
+            const status = '${{ steps.sync.outputs.status }}';
+            const output = `${{ steps.sync.outputs.result }}`;
+            const nodes = '${{ steps.inputs.outputs.nodes }}';
+            const dryRun = '${{ steps.inputs.outputs.dry_run }}' === 'true';
+
+            const statusEmoji = status === 'success' ? '✅' : '❌';
+            const runUrl = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`;
+
+            let comment = `## ${statusEmoji} Package Deployment ${status === 'success' ? 'Successful' : 'Failed'}\n\n`;
+
+            if (dryRun) {
+              comment += '**Mode**: Dry Run (no changes applied)\n\n';
+            } else {
+              comment += '**Mode**: Live Deployment\n\n';
+            }
+
+            comment += `**Nodes**: ${nodes}\n`;
+            comment += `**Workflow Run**: [View Details](${runUrl})\n\n`;
+
+            comment += `### Deployment Output\n\n`;
+            comment += '<details>\n';
+            comment += '<summary>Click to view full output</summary>\n\n';
+            comment += '```\n';
+            comment += output.substring(0, 60000);  // GitHub comment limit
+            comment += '\n```\n';
+            comment += '</details>\n\n';
+
+            if (status === 'success' && !dryRun) {
+              comment += '### ✅ Next Steps - Action Required\n\n';
+              comment += '**Your requested packages have been deployed successfully!**\n\n';
+              comment += 'Please verify the deployment:\n';
+              comment += '1. Test that the IG packages are working as expected\n';
+              comment += '2. Verify your acceptance criteria are met\n';
+              comment += '3. Comment on this issue with verification results\n';
+              comment += '4. A repo admin will close this issue once confirmed\n';
+            } else if (status === 'failure') {
+              comment += '### ⚠️ Deployment Failed\n\n';
+              comment += '**Unfortunately, the deployment encountered errors.**\n\n';
+              comment += 'A repo admin will:\n';
+              comment += '1. Review the error output above\n';
+              comment += '2. Investigate and fix any issues\n';
+              comment += '3. Re-run the deployment\n';
+              comment += '4. Update you on progress\n';
+            }
+
+            comment += `\n---\n*Automated deployment results • ${new Date().toISOString()}*`;
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              body: comment
+            });
+
+            // Update issue labels based on result
+            if (status === 'success' && !dryRun) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                labels: ['deployed']
+              });
+
+              // Remove in-progress label
+              try {
+                await github.rest.issues.removeLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: issueNumber,
+                  name: 'in-progress'
+                });
+              } catch (e) {
+                // Label might not exist
+              }
+            }

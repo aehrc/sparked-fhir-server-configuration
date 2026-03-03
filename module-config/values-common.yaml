@@ -1,0 +1,155 @@
+specs:
+  hostname: smile.sparked-fhir.com
+
+volumeConfig:
+  cdr:
+    amq:
+      sizeLimit: "100Mi"
+      
+image:
+  repository: docker.smilecdr.com/smilecdr
+  imagePullSecrets:
+  - type: sscsi
+    provider: aws
+    secretArn: "PLACEHOLDER_SET_VIA_TERRAFORM"  # Overridden by cdr_regcred_secret_arn in terraform/main.tf
+
+serviceAccount:
+  create: true
+
+mappedFiles:
+  # logback.xml:
+  #   path: /home/smile/smilecdr/classes
+  package-aucore-2.0.0.json:
+    path: /home/smile/smilecdr/classes/config_seeding
+  package-au-patient-summary-0.4.0-draft.json:
+    path: /home/smile/smilecdr/classes/config_seeding
+  package-international-patient-summary-2.0.0.json:
+    path: /home/smile/smilecdr/classes/config_seeding
+  package-au-patient-summary-0.5.0-preview.json:
+    path: /home/smile/smilecdr/classes/config_seeding
+  package-au-base-6.0.0.json:
+    path: /home/smile/smilecdr/classes/config_seeding
+  package-au-erequesting-1.0.0.json:
+    path: /home/smile/smilecdr/classes/config_seeding
+
+# Mount users.json from AWS Secrets Manager
+secrets:
+  usersConfig:
+    name: smilecdr-users-json
+    type: sscsi
+    provider: aws
+    secretName: smilecdr-users-json
+    secretArn: "PLACEHOLDER_SET_VIA_TERRAFORM"  # Overridden by helm_chart_values_set_overrides in terraform/main.tf
+    secretKeyMap:
+      users-json:
+        secretKeyName: content  # Extract the "content" field which contains the users.json
+        k8sSecretKeyName: users-json  # Name of the key in the Kubernetes secret
+        mountSpec:
+          mountPath: /home/smile/smilecdr/classes/config_seeding/users.json
+          subPath: users-json  # Mount only the users-json key as a file, not a directory
+
+
+copyFiles:
+  customerlib:
+    sources:
+    # Copies files recursively from S3 to the customerlib directory
+    - type: s3
+      bucket: PLACEHOLDER_SET_VIA_TERRAFORM  # Overridden by s3_read_buckets in terraform/main.tf
+      path: /smile/hapi-aups-generator-0.1.0-alpha.jar
+
+
+## @section Resources
+## @param.requests.cpu CPU Requests
+## @param.limits.memory Memory allocation
+## @param.jvm.memoryFactor JVM HeapSize factor. `limits.memory` is multiplied this to calculate `-Xmx`
+## @param.jvm.xms Set JVM heap `-Xms` == `-Xmx`
+## @param.jvm.args Set extra JVM args
+resources:
+  # As Smile CDR is a high performance Java based application, special consideration needs to be given
+  # to the resource settings and JVM tuning parameters.
+  # Typical cloud best practices are to start small and increase as workload increases. This can be a
+  # challenging approach with an appliction such as Smile CDR if we are to avoid OOM Killed errors.
+  # You should start with a somewhat larger memory allocation and perform monitoring of your workload
+  # to determine real life memory usage. Then tune-down to a size that still gives a reasonable buffer
+  # for any workload spikes.
+  # These settings go hand-in-hand with the jvm.memoryFactor and jvm.xmx settings as any Java based
+  # application will use more memory than specified in -Xmx alone. See the jvm section for more detail
+  # on this.
+  requests:
+    # -- CPU Requests
+    cpu: "1"
+    # As per best practice, limits.memory == requests.memory
+    # This is easily achieved by only setting limits.memory
+    # If requests.memory is undefined, Kubernetes sets it to match limits.memory
+  limits:
+    # As per best practice, do not set limits.cpu
+    # This approach may be changed if there are per-core licensing concerns
+    # Note that this will cause a warning in some linters
+    # -- Memory allocation
+    memory: 6Gi
+
+affinity:
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values:
+          - on-demand
+
+
+# SmileCDR Helm values using the OpenTelemetry Operator
+observability:
+  enabled: false  # Disable SmileCDR's built-in observability
+
+# Add annotations to enable OpenTelemetry auto-instrumentation
+podAnnotations:
+  instrumentation.opentelemetry.io/inject-java: "true"
+
+# Configure the Java agent via environment variables
+# SmileCDR Helm values
+extraEnvVars:
+  - name: OTEL_EXPORTER_OTLP_ENDPOINT
+    value: "http://k8s-monitoring-alloy-metrics.monitoring.svc.cluster.local:4317"
+  - name: OTEL_EXPORTER_OTLP_PROTOCOL
+    value: "grpc"
+  - name: OTEL_METRICS_EXPORTER
+    value: "otlp"
+  - name: OTEL_LOGS_EXPORTER
+    value: "otlp"
+  - name: OTEL_TRACES_EXPORTER
+    value: "otlp"
+  - name: OTEL_SERVICE_NAME
+    value: "smilecdr"
+  - name: OTEL_RESOURCE_ATTRIBUTES
+    value: "service.name=smilecdr,service.namespace=smilecdr"
+  - name: OTEL_INSTRUMENTATION_METHODS_INCLUDE
+    value: "ca.uhn.hl7v2.app.Responder[processMessage];ca.cdr.broker.kafka.channel.CdrKafkaAcknowledgingListener[onMessage]"
+
+# observability:
+#   enabled: true
+#   instrumentation:
+#     # Tools to deploy and configure to get telemetry data from application
+#     openTelemetry:
+#       # Deploy and configure OpenTelemetry to extract
+#       enabled: true
+#       otelAgent:
+#         enabled: true
+#         mode: operator
+#         spec:
+#           java:
+#             env:
+#             - name: OTEL_LOGS_EXPORTER
+#               value: "otlp"
+#             - name: OTEL_METRICS_EXPORTER
+#               value: "otlp"
+#             - name: OTEL_INSTRUMENTATION_METHODS_INCLUDE
+#               value: "ca.uhn.hl7v2.app.Responder[processMessage];ca.cdr.broker.kafka.channel.CdrKafkaAcknowledgingListener[onMessage]"
+#       otelCollector:
+#         enabled: true
+#         mode: sidecar
+
+#   dashboard:
+#     grafana:
+#       enabled: true
