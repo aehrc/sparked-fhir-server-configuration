@@ -1,7 +1,0 @@
-{
-  "name": "hl7.fhir.au.ps",
-  "version": "0.4.0-draft",
-  "installMode": "STORE_AND_INSTALL",
-  "fetchDependencies": false,
-  "packageUrl": "https://hl7.org.au/fhir/ps/0.4.0-draft/package.tgz"
-}
