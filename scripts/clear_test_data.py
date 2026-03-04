@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
+# DEPRECATED: This script has been replaced by the sparked-test-data-loader Go tool.
+# See: https://github.com/aehrc/sparked-test-data-loader
+# This file is kept for reference only. Use the Go tool or the GitHub Actions workflows instead.
 """
-FHIR Test Data Clearer
+FHIR Test Data Clearer (DEPRECATED)
 
 Deletes FHIR test data from a FHIR server, either by targeting specific resources
 from a test data set (targeted mode) or by wiping all resources on the node (wipe-all mode).

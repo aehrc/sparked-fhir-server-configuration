@@ -30,8 +30,14 @@ This repository manages the deployment and configuration of a multi-node Smile C
 
 👉 **[Read the Complete Workflow Guide](docs/WORKFLOWS.md)**
 
-### I want to load test data
+### I want to load/clear test data
 
+**Via GitHub Actions (recommended):**
+1. Go to **Actions** -> **Manage Test Data** -> **Run workflow**
+2. Select operation: `clear-and-load-aucore`, `clear-and-load-ereq`, `clear-and-load-aucore-and-ereq`, or `clear-and-expunge`
+3. Optionally enable dry run to preview changes first
+
+**Via issue request:**
 1. [Create an Operational Request](../../issues/new/choose)
 2. Specify the data source and upload mode
 3. Admin approves (`status:approved` label)
@@ -39,6 +45,8 @@ This repository manages the deployment and configuration of a multi-node Smile C
 5. Verify and close
 
 **Time:** ~10-30 minutes (depending on data volume)
+
+Test data management is powered by the [`sparked-test-data-loader`](https://github.com/aehrc/sparked-test-data-loader) Go tool.
 
 ### I want to change server configuration
 
@@ -102,6 +110,9 @@ sparked-fhir-server-configuration/
 │       ├── issue-labeled.yml           # Creates PRs automatically
 │       ├── pr-merged.yml               # Handles post-merge deployment
 │       ├── reload-ig-config.yml        # Deploys packages to nodes
+│       ├── load-test-data.yml          # Load FHIR test data to a node
+│       ├── clear-test-data.yml         # Clear FHIR test data from a node
+│       ├── manage-test-data.yml        # Common test data operations (clear+load, expunge)
 │       ├── validate-config.yml         # Validates config on PR
 │       └── smile-application.yml       # Terraform plan/apply
 ├── docs/
@@ -142,8 +153,9 @@ sparked-fhir-server-configuration/
 - **[terraform/main.tf](terraform/main.tf)** - Terraform configuration linking packages to Helm deployment
 - **[module-config/users.json.tpl](module-config/users.json.tpl)** - User accounts and permissions template
 
-### Automation Scripts
+### Automation Scripts & Tools
 
+- **[sparked-test-data-loader](https://github.com/aehrc/sparked-test-data-loader)** - Go tool for loading and clearing FHIR test data (used by workflows)
 - **[scripts/sync_packages.py](scripts/sync_packages.py)** - Core package synchronization logic (install/update/remove packages on SmileCDR nodes)
 - **[scripts/update_node_packages.py](scripts/update_node_packages.py)** - Safely updates simplified-multinode.yaml preserving formatting and comments
 

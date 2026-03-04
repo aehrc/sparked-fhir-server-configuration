@@ -1,8 +1,111 @@
-# SmileCDR Package Synchronization Scripts
+# Scripts
 
-This directory contains scripts for managing FHIR IG packages on SmileCDR nodes.
+This directory contains scripts for managing SmileCDR nodes.
 
-## Files
+## Test Data Management
+
+Test data loading and clearing is now handled by the [`sparked-test-data-loader`](https://github.com/aehrc/sparked-test-data-loader) Go tool. The Python scripts (`load_test_data.py`, `clear_test_data.py`) are deprecated and kept for reference only.
+
+### Using the Go Tool Locally
+
+Install or run via Docker:
+
+```bash
+# Pull the Docker image
+docker pull 471112546300.dkr.ecr.ap-southeast-2.amazonaws.com/sparked-test-data-loader:latest
+
+# Or alias for convenience
+alias fhir-data='docker run --rm -v "$(pwd):/data" 471112546300.dkr.ecr.ap-southeast-2.amazonaws.com/sparked-test-data-loader:latest'
+```
+
+### Common Use Cases
+
+**Clear all test data + expunge from a node:**
+```bash
+sparked-test-data-loader clear \
+  --mode wipe-all \
+  --fhir-url https://smile.sparked-fhir.com/aucore/fhir/DEFAULT \
+  --auth-header "$FHIR_AUTH_HEADER" \
+  --expunge
+```
+
+**Clear and reload AU Core test data:**
+```bash
+# Clone test data
+git clone https://github.com/hl7au/au-fhir-test-data /tmp/test-data
+
+# Clear existing data
+sparked-test-data-loader clear \
+  --mode wipe-all \
+  --fhir-url https://smile.sparked-fhir.com/aucore/fhir/DEFAULT \
+  --auth-header "$FHIR_AUTH_HEADER" \
+  --expunge
+
+# Load fresh data
+sparked-test-data-loader load \
+  --method direct \
+  --fhir-url https://smile.sparked-fhir.com/aucore/fhir/DEFAULT \
+  --data-dir /tmp/test-data/au-fhir-test-data-set \
+  --auth-header "$FHIR_AUTH_HEADER"
+```
+
+**Clear and reload eRequesting test data:**
+```bash
+sparked-test-data-loader clear \
+  --mode wipe-all \
+  --fhir-url https://smile.sparked-fhir.com/ereq/fhir/DEFAULT \
+  --auth-header "$FHIR_AUTH_HEADER" \
+  --expunge
+
+sparked-test-data-loader load \
+  --method direct \
+  --fhir-url https://smile.sparked-fhir.com/ereq/fhir/DEFAULT \
+  --data-dir /tmp/test-data/au-fhir-test-data-set \
+  --auth-header "$FHIR_AUTH_HEADER"
+```
+
+**Load to both AU Core + eRequesting nodes:**
+```bash
+# Load to aucore
+sparked-test-data-loader load \
+  --method direct \
+  --fhir-url https://smile.sparked-fhir.com/aucore/fhir/DEFAULT \
+  --data-dir /tmp/test-data/au-fhir-test-data-set \
+  --auth-header "$FHIR_AUTH_HEADER"
+
+# Load to ereq
+sparked-test-data-loader load \
+  --method direct \
+  --fhir-url https://smile.sparked-fhir.com/ereq/fhir/DEFAULT \
+  --data-dir /tmp/test-data/au-fhir-test-data-set \
+  --auth-header "$FHIR_AUTH_HEADER"
+```
+
+**Dry run (preview without changes):**
+```bash
+sparked-test-data-loader load \
+  --method direct \
+  --fhir-url https://smile.sparked-fhir.com/aucore/fhir/DEFAULT \
+  --data-dir /tmp/test-data/au-fhir-test-data-set \
+  --auth-header "$FHIR_AUTH_HEADER" \
+  --dry-run
+```
+
+### GitHub Actions Workflows
+
+Use the **Manage Test Data** workflow for common operations:
+- **Actions** -> **Manage Test Data** -> **Run workflow**
+- Operations: `clear-and-load-aucore`, `clear-and-load-ereq`, `clear-and-load-aucore-and-ereq`, `clear-and-expunge`
+
+Or use the individual workflows directly:
+- **Load Test Data** (`load-test-data.yml`) - Load data to any node
+- **Clear Test Data** (`clear-test-data.yml`) - Clear data from any node
+
+---
+
+## Package Synchronization
+
+### Files
 
 - **sync_packages.py** - Main package synchronization script
 - **requirements.txt** - Python dependencies

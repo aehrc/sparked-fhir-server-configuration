@@ -170,50 +170,78 @@ A repo admin will close the issue once confirmed.
 
 ---
 
-## Test Data Loading
+## Test Data Management
 
-### Quick Start
+Test data loading and clearing is powered by the [`sparked-test-data-loader`](https://github.com/aehrc/sparked-test-data-loader) Go tool.
 
-**Goal:** Load FHIR test data into SmileCDR nodes
+### Common Operations (Manage Test Data Workflow)
 
-#### Step 1: Create Issue
+For common multi-step operations, use the **Manage Test Data** workflow:
+
+1. Go to **Actions** → **Manage Test Data**
+2. Click **Run workflow**
+3. Select an operation:
+
+| Operation | What it does |
+|-----------|-------------|
+| `clear-and-load-aucore` | Wipe all + expunge aucore, then load test data |
+| `clear-and-load-ereq` | Wipe all + expunge ereq, then load test data |
+| `clear-and-load-aucore-and-ereq` | Clear + load both nodes in parallel |
+| `clear-and-expunge` | Wipe all + expunge a selected node (no reload) |
+
+4. Optionally enable **Dry Run** to preview changes
+5. Click **Run workflow**
+
+### Loading Test Data
+
+#### Via Workflow (Quick)
+
+1. Go to **Actions** → **Load Test Data** → **Run workflow**
+2. Select target node, upload method, and options
+3. Click **Run workflow**
+
+#### Via Issue Request
 
 1. Go to [Issues → New Issue](../../issues/new/choose)
 2. Select **"Operational Request"**
 3. Fill out:
    - **Operation Type**: Load test data
    - **Data Source**: URL to test data repository
-   - **Upload Mode**: individual, bundle, or transaction
+   - **Upload Mode**: individual or transaction
    - **Business Justification**: Why you need this data
+4. Admin approves (`status:approved` label)
+5. Data loads automatically via the `sparked-test-data-loader` tool
 
-#### Step 2: Admin Approval
-
-A repo admin will:
-- Review the request
-- Add `status:approved` label
-- Trigger the load-test-data workflow
-
-#### Step 3: Automatic Execution
-
-The system:
-- ✅ Clones the test data repository
-- ✅ Excludes `vendor-demonstrator` folder
-- ✅ Uploads JSON files to FHIRFlare service
-- ✅ FHIRFlare loads data into SmileCDR
-- ✅ Posts results to the issue
-
-#### Step 4: Verification
+#### Verification
 
 You'll receive:
 ```markdown
-✅ Test Data Load Complete
+Test Data Load Complete
 
 - Total Files: 150
-- Data Source: https://github.com/hl7au/au-fhir-test-data
-- Upload Mode: individual
+- Succeeded: 148
+- Failed: 2
+- Duration: 120s
 
 Please verify the data has been loaded as expected.
 ```
+
+### Clearing Test Data
+
+1. Go to **Actions** → **Clear Test Data** → **Run workflow**
+2. Select:
+   - **Delete mode**: `targeted` (match test data files) or `wipe-all` (everything)
+   - **Target node**: aucore, hl7au, ereq
+   - **Expunge**: Enable for physical removal (not just soft-delete)
+3. Click **Run workflow**
+
+### Local CLI Usage
+
+See [scripts/README.md](../scripts/README.md) for local CLI examples including:
+- Clear + expunge a node
+- Clear + reload AU Core or eRequesting data
+- Load to multiple nodes
+- Dry run previews
 
 ---
 
@@ -328,12 +356,17 @@ Track your request through these stages:
    - Add label: `status:approved`
    - Workflow triggers automatically
 
-3. **Monitor execution**
-   - Check workflow logs
+3. **Or use Manage Test Data workflow directly**
+   - Go to **Actions** → **Manage Test Data** → **Run workflow**
+   - Select the appropriate operation (e.g., `clear-and-load-aucore`)
+   - Use dry run first to preview changes
+
+4. **Monitor execution**
+   - Check workflow logs and GitHub Actions step summary
    - Verify completion
    - Note: `vendor-demonstrator` folder is automatically excluded
 
-4. **Confirm with requester**
+5. **Confirm with requester**
    - Ask them to verify data loaded correctly
    - Close when confirmed
 
@@ -387,7 +420,9 @@ Track your request through these stages:
 | `issue-ig-pr-creator.yml` | Issue labeled `ready-for-automation` | Creates PR with package config changes |
 | `issue-pr-merge-updater.yml` | PR merged | Posts deployment options or triggers auto-deployment |
 | `reload-ig-config.yml` | Manual or workflow_call | Deploys packages to SmileCDR nodes |
-| `load-test-data.yml` | Issue labeled `status:approved` with operations label | Loads test data into SmileCDR |
+| `load-test-data.yml` | Manual or workflow_call | Loads FHIR test data to a node |
+| `clear-test-data.yml` | Manual or workflow_call | Clears FHIR test data from a node |
+| `manage-test-data.yml` | Manual | Common multi-step operations (clear+load, expunge) |
 
 ### Workflow Inputs
 

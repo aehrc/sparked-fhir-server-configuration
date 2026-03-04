@@ -1,0 +1,121 @@
+name: Manage Test Data
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: "Operation to perform"
+        required: true
+        type: choice
+        options:
+          - clear-and-load-aucore
+          - clear-and-load-ereq
+          - clear-and-load-aucore-and-ereq
+          - clear-and-expunge
+      target_node:
+        description: "Target node (only for clear-and-expunge operation)"
+        required: false
+        type: choice
+        default: "aucore"
+        options:
+          - aucore
+          - hl7au
+          - ereq
+      dry_run:
+        description: "Dry run (preview without making changes)"
+        required: false
+        default: false
+        type: boolean
+      issue_number:
+        description: "Issue number to post results to (optional)"
+        required: false
+        type: number
+
+permissions:
+  contents: read
+  issues: write
+
+# ============================================================================
+# Clear and Load AU Core
+# ============================================================================
+jobs:
+  clear-aucore:
+    name: Clear aucore
+    if: >-
+      inputs.operation == 'clear-and-load-aucore' ||
+      inputs.operation == 'clear-and-load-aucore-and-ereq'
+    uses: ./.github/workflows/clear-test-data.yml
+    with:
+      delete_mode: wipe-all
+      target_node: aucore
+      expunge: true
+      dry_run: ${{ inputs.dry_run }}
+      issue_number: ${{ inputs.issue_number && fromJSON(inputs.issue_number) || 0 }}
+    secrets:
+      CSIRO_FHIR_AUTH_64: ${{ secrets.CSIRO_FHIR_AUTH_64 }}
+
+  load-aucore:
+    name: Load aucore
+    needs: clear-aucore
+    if: >-
+      inputs.operation == 'clear-and-load-aucore' ||
+      inputs.operation == 'clear-and-load-aucore-and-ereq'
+    uses: ./.github/workflows/load-test-data.yml
+    with:
+      upload_method: direct
+      target_node: aucore
+      dry_run: ${{ inputs.dry_run }}
+      continue_on_error: true
+      issue_number: ${{ inputs.issue_number && fromJSON(inputs.issue_number) || 0 }}
+    secrets:
+      CSIRO_FHIR_AUTH_64: ${{ secrets.CSIRO_FHIR_AUTH_64 }}
+
+  # ============================================================================
+  # Clear and Load eRequesting
+  # ============================================================================
+  clear-ereq:
+    name: Clear ereq
+    if: >-
+      inputs.operation == 'clear-and-load-ereq' ||
+      inputs.operation == 'clear-and-load-aucore-and-ereq'
+    uses: ./.github/workflows/clear-test-data.yml
+    with:
+      delete_mode: wipe-all
+      target_node: ereq
+      expunge: true
+      dry_run: ${{ inputs.dry_run }}
+      issue_number: ${{ inputs.issue_number && fromJSON(inputs.issue_number) || 0 }}
+    secrets:
+      CSIRO_FHIR_AUTH_64: ${{ secrets.CSIRO_FHIR_AUTH_64 }}
+
+  load-ereq:
+    name: Load ereq
+    needs: clear-ereq
+    if: >-
+      inputs.operation == 'clear-and-load-ereq' ||
+      inputs.operation == 'clear-and-load-aucore-and-ereq'
+    uses: ./.github/workflows/load-test-data.yml
+    with:
+      upload_method: direct
+      target_node: ereq
+      dry_run: ${{ inputs.dry_run }}
+      continue_on_error: true
+      issue_number: ${{ inputs.issue_number && fromJSON(inputs.issue_number) || 0 }}
+    secrets:
+      CSIRO_FHIR_AUTH_64: ${{ secrets.CSIRO_FHIR_AUTH_64 }}
+
+  # ============================================================================
+  # Clear and Expunge (any node)
+  # ============================================================================
+  clear-and-expunge:
+    name: Clear and expunge
+    if: inputs.operation == 'clear-and-expunge'
+    uses: ./.github/workflows/clear-test-data.yml
+    with:
+      delete_mode: wipe-all
+      target_node: ${{ inputs.target_node }}
+      expunge: true
+      dry_run: ${{ inputs.dry_run }}
+      issue_number: ${{ inputs.issue_number && fromJSON(inputs.issue_number) || 0 }}
+    secrets:
+      CSIRO_FHIR_AUTH_64: ${{ secrets.CSIRO_FHIR_AUTH_64 }}

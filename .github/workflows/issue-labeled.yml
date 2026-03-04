@@ -960,8 +960,6 @@ jobs:
   load-test-data:
     name: Prepare Test Data Load
     runs-on: arc-runner-set
-    container:
-      image: python:3.12-slim
     if: |
       (github.event_name == 'issues' &&
        github.event.label.name == 'approved' &&

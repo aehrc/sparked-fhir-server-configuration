@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
+# DEPRECATED: This script has been replaced by the sparked-test-data-loader Go tool.
+# See: https://github.com/aehrc/sparked-test-data-loader
+# This file is kept for reference only. Use the Go tool or the GitHub Actions workflows instead.
 """
-FHIR Test Data Loader
+FHIR Test Data Loader (DEPRECATED)
 
 Loads FHIR test data to a FHIR server either directly via REST API or via FHIRFlare proxy.
 

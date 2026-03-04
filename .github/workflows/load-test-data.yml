@@ -134,17 +134,9 @@ jobs:
     name: Load FHIR Test Data
     runs-on: arc-runner-set
     container:
-      image: python:3.12-slim
+      image: 471112546300.dkr.ecr.ap-southeast-2.amazonaws.com/sparked-test-data-loader:latest
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Install dependencies
-        run: |
-          apt-get update && apt-get install -y --no-install-recommends git
-          pip install -r scripts/requirements.txt
-
       - name: Resolve inputs
         id: inputs
         run: |
@@ -251,6 +243,7 @@ jobs:
           ARGS="$ARGS --batch-size ${{ steps.inputs.outputs.batch_size }}"
           ARGS="$ARGS --exclude-patterns ${{ steps.inputs.outputs.exclude_patterns }}"
           ARGS="$ARGS --summary-file /tmp/upload-summary.json"
+          ARGS="$ARGS --github-step-summary $GITHUB_STEP_SUMMARY"
 
           if [ "${{ steps.inputs.outputs.dry_run }}" = "true" ]; then
             ARGS="$ARGS --dry-run"
@@ -261,7 +254,7 @@ jobs:
           fi
 
           set +e
-          python scripts/load_test_data.py $ARGS
+          sparked-test-data-loader load $ARGS
           EXIT_CODE=$?
           set -e
 
@@ -275,7 +268,7 @@ jobs:
           if [ -f /tmp/upload-summary.json ]; then
             DELIMITER="SUMMARY_$(date +%s%N)"
             echo "summary<<${DELIMITER}" >> $GITHUB_OUTPUT
-            python -c "import json,sys; json.dump(json.load(open('/tmp/upload-summary.json')), sys.stdout)" >> $GITHUB_OUTPUT
+            cat /tmp/upload-summary.json | tr -d '\n' >> $GITHUB_OUTPUT
             echo "" >> $GITHUB_OUTPUT
             echo "${DELIMITER}" >> $GITHUB_OUTPUT
           fi
