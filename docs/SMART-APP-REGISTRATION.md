@@ -176,11 +176,19 @@ https://github.com/aehrc/sparked-fhir-server-configuration/issues/new/choose
 
 ### Scopes AND Permissions
 
-Registering a client with scopes is only half the equation. The client also needs matching **permissions** in SmileCDR's user/role system. Without permissions, scope-based access will be denied (HTTP 403) even if scopes are granted during authorization.
+Registering a client with scopes is only half the equation. The client also needs matching **permissions** in SmileCDR. Without permissions, scope-based access will be denied (HTTP 403) even if scopes are granted during authorization.
 
-For SMART App Launch clients, the permissions come from the **user** who logs in and authorizes the app. Make sure users have appropriate roles (e.g., `ROLE_FHIR_CLIENT` with `FHIR_ALL_READ`).
+> **API note:** The SmileCDR Admin JSON API uses the field name `permissions` (not `grantedAuthorities`) for OIDC client permission definitions.
 
-For Backend Service clients, permissions are configured directly on the client definition (no user involved). The client needs roles like `ROLE_FHIR_CLIENT` and permission grants like `FHIR_ALL_READ`.
+**Backend Service clients**: The registration script **automatically maps scopes to permissions**. For example:
+- `system/*.read` → `ROLE_FHIR_CLIENT` + `FHIR_ALL_READ` + `FHIR_CAPABILITIES` + partition access
+- `system/*.*` → All of the above + `FHIR_ALL_WRITE` + `FHIR_TRANSACTION`
+
+**SMART App Launch clients**: Permissions come from the **user** who logs in and authorizes the app (not the client definition). Users need appropriate roles:
+- `ROLE_FHIR_CLIENT` — base role for FHIR access
+- `FHIR_ALL_READ` — read access to FHIR resources
+- `FHIR_ALL_WRITE` — write access (if needed)
+- `FHIR_ACCESS_PARTITION_NAME` with argument `DEFAULT` — access to the DEFAULT partition
 
 ### OpenID Connect Security Must Be Enabled
 
@@ -232,6 +240,217 @@ If you see "Signing JSON Web KeySet (JWKS) is using the example keystore" in the
 **"No OpenID Connect modules configured":**
 - The SMART Outbound Security module needs to be started on the aucore node
 - Check Runtime > Modules in the admin console
+
+## Admin Operations Cheat Sheet
+
+All commands below require:
+
+```bash
+export CSIRO_FHIR_AUTH_64="your_base64_credentials"
+```
+
+### Connectathon Setup (Full)
+
+Run these in order to prepare for a connectathon:
+
+```bash
+# 1. Register all pre-configured clients (or skip existing)
+python scripts/register_smart_client.py \
+  --bulk --clients-file module-config/connectathon-clients.json
+
+# 2. Update existing clients with correct permissions (if created before permissions were added)
+python scripts/register_smart_client.py \
+  --bulk --clients-file module-config/connectathon-clients.json \
+  --update-existing
+
+# 3. Create user accounts for SMART App Launch participants
+python scripts/manage_smart_users.py \
+  --bulk --users-file module-config/connectathon-users.json
+```
+
+### Register a Single Client
+
+```bash
+# SMART App Launch (public, no secret)
+python scripts/register_smart_client.py \
+  --client-type smart-app-launch \
+  --client-id my-app \
+  --client-name "My SMART App" \
+  --redirect-uris "https://app.example.com/callback,http://localhost:3000/callback" \
+  --scopes "launch/patient patient/*.read openid fhirUser offline_access"
+
+# Backend Service (confidential, secret auto-generated)
+python scripts/register_smart_client.py \
+  --client-type backend-service \
+  --client-id my-backend \
+  --client-name "My Backend Service" \
+  --scopes "system/*.*"
+```
+
+### Create a Single User
+
+```bash
+# Read-only user with practitioner launch context
+python scripts/manage_smart_users.py \
+  --username test-user \
+  --given-name Test \
+  --family-name User \
+  --permissions read-only \
+  --practitioner-id guthrie-aaron
+
+# Read-write user
+python scripts/manage_smart_users.py \
+  --username test-writer \
+  --given-name Test \
+  --family-name Writer \
+  --permissions read-write \
+  --practitioner-id guthrie-aaron
+```
+
+> **Note:** Passwords are auto-generated and printed to the console. They cannot be retrieved after creation.
+
+### Update Existing Client Permissions
+
+Use `--update-existing` to patch permissions onto clients that were created before permission mapping was added (or created manually via the admin console):
+
+```bash
+# Dry run first to preview changes
+python scripts/register_smart_client.py \
+  --bulk --clients-file module-config/connectathon-clients.json \
+  --update-existing --dry-run
+
+# Apply updates
+python scripts/register_smart_client.py \
+  --bulk --clients-file module-config/connectathon-clients.json \
+  --update-existing
+```
+
+This will:
+- **Backend Service clients**: Set `ROLE_FHIR_CLIENT`, `FHIR_CAPABILITIES`, `FHIR_ALL_READ`, partition access, and optionally `FHIR_ALL_WRITE` + `FHIR_TRANSACTION` (based on scopes)
+- **SMART App Launch clients**: Set `FHIR_ACCESS_PARTITION_NAME: DEFAULT` (partition access)
+- Existing permissions are preserved (merge, not replace)
+
+### Verify a Client's Permissions
+
+```bash
+# Check what permissions a client has
+curl -s -H "Authorization: Basic $CSIRO_FHIR_AUTH_64" \
+  -H "Content-Type: application/json" \
+  "https://smile.sparked-fhir.com/aucore/admin-json/openid-connect-clients/aucore/smart_auth/CLIENT_ID" \
+  | python3 -c "import sys,json; d=json.load(sys.stdin); print('Scopes:', d.get('scopes')); print('Permissions:', json.dumps(d.get('permissions',[]), indent=2))"
+```
+
+### Test the Token Endpoint
+
+```bash
+# Backend Service: get a token
+curl -X POST https://smile.sparked-fhir.com/aucore/smartauth/oauth/token \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "grant_type=client_credentials&client_id=CLIENT_ID&client_secret=CLIENT_SECRET"
+
+# Use the token
+curl -H "Authorization: Bearer ACCESS_TOKEN" \
+  https://smile.sparked-fhir.com/aucore/fhir/DEFAULT/Patient?_count=1
+```
+
+### Verify SMART Auth Is Working
+
+```bash
+# Check well-known endpoint
+curl -s https://smile.sparked-fhir.com/aucore/smartauth/.well-known/openid-configuration | python3 -m json.tool
+
+# Check SMART configuration
+curl -s https://smile.sparked-fhir.com/aucore/smartauth/.well-known/smart-configuration | python3 -m json.tool
+```
+
+---
+
+## How SMART Auth Works
+
+### Architecture
+
+The aucore node has two key modules for SMART auth:
+
+| Module | Type | Role |
+|--------|------|------|
+| `smart_auth` | SMART Outbound Security | Issues OAuth2/OIDC tokens, handles authorization flows |
+| `security_in_smart` | Security Inbound SMART | Validates tokens on incoming FHIR requests, manages users |
+
+### Token Flow: SMART App Launch (Public Client)
+
+```
+User's App                SmileCDR smart_auth              SmileCDR FHIR
+    │                          │                               │
+    │──GET /authorize──────────▶                               │
+    │◀─────Login page──────────│                               │
+    │──POST credentials────────▶                               │
+    │◀─────Scope approval──────│                               │
+    │──Approve scopes──────────▶                               │
+    │◀─────302 redirect + code─│                               │
+    │──POST /oauth/token───────▶                               │
+    │  (authorization_code)    │                               │
+    │◀─────access_token────────│                               │
+    │──GET /fhir/Patient───────┼───(validates token)───────────▶
+    │◀─────FHIR response───────┼───────────────────────────────│
+```
+
+**Permissions come from the user** who logs in. The client definition only needs scopes and redirect URIs.
+
+### Token Flow: Backend Service (Confidential Client)
+
+```
+Server App                 SmileCDR smart_auth              SmileCDR FHIR
+    │                          │                               │
+    │──POST /oauth/token───────▶                               │
+    │  (client_credentials +   │                               │
+    │   client_id + secret)    │                               │
+    │◀─────access_token────────│                               │
+    │──GET /fhir/Patient───────┼───(validates token)───────────▶
+    │◀─────FHIR response───────┼───────────────────────────────│
+```
+
+**Permissions come from the client definition** (`permissions` field). There is no user involved.
+
+### Permission Mapping
+
+The registration script automatically maps scopes to permissions for backend service clients:
+
+| Scopes | Permissions Set |
+|--------|----------------|
+| `system/*.read` | `ROLE_FHIR_CLIENT`, `FHIR_CAPABILITIES`, `FHIR_ACCESS_PARTITION_NAME: DEFAULT`, `FHIR_ALL_READ` |
+| `system/*.*` | All of the above + `FHIR_ALL_WRITE`, `FHIR_TRANSACTION` |
+
+For SMART App Launch clients, the script sets `FHIR_ACCESS_PARTITION_NAME: DEFAULT` on the client. All other permissions come from the user account.
+
+### SmileCDR Module Configuration
+
+| Setting | Value |
+|---------|-------|
+| Issuer URL | `https://smile.sparked-fhir.com/aucore/smartauth` |
+| Context Path | `/aucore/smartauth/` |
+| CORS Enabled | Yes |
+| PKCE Required | No (recommended but not enforced) |
+| PKCE Plain Challenge Supported | Yes |
+| Signing Algorithm | RS256 |
+| Auth Request Whitelist | `aud,grant_type,scope,launch` |
+
+### Admin Console: Adding a User Manually
+
+If you need to create a user via the admin console instead of the script:
+
+1. Go to **Users & Authorization** > **User Management**
+2. Select the module for the aucore node (`security_in_smart`)
+3. Click **Add User**
+4. Enter **Username**, **Password**, **Given Name**, **Family Name**
+5. Under **Default Launch Contexts**, add **Practitioner** with the ID of an existing Practitioner resource (e.g., `guthrie-aaron`)
+6. Under **Roles and Permissions**:
+   - Set **FHIR Client** to Yes
+   - Enable: **FHIR Read (All)**, **FHIR Access Server Capability Statement**
+   - Add **Access data in Partition** with argument `DEFAULT`
+   - Optionally enable: **FHIR Write (All)**, **FHIR Transaction** (for write access)
+7. Click **Create User**
+
+---
 
 ## Reference
 

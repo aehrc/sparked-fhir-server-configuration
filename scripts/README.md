@@ -103,6 +103,72 @@ Or use the individual workflows directly:
 
 ---
 
+## SMART Client Registration
+
+Register SMART on FHIR / OIDC clients on the aucore node.
+
+```bash
+export CSIRO_FHIR_AUTH_64="your_base64_credentials"
+
+# Register a SMART App Launch client
+python scripts/register_smart_client.py \
+  --client-type smart-app-launch \
+  --client-id my-app \
+  --client-name "My SMART App" \
+  --redirect-uris "http://localhost:3000/callback" \
+  --scopes "launch/patient patient/*.read openid fhirUser offline_access"
+
+# Register a Backend Service client
+python scripts/register_smart_client.py \
+  --client-type backend-service \
+  --client-id my-backend \
+  --client-name "My Backend Service" \
+  --scopes "system/*.*"
+
+# Bulk register connectathon clients
+python scripts/register_smart_client.py \
+  --bulk --clients-file module-config/connectathon-clients.json
+
+# Update existing clients with permissions
+python scripts/register_smart_client.py \
+  --bulk --clients-file module-config/connectathon-clients.json \
+  --update-existing
+
+# Dry run (preview only)
+python scripts/register_smart_client.py \
+  --bulk --clients-file module-config/connectathon-clients.json --dry-run
+```
+
+## SMART User Management
+
+Create user accounts for SMART App Launch authorization flows.
+
+```bash
+export CSIRO_FHIR_AUTH_64="your_base64_credentials"
+
+# Create a single user (password auto-generated)
+python scripts/manage_smart_users.py \
+  --username test-user \
+  --given-name Test \
+  --family-name User \
+  --permissions read-only \
+  --practitioner-id guthrie-aaron
+
+# Bulk create connectathon users
+python scripts/manage_smart_users.py \
+  --bulk --users-file module-config/connectathon-users.json
+
+# Dry run
+python scripts/manage_smart_users.py \
+  --bulk --users-file module-config/connectathon-users.json --dry-run
+```
+
+Permission presets: `read-only`, `read-write`, `superuser`.
+
+See [SMART App Registration Guide](../docs/SMART-APP-REGISTRATION.md) for the full admin operations cheat sheet.
+
+---
+
 ## Package Synchronization
 
 ### Files

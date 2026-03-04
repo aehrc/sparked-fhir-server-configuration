@@ -292,6 +292,41 @@ For connectathon events with many participants:
 
 Pre-configured clients are defined in `module-config/connectathon-clients.json`.
 
+### User Management
+
+SMART App Launch clients require user accounts for the authorization flow. Users are managed via the `manage_smart_users.py` script.
+
+#### Create Connectathon Users (Bulk)
+
+```bash
+export CSIRO_FHIR_AUTH_64="your_credentials"
+
+# Preview
+python scripts/manage_smart_users.py \
+  --bulk --users-file module-config/connectathon-users.json --dry-run
+
+# Create all users
+python scripts/manage_smart_users.py \
+  --bulk --users-file module-config/connectathon-users.json
+```
+
+Pre-configured users are defined in `module-config/connectathon-users.json`.
+
+#### Create a Single User
+
+```bash
+python scripts/manage_smart_users.py \
+  --username participant-01 \
+  --given-name Participant \
+  --family-name One \
+  --permissions read-only \
+  --practitioner-id guthrie-aaron
+```
+
+Passwords are auto-generated and printed to the console. Distribute credentials securely to participants.
+
+See **[SMART App Registration Guide](SMART-APP-REGISTRATION.md)** for full admin operations cheat sheet.
+
 ---
 
 ## Manual Package Deployment

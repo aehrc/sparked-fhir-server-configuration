@@ -34,6 +34,11 @@ Usage:
         --scopes "openid" \\
         --dry-run
 
+    # Update existing clients with grantedAuthorities and partition access
+    python register_smart_client.py \\
+        --bulk --clients-file module-config/connectathon-clients.json \\
+        --update-existing --dry-run
+
 Environment Variables:
     CSIRO_FHIR_AUTH_64: Base64 encoded basic auth credentials (admin account)
     SMILECDR_BASE_URL: Base URL (default: https://smile.sparked-fhir.com)
@@ -79,6 +84,9 @@ DEFAULT_SMART_APP_SCOPES = [
 ]
 DEFAULT_BACKEND_SCOPES = ["system/*.read"]
 
+# SmileCDR partition name used in the FHIR endpoint
+DEFAULT_PARTITION = "DEFAULT"
+
 
 # =============================================================================
 # Data Classes
@@ -94,6 +102,7 @@ class RegistrationResult:
     error_message: Optional[str] = None
     client_secret: Optional[str] = None
     already_exists: bool = False
+    updated: bool = False
     dry_run: bool = False
 
 
@@ -103,10 +112,58 @@ class RegistrationSummary:
     succeeded: int = 0
     failed: int = 0
     skipped: int = 0
+    updated: int = 0
     duration_seconds: float = 0.0
     dry_run: bool = False
     results: List[RegistrationResult] = field(default_factory=list)
     base_url: str = DEFAULT_BASE_URL
+
+
+# =============================================================================
+# Permission Mapping
+# =============================================================================
+
+def scopes_to_authorities(scopes: List[str]) -> List[Dict]:
+    """Map SMART scopes to SmileCDR permissions for backend service clients.
+
+    Backend Service clients need explicit permissions because there is no user
+    in the Client Credentials flow. Without these, tokens will authenticate
+    but all FHIR requests return 403.
+
+    SMART App Launch clients do NOT need this — their permissions come from the
+    user who logs in and authorizes the app.
+
+    Note: The SmileCDR Admin JSON API uses the field name "permissions" (not
+    "grantedAuthorities") for OIDC client permission definitions.
+    """
+    authorities = [
+        {"permission": "ROLE_FHIR_CLIENT"},
+        {"permission": "FHIR_CAPABILITIES"},
+        {"permission": "FHIR_ACCESS_PARTITION_NAME", "argument": DEFAULT_PARTITION},
+    ]
+
+    has_read = False
+    has_write = False
+
+    for scope in scopes:
+        # system/*.read or system/ResourceType.read
+        if scope.startswith("system/") and (".read" in scope or ".rs" in scope or ".r" in scope):
+            has_read = True
+        # system/*.write or system/ResourceType.write
+        if scope.startswith("system/") and (".write" in scope or ".s" in scope):
+            has_write = True
+        # system/*.* covers both read and write
+        if scope.startswith("system/") and ".*" in scope and ".read" not in scope:
+            has_read = True
+            has_write = True
+
+    if has_read:
+        authorities.append({"permission": "FHIR_ALL_READ"})
+    if has_write:
+        authorities.append({"permission": "FHIR_ALL_WRITE"})
+        authorities.append({"permission": "FHIR_TRANSACTION"})
+
+    return authorities
 
 
 # =============================================================================
@@ -184,6 +241,7 @@ def build_backend_service_payload(
         "canIntrospectAnyTokens": False,
         "canReissueTokens": False,
         "attestationAccepted": True,
+        "permissions": scopes_to_authorities(scopes),
         "_generated_secret": client_secret,
     }
 
@@ -223,11 +281,12 @@ class SmartClientRegistrar:
     """Registers SMART/OIDC clients via SmileCDR Admin JSON API."""
 
     def __init__(self, base_url: str, auth_header: str, dry_run: bool = False,
-                 skip_existing: bool = True):
+                 skip_existing: bool = True, update_existing: bool = False):
         self.base_url = base_url.rstrip("/")
         self.admin_url = f"{self.base_url}/{ADMIN_JSON_PATH}"
         self.dry_run = dry_run
         self.skip_existing = skip_existing
+        self.update_existing = update_existing
         self.session = create_session(auth_header)
 
     def _client_url(self, client_id: Optional[str] = None) -> str:
@@ -242,6 +301,137 @@ class SmartClientRegistrar:
             return resp.status_code == 200
         except requests.RequestException:
             return False
+
+    def get_client(self, client_id: str) -> Optional[Dict]:
+        """Fetch an existing OIDC client definition."""
+        try:
+            resp = self.session.get(self._client_url(client_id), timeout=30)
+            if resp.status_code == 200:
+                return resp.json()
+            return None
+        except requests.RequestException:
+            return None
+
+    def update_client(self, client_id: str, payload: Dict) -> RegistrationResult:
+        """Update an existing OIDC client via PUT.
+
+        Used by --update-existing to patch in permissions and
+        partition access for clients that were created before these
+        fields were added to the script.
+        """
+        client_name = payload.get("clientName", client_id)
+        client_type = "backend-service" if "CLIENT_CREDENTIALS" in payload.get("allowedGrantTypes", []) else "smart-app-launch"
+
+        if self.dry_run:
+            # Show what would change
+            authorities = payload.get("permissions", [])
+            auth_summary = ", ".join(a["permission"] for a in authorities) if authorities else "none"
+            print(f"  [DRY RUN] Would update: {client_id} ({client_type})")
+            print(f"  permissions: [{auth_summary}]")
+            return RegistrationResult(
+                client_id=client_id,
+                client_name=client_name,
+                client_type=client_type,
+                success=True,
+                updated=True,
+                dry_run=True,
+            )
+
+        try:
+            resp = self.session.put(
+                self._client_url(client_id),
+                json=payload,
+                timeout=30,
+            )
+
+            if resp.status_code in (200, 201):
+                print(f"  [OK] Updated: {client_id}")
+                return RegistrationResult(
+                    client_id=client_id,
+                    client_name=client_name,
+                    client_type=client_type,
+                    success=True,
+                    status_code=resp.status_code,
+                    updated=True,
+                )
+            else:
+                error_detail = resp.text[:500] if resp.text else "No response body"
+                print(f"  [FAIL] Update {client_id}: HTTP {resp.status_code} - {error_detail}")
+                return RegistrationResult(
+                    client_id=client_id,
+                    client_name=client_name,
+                    client_type=client_type,
+                    success=False,
+                    status_code=resp.status_code,
+                    error_message=error_detail,
+                )
+
+        except requests.RequestException as e:
+            print(f"  [ERROR] Update {client_id}: {e}")
+            return RegistrationResult(
+                client_id=client_id,
+                client_name=client_name,
+                client_type=client_type,
+                success=False,
+                error_message=str(e),
+            )
+
+    def _update_existing_client(self, client_id: str) -> RegistrationResult:
+        """Fetch an existing client, add permissions based on its scopes, and PUT it back."""
+        existing = self.get_client(client_id) if not self.dry_run else None
+
+        if not self.dry_run and existing is None:
+            return RegistrationResult(
+                client_id=client_id,
+                client_name=client_id,
+                client_type="unknown",
+                success=False,
+                error_message=f"Client not found: {client_id}",
+            )
+
+        if self.dry_run:
+            # For dry run, we can't fetch the client, so just show what we'd do
+            print(f"  [DRY RUN] Would fetch and update: {client_id}")
+            print(f"  Would set permissions based on client's scopes")
+            return RegistrationResult(
+                client_id=client_id,
+                client_name=client_id,
+                client_type="unknown",
+                success=True,
+                updated=True,
+                dry_run=True,
+            )
+
+        # Determine client type from grant types
+        grant_types = existing.get("allowedGrantTypes", [])
+        is_backend = "CLIENT_CREDENTIALS" in grant_types
+        scopes = existing.get("scopes", [])
+
+        # Compute authorities from scopes (only for backend service clients)
+        if is_backend:
+            new_authorities = scopes_to_authorities(scopes)
+        else:
+            # For SMART App Launch clients, just ensure partition access is set
+            new_authorities = [
+                {"permission": "FHIR_ACCESS_PARTITION_NAME", "argument": DEFAULT_PARTITION},
+            ]
+
+        # Merge: keep existing permissions, add missing ones
+        existing_perms_list = existing.get("permissions", [])
+        existing_perm_keys = {(a.get("permission"), a.get("argument")) for a in existing_perms_list}
+        for auth in new_authorities:
+            key = (auth.get("permission"), auth.get("argument"))
+            if key not in existing_perm_keys:
+                existing_perms_list.append(auth)
+
+        existing["permissions"] = existing_perms_list
+
+        # Note: pid MUST be kept in the payload — SmileCDR requires it for PUT.
+        # Remove only truly read-only timestamp fields if present.
+        for field_name in ("createdDate", "lastUpdatedDate"):
+            existing.pop(field_name, None)
+
+        return self.update_client(client_id, existing)
 
     def register_client(self, payload: Dict) -> RegistrationResult:
         """Register a single OIDC client."""
@@ -261,15 +451,18 @@ class SmartClientRegistrar:
                 dry_run=True,
             )
 
-        if self.skip_existing and self.check_client_exists(client_id):
-            print(f"  [SKIP] Client already exists: {client_id}")
-            return RegistrationResult(
-                client_id=client_id,
-                client_name=client_name,
-                client_type=client_type,
-                success=True,
-                already_exists=True,
-            )
+        if self.check_client_exists(client_id):
+            if self.update_existing:
+                return self._update_existing_client(client_id)
+            elif self.skip_existing:
+                print(f"  [SKIP] Client already exists: {client_id}")
+                return RegistrationResult(
+                    client_id=client_id,
+                    client_name=client_name,
+                    client_type=client_type,
+                    success=True,
+                    already_exists=True,
+                )
 
         try:
             resp = self.session.post(
@@ -355,7 +548,9 @@ class SmartClientRegistrar:
             result = self.register_single(client_type, client_id, client_name, redirect_uris, scopes)
             summary.results.append(result)
 
-            if result.success and not result.already_exists:
+            if result.updated and result.success:
+                summary.updated += 1
+            elif result.success and not result.already_exists:
                 summary.succeeded += 1
             elif result.already_exists:
                 summary.skipped += 1
@@ -379,6 +574,7 @@ def generate_summary_markdown(summary: RegistrationSummary) -> str:
         f"|--------|-------|",
         f"| Total | {summary.total} |",
         f"| Registered | {summary.succeeded} |",
+        f"| Updated | {summary.updated} |",
         f"| Skipped (existing) | {summary.skipped} |",
         f"| Failed | {summary.failed} |",
         f"| Duration | {summary.duration_seconds}s |",
@@ -390,8 +586,12 @@ def generate_summary_markdown(summary: RegistrationSummary) -> str:
         lines.append("| Client ID | Type | Status |")
         lines.append("|-----------|------|--------|")
         for r in summary.results:
-            if r.dry_run:
+            if r.dry_run and r.updated:
+                status = "Would update"
+            elif r.dry_run:
                 status = "Would register"
+            elif r.updated and r.success:
+                status = "Updated"
             elif r.already_exists:
                 status = "Skipped (exists)"
             elif r.success:
@@ -465,6 +665,7 @@ def generate_summary_json(summary: RegistrationSummary) -> str:
     data = {
         "total": summary.total,
         "succeeded": summary.succeeded,
+        "updated": summary.updated,
         "failed": summary.failed,
         "skipped": summary.skipped,
         "duration_seconds": summary.duration_seconds,
@@ -476,6 +677,7 @@ def generate_summary_json(summary: RegistrationSummary) -> str:
                 "client_type": r.client_type,
                 "success": r.success,
                 "already_exists": r.already_exists,
+                "updated": r.updated,
                 "error_message": r.error_message,
                 # Never include client_secret in JSON summary
             }
@@ -532,6 +734,8 @@ def main():
                         help="Skip clients that already exist (default: true)")
     parser.add_argument("--no-skip-existing", dest="skip_existing", action="store_false",
                         help="Fail if client already exists")
+    parser.add_argument("--update-existing", action="store_true", default=False,
+                        help="Update existing clients with permissions and partition access")
 
     # Output options
     parser.add_argument("--summary-file", default=None,
@@ -551,6 +755,7 @@ def main():
         auth_header=args.auth_header,
         dry_run=args.dry_run,
         skip_existing=args.skip_existing,
+        update_existing=args.update_existing,
     )
 
     if args.bulk:
@@ -597,7 +802,8 @@ def main():
 
         summary = RegistrationSummary(
             total=1,
-            succeeded=1 if result.success and not result.already_exists else 0,
+            succeeded=1 if result.success and not result.already_exists and not result.updated else 0,
+            updated=1 if result.updated and result.success else 0,
             failed=0 if result.success else 1,
             skipped=1 if result.already_exists else 0,
             duration_seconds=duration,

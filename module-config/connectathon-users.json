@@ -1,0 +1,49 @@
+{
+  "description": "Pre-configured user accounts for connectathon participants. These users are for SMART App Launch clients where a person logs in and authorizes the app. Create all at once using: python scripts/manage_smart_users.py --bulk --users-file module-config/connectathon-users.json",
+  "version": "1.0.0",
+  "notes": "Passwords are auto-generated at creation time if not specified here. Distribute credentials securely to participants.",
+  "users": [
+    {
+      "username": "connectathon-user-01",
+      "givenName": "Connectathon",
+      "familyName": "User 01",
+      "permissionLevel": "read-only",
+      "practitionerId": "guthrie-aaron"
+    },
+    {
+      "username": "connectathon-user-02",
+      "givenName": "Connectathon",
+      "familyName": "User 02",
+      "permissionLevel": "read-only",
+      "practitionerId": "guthrie-aaron"
+    },
+    {
+      "username": "connectathon-user-03",
+      "givenName": "Connectathon",
+      "familyName": "User 03",
+      "permissionLevel": "read-only",
+      "practitionerId": "guthrie-aaron"
+    },
+    {
+      "username": "connectathon-user-04",
+      "givenName": "Connectathon",
+      "familyName": "User 04",
+      "permissionLevel": "read-only",
+      "practitionerId": "guthrie-aaron"
+    },
+    {
+      "username": "connectathon-user-05",
+      "givenName": "Connectathon",
+      "familyName": "User 05",
+      "permissionLevel": "read-write",
+      "practitionerId": "guthrie-aaron"
+    },
+    {
+      "username": "connectathon-user-06",
+      "givenName": "Connectathon",
+      "familyName": "User 06",
+      "permissionLevel": "read-write",
+      "practitionerId": "guthrie-aaron"
+    }
+  ]
+}

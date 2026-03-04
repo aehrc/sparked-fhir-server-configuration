@@ -132,21 +132,26 @@ sparked-fhir-server-configuration/
 │       ├── validate-config.yml         # Validates config on PR
 │       └── smile-application.yml       # Terraform plan/apply
 ├── docs/
-│   ├── WORKFLOWS.md             # Complete workflow guide
-│   └── [legacy docs]            # Older documentation (for reference)
+│   ├── WORKFLOWS.md                  # Complete workflow guide
+│   ├── SMART-APP-REGISTRATION.md     # SMART/OIDC client registration guide
+│   └── confluence-connectathon-entry.md  # Content for Confluence connectathon pages
 ├── scripts/
-│   ├── sync_packages.py         # Sync packages across nodes
-│   ├── update_node_packages.py  # Update simplified-multinode.yaml
-│   ├── update_tx_helm_values.py # Update terminology server config
-│   ├── generate-ig-pr.sh        # Helper for manual IG PR generation
-│   ├── setup-labels.sh          # Set up GitHub issue labels
-│   ├── requirements.txt         # Python dependencies
-│   └── README.md                # Script usage guide
+│   ├── register_smart_client.py  # Register SMART/OIDC clients
+│   ├── manage_smart_users.py     # Create user accounts for SMART auth
+│   ├── sync_packages.py          # Sync packages across nodes
+│   ├── update_node_packages.py   # Update simplified-multinode.yaml
+│   ├── update_tx_helm_values.py  # Update terminology server config
+│   ├── generate-ig-pr.sh         # Helper for manual IG PR generation
+│   ├── setup-labels.sh           # Set up GitHub issue labels
+│   ├── requirements.txt          # Python dependencies
+│   └── README.md                 # Script usage guide
 ├── module-config/
-│   ├── simplified-multinode.yaml  # SmileCDR node configuration
-│   ├── values-common.yaml         # Helm chart values
-│   ├── users.json.tpl            # User configuration template
-│   └── packages/                 # FHIR IG package specifications
+│   ├── simplified-multinode.yaml      # SmileCDR node configuration
+│   ├── connectathon-clients.json      # Pre-configured SMART clients for connectathons
+│   ├── connectathon-users.json        # Pre-configured user accounts for connectathons
+│   ├── values-common.yaml             # Helm chart values
+│   ├── users.json.tpl                 # User configuration template
+│   └── packages/                      # FHIR IG package specifications
 │       ├── package-aubase.json
 │       ├── package-aucore.json
 │       └── [other packages]
