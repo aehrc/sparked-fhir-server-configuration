@@ -1,0 +1,131 @@
+name: SMART App Client Registration
+description: Request registration of a SMART on FHIR / OIDC client on the Sparked FHIR Server
+title: "[SMART Client]: "
+labels: ["smart-client", "needs-review"]
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## SMART App Client Registration Request
+        Use this template to request registration of a SMART on FHIR client on the Sparked FHIR Server (aucore node).
+
+        **Two client types are supported:**
+        - **SMART App Launch** — For interactive apps (EHR launch, standalone launch). Public client with PKCE, no secret required.
+        - **Backend Service** — For system-to-system integration (no user interaction). Confidential client with auto-generated secret.
+
+  - type: input
+    id: client-id
+    attributes:
+      label: Client ID
+      description: |
+        Unique identifier for your client. Use lowercase with hyphens.
+        This will be used in OAuth2 flows (e.g. as the `client_id` parameter).
+      placeholder: "my-smart-app"
+    validations:
+      required: true
+
+  - type: input
+    id: client-name
+    attributes:
+      label: Client Name
+      description: Human-readable name for your application. Displayed on the authorization grant page.
+      placeholder: "My SMART Application"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: client-type
+    attributes:
+      label: Client Type
+      description: |
+        Select the type of client you need:
+        - **SMART App Launch**: Authorization Code + PKCE flow, no secret, for user-facing apps
+        - **Backend Service**: Client Credentials flow with secret, for server-to-server integration
+      options:
+        - SMART App Launch
+        - Backend Service
+    validations:
+      required: true
+
+  - type: textarea
+    id: redirect-uris
+    attributes:
+      label: Redirect URIs
+      description: |
+        One URI per line. **Required for SMART App Launch** clients.
+        Not needed for Backend Service clients.
+        Include both production and development URIs (e.g. localhost for testing).
+      placeholder: |
+        https://my-app.example.com/callback
+        http://localhost:3000/callback
+    validations:
+      required: false
+
+  - type: input
+    id: scopes
+    attributes:
+      label: Scopes
+      description: |
+        Space-separated list of requested scopes.
+
+        **Common SMART App Launch scopes:**
+        `launch/patient patient/*.read openid fhirUser offline_access`
+
+        **Common Backend Service scopes:**
+        `system/*.read` or `system/*.*`
+      placeholder: "launch/patient patient/*.read openid fhirUser offline_access"
+    validations:
+      required: true
+
+  - type: input
+    id: contact-email
+    attributes:
+      label: Contact Email
+      description: Email address for the application owner/developer
+      placeholder: "developer@example.com"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: urgency
+    attributes:
+      label: Urgency
+      description: How urgent is this request?
+      options:
+        - Low - Can wait for next scheduled release
+        - Medium - Needed within 2 weeks
+        - High - Needed within 1 week
+        - Critical - Blocking work (e.g. connectathon)
+    validations:
+      required: true
+
+  - type: textarea
+    id: business-justification
+    attributes:
+      label: Business Justification
+      description: Why do you need this client registered?
+      placeholder: "We are developing a patient-facing app for the upcoming connectathon..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional Context
+      description: |
+        Any other relevant information (e.g. expected usage patterns, specific FHIR resources needed, testing timeline, launch URL for EHR launch).
+    validations:
+      required: false
+
+  - type: markdown
+    attributes:
+      value: |
+        ---
+        ### What happens next?
+        1. **Repo admins will review** your request
+        2. **Admin adds `ready-for-automation` label** when approved
+        3. **Automated registration** creates your client on the server (~1 minute)
+        4. **You will be notified** with your client details and endpoint URLs
+        5. **For Backend Service clients**, the client secret will be communicated securely (not posted in the issue)

@@ -98,3 +98,12 @@
 - name: "deploy-immediately"
   color: "d93f0b"
   description: "Request immediate deployment after PR merge"
+
+# SMART Client Registration Labels
+- name: "smart-client"
+  color: "d876e3"
+  description: "SMART App / OIDC client registration request"
+
+- name: "auto-registered"
+  color: "1d76db"
+  description: "Client has been automatically registered on SmileCDR"

@@ -39,6 +39,10 @@ gh label create "auto-pr-created" --color "1d76db" --description "Automated PR h
 gh label create "needs-manual-intervention" --color "d93f0b" --description "Automation failed, requires manual implementation" --force
 gh label create "deploy-immediately" --color "d93f0b" --description "Request immediate deployment after PR merge" --force
 
+# SMART Client Registration Labels
+gh label create "smart-client" --color "d876e3" --description "SMART App / OIDC client registration request" --force
+gh label create "auto-registered" --color "1d76db" --description "Client has been automatically registered on SmileCDR" --force
+
 echo "All labels created successfully!"
 echo ""
 echo "View your labels at: https://github.com/$(gh repo view --json nameWithOwner -q .nameWithOwner)/labels"

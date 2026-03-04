@@ -17,6 +17,7 @@ on:
           - create-ig-pr
           - create-tx-pr
           - load-test-data
+          - register-smart-client
       data_source:
         description: 'Data source URL (load-test-data only)'
         required: false
@@ -1070,3 +1071,245 @@ jobs:
       FHIRFLARE_URL: ${{ secrets.FHIRFLARE_URL }}
       FHIR_USERNAME: ${{ secrets.FHIR_USERNAME }}
       FHIR_PASSWORD: ${{ secrets.FHIR_PASSWORD }}
+
+  # ============================================================================
+  # JOB: Register SMART Client (parse issue)
+  # ============================================================================
+  register-smart-client:
+    name: Register SMART Client
+    runs-on: arc-runner-set
+    container:
+      image: python:3.12-slim
+    if: |
+      (github.event_name == 'issues' && github.event.label.name == 'ready-for-automation' && contains(github.event.issue.labels.*.name, 'smart-client')) ||
+      (github.event_name == 'workflow_dispatch' && inputs.job_type == 'register-smart-client')
+    outputs:
+      client_id: ${{ steps.issue.outputs.client_id }}
+      client_name: ${{ steps.issue.outputs.client_name }}
+      client_type: ${{ steps.issue.outputs.client_type }}
+      redirect_uris: ${{ steps.issue.outputs.redirect_uris }}
+      scopes: ${{ steps.issue.outputs.scopes }}
+      contact_email: ${{ steps.issue.outputs.contact_email }}
+      issue_number: ${{ steps.issue.outputs.issue_number }}
+
+    steps:
+      - name: Install system dependencies
+        run: |
+          apt-get update
+          apt-get install -y git jq curl
+          curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg 2>/dev/null
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list
+          apt-get update
+          apt-get install -y gh
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: pip install -r scripts/requirements.txt
+
+      - name: Get issue details
+        id: issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issueNumber = context.payload.issue?.number || parseInt('${{ inputs.issue_number }}') || null;
+            const { data: issue } = await github.rest.issues.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber
+            });
+
+            const body = issue.body || '';
+
+            const extractField = (label) => {
+              const regex = new RegExp(`### ${label}\\s*([\\s\\S]*?)(?=###|$)`, 'i');
+              const match = body.match(regex);
+              const value = match ? match[1].trim() : '';
+              return value === '_No response_' ? '' : value;
+            };
+
+            const clientId = extractField('Client ID');
+            const clientName = extractField('Client Name');
+            const clientType = extractField('Client Type');
+            const redirectUris = extractField('Redirect URIs');
+            const scopes = extractField('Scopes');
+            const contactEmail = extractField('Contact Email');
+
+            core.setOutput('issue_number', issueNumber);
+            core.setOutput('client_id', clientId);
+            core.setOutput('client_name', clientName);
+            core.setOutput('client_type', clientType);
+            core.setOutput('redirect_uris', redirectUris);
+            core.setOutput('scopes', scopes);
+            core.setOutput('contact_email', contactEmail);
+
+            if (!clientId || !clientName || !clientType) {
+              core.setFailed('Missing required fields: Client ID, Client Name, or Client Type');
+              return;
+            }
+
+            if (clientType === 'SMART App Launch' && !redirectUris) {
+              core.setFailed('Redirect URIs are required for SMART App Launch clients');
+              return;
+            }
+
+      - name: Validate fields
+        if: steps.issue.outputs.client_id == '' || steps.issue.outputs.client_name == '' || steps.issue.outputs.client_type == ''
+        run: |
+          echo "::error::Missing required fields in issue"
+          gh issue comment ${{ steps.issue.outputs.issue_number }} --body "**Registration Failed**
+
+          Missing required information:
+          - Client ID: ${{ steps.issue.outputs.client_id }}
+          - Client Name: ${{ steps.issue.outputs.client_name }}
+          - Client Type: ${{ steps.issue.outputs.client_type }}
+
+          Please ensure these fields are filled in the issue and try again."
+          gh issue edit ${{ steps.issue.outputs.issue_number }} --add-label "needs-manual-intervention" --remove-label "ready-for-automation"
+          exit 1
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Register SMART client
+        id: register
+        run: |
+          CLIENT_TYPE_ARG=""
+          if [ "$CLIENT_TYPE" = "SMART App Launch" ]; then
+            CLIENT_TYPE_ARG="smart-app-launch"
+          elif [ "$CLIENT_TYPE" = "Backend Service" ]; then
+            CLIENT_TYPE_ARG="backend-service"
+          fi
+
+          REDIRECT_URIS_ARG=""
+          if [ -n "$REDIRECT_URIS" ]; then
+            # Convert newlines to commas for the script
+            URIS=$(echo "$REDIRECT_URIS" | tr '\n' ',' | sed 's/,$//')
+            REDIRECT_URIS_ARG="--redirect-uris $URIS"
+          fi
+
+          python scripts/register_smart_client.py \
+            --client-type "$CLIENT_TYPE_ARG" \
+            --client-id "$CLIENT_ID" \
+            --client-name "$CLIENT_NAME" \
+            $REDIRECT_URIS_ARG \
+            --scopes "$SCOPES" \
+            --contact-email "$CONTACT_EMAIL" \
+            --summary-file /tmp/registration-result.json \
+            --github-step-summary "$GITHUB_STEP_SUMMARY"
+        env:
+          CSIRO_FHIR_AUTH_64: ${{ secrets.CSIRO_FHIR_AUTH_64 }}
+          CLIENT_TYPE: ${{ steps.issue.outputs.client_type }}
+          CLIENT_ID: ${{ steps.issue.outputs.client_id }}
+          CLIENT_NAME: ${{ steps.issue.outputs.client_name }}
+          REDIRECT_URIS: ${{ steps.issue.outputs.redirect_uris }}
+          SCOPES: ${{ steps.issue.outputs.scopes }}
+          CONTACT_EMAIL: ${{ steps.issue.outputs.contact_email }}
+
+      - name: Post success comment
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const summary = JSON.parse(fs.readFileSync('/tmp/registration-result.json', 'utf8'));
+            const result = summary.results[0];
+            const issueNumber = parseInt('${{ steps.issue.outputs.issue_number }}');
+            const baseUrl = 'https://smile.sparked-fhir.com';
+
+            const clientType = result.client_type === 'smart-app-launch'
+              ? 'SMART App Launch (Public)'
+              : 'Backend Service (Confidential)';
+
+            let body = `## SMART Client Registered\n\n`;
+            body += `| Field | Value |\n|-------|-------|\n`;
+            body += `| Client ID | \`${result.client_id}\` |\n`;
+            body += `| Client Name | ${result.client_name} |\n`;
+            body += `| Client Type | ${clientType} |\n\n`;
+
+            body += `### Endpoints\n\n`;
+            body += `| Endpoint | URL |\n|----------|-----|\n`;
+            body += `| FHIR Base | \`${baseUrl}/aucore/fhir/DEFAULT\` |\n`;
+            body += `| Well-Known | \`${baseUrl}/aucore/smartauth/.well-known/openid-configuration\` |\n`;
+            body += `| Authorize | \`${baseUrl}/aucore/smartauth/authorize\` |\n`;
+            body += `| Token | \`${baseUrl}/aucore/smartauth/oauth/token\` |\n\n`;
+
+            if (result.client_type === 'smart-app-launch') {
+              body += `### Next Steps\n`;
+              body += `1. Configure your app with the **Client ID** and endpoints above\n`;
+              body += `2. No client secret is needed (public client with PKCE)\n`;
+              body += `3. Test the authorization flow by visiting the Authorize URL\n`;
+              body += `4. Comment on this issue to confirm everything works\n`;
+            } else {
+              body += `### Next Steps\n`;
+              body += `1. Configure your app with the **Client ID** and endpoints above\n`;
+              body += `2. **Client Secret**: For security, the secret is NOT posted here. Contact the repo admins to receive your client secret securely.\n`;
+              body += `3. Test the Client Credentials flow:\n`;
+              body += `   \`\`\`bash\n`;
+              body += `   curl -X POST ${baseUrl}/aucore/smartauth/oauth/token \\\n`;
+              body += `     -H "Content-Type: application/x-www-form-urlencoded" \\\n`;
+              body += `     -d "grant_type=client_credentials&client_id=${result.client_id}&client_secret=YOUR_SECRET"\n`;
+              body += `   \`\`\`\n`;
+              body += `4. Comment on this issue to confirm everything works\n`;
+            }
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              body: body,
+            });
+
+            // Update labels
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              labels: ['auto-registered'],
+            });
+
+            try {
+              await github.rest.issues.removeLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                name: 'ready-for-automation',
+              });
+            } catch (e) {
+              // Label may not exist, ignore
+            }
+
+      - name: Post failure comment
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issueNumber = parseInt('${{ steps.issue.outputs.issue_number }}');
+            if (!issueNumber) return;
+
+            const body = `**SMART Client Registration Failed**\n\nThe automated registration encountered an error. Please check the [workflow logs](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}) for details.\n\nA repo admin may need to register this client manually via the SmileCDR admin console.`;
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              body: body,
+            });
+
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              labels: ['needs-manual-intervention'],
+            });
+
+            try {
+              await github.rest.issues.removeLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                name: 'ready-for-automation',
+              });
+            } catch (e) {
+              // ignore
+            }

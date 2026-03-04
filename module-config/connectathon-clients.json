@@ -1,0 +1,76 @@
+{
+  "description": "Pre-configured SMART on FHIR clients for connectathon participants. Register all at once using: python scripts/register_smart_client.py --bulk --clients-file module-config/connectathon-clients.json",
+  "version": "1.0.0",
+  "clients": [
+    {
+      "clientId": "connectathon-app-01",
+      "clientName": "Connectathon App 01",
+      "clientType": "smart-app-launch",
+      "scopes": ["launch/patient", "patient/*.read", "openid", "fhirUser", "offline_access"],
+      "redirectUris": ["http://localhost:3000/callback", "http://localhost:8080/callback", "http://localhost:9090/callback", "https://inferno.healthit.gov/suites/custom/smart/redirect"]
+    },
+    {
+      "clientId": "connectathon-app-02",
+      "clientName": "Connectathon App 02",
+      "clientType": "smart-app-launch",
+      "scopes": ["launch/patient", "patient/*.read", "openid", "fhirUser", "offline_access"],
+      "redirectUris": ["http://localhost:3000/callback", "http://localhost:8080/callback", "http://localhost:9090/callback", "https://inferno.healthit.gov/suites/custom/smart/redirect"]
+    },
+    {
+      "clientId": "connectathon-app-03",
+      "clientName": "Connectathon App 03",
+      "clientType": "smart-app-launch",
+      "scopes": ["launch/patient", "patient/*.read", "openid", "fhirUser", "offline_access"],
+      "redirectUris": ["http://localhost:3000/callback", "http://localhost:8080/callback", "http://localhost:9090/callback", "https://inferno.healthit.gov/suites/custom/smart/redirect"]
+    },
+    {
+      "clientId": "connectathon-app-04",
+      "clientName": "Connectathon App 04",
+      "clientType": "smart-app-launch",
+      "scopes": ["launch/patient", "patient/*.read", "openid", "fhirUser", "offline_access"],
+      "redirectUris": ["http://localhost:3000/callback", "http://localhost:8080/callback", "http://localhost:9090/callback", "https://inferno.healthit.gov/suites/custom/smart/redirect"]
+    },
+    {
+      "clientId": "connectathon-app-05",
+      "clientName": "Connectathon App 05",
+      "clientType": "smart-app-launch",
+      "scopes": ["launch/patient", "patient/*.read", "openid", "fhirUser", "offline_access"],
+      "redirectUris": ["http://localhost:3000/callback", "http://localhost:8080/callback", "http://localhost:9090/callback", "https://inferno.healthit.gov/suites/custom/smart/redirect"]
+    },
+    {
+      "clientId": "connectathon-app-06",
+      "clientName": "Connectathon App 06",
+      "clientType": "smart-app-launch",
+      "scopes": ["launch/patient", "patient/*.read", "openid", "fhirUser", "offline_access"],
+      "redirectUris": ["http://localhost:3000/callback", "http://localhost:8080/callback", "http://localhost:9090/callback", "https://inferno.healthit.gov/suites/custom/smart/redirect"]
+    },
+    {
+      "clientId": "connectathon-app-07",
+      "clientName": "Connectathon App 07",
+      "clientType": "smart-app-launch",
+      "scopes": ["launch/patient", "patient/*.read", "patient/*.write", "openid", "fhirUser", "offline_access"],
+      "redirectUris": ["http://localhost:3000/callback", "http://localhost:8080/callback", "http://localhost:9090/callback", "https://inferno.healthit.gov/suites/custom/smart/redirect"]
+    },
+    {
+      "clientId": "connectathon-app-08",
+      "clientName": "Connectathon App 08",
+      "clientType": "smart-app-launch",
+      "scopes": ["launch/patient", "patient/*.read", "patient/*.write", "openid", "fhirUser", "offline_access"],
+      "redirectUris": ["http://localhost:3000/callback", "http://localhost:8080/callback", "http://localhost:9090/callback", "https://inferno.healthit.gov/suites/custom/smart/redirect"]
+    },
+    {
+      "clientId": "connectathon-backend-01",
+      "clientName": "Connectathon Backend Service 01",
+      "clientType": "backend-service",
+      "scopes": ["system/*.read"],
+      "redirectUris": []
+    },
+    {
+      "clientId": "connectathon-backend-02",
+      "clientName": "Connectathon Backend Service 02",
+      "clientType": "backend-service",
+      "scopes": ["system/*.*"],
+      "redirectUris": []
+    }
+  ]
+}

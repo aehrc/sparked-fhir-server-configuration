@@ -1,0 +1,265 @@
+name: Register SMART Clients
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Registration mode"
+        required: true
+        type: choice
+        options:
+          - bulk-connectathon
+          - single-client
+      clients_file:
+        description: "Path to clients JSON file (bulk mode only)"
+        required: false
+        default: "module-config/connectathon-clients.json"
+        type: string
+      client_type:
+        description: "Client type (single mode only)"
+        required: false
+        type: choice
+        default: "smart-app-launch"
+        options:
+          - smart-app-launch
+          - backend-service
+      client_id:
+        description: "Client ID (single mode only)"
+        required: false
+        type: string
+      client_name:
+        description: "Client name (single mode only)"
+        required: false
+        type: string
+      redirect_uris:
+        description: "Comma-separated redirect URIs (single mode only)"
+        required: false
+        type: string
+      scopes:
+        description: "Space-separated scopes (single mode only)"
+        required: false
+        type: string
+      dry_run:
+        description: "Dry run (preview without registering)"
+        required: false
+        default: true
+        type: boolean
+      skip_existing:
+        description: "Skip clients that already exist"
+        required: false
+        default: true
+        type: boolean
+      issue_number:
+        description: "Issue number to post results to (optional)"
+        required: false
+        type: number
+
+  workflow_call:
+    inputs:
+      client_type:
+        description: "Client type"
+        required: true
+        type: string
+      client_id:
+        description: "Client ID"
+        required: true
+        type: string
+      client_name:
+        description: "Client name"
+        required: true
+        type: string
+      redirect_uris:
+        description: "Comma-separated redirect URIs"
+        required: false
+        default: ""
+        type: string
+      scopes:
+        description: "Space-separated scopes"
+        required: true
+        type: string
+      contact_email:
+        description: "Contact email"
+        required: false
+        default: ""
+        type: string
+      dry_run:
+        description: "Dry run"
+        required: false
+        default: false
+        type: boolean
+      issue_number:
+        description: "Issue number to post results to"
+        required: false
+        default: 0
+        type: number
+    secrets:
+      CSIRO_FHIR_AUTH_64:
+        required: true
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  # ============================================================================
+  # Bulk Registration (connectathon clients from JSON file)
+  # ============================================================================
+  register-bulk:
+    name: Register Connectathon Clients (Bulk)
+    runs-on: arc-runner-set
+    container:
+      image: python:3.12-slim
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      inputs.mode == 'bulk-connectathon'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: pip install -r scripts/requirements.txt
+
+      - name: Register clients
+        run: |
+          python scripts/register_smart_client.py \
+            --bulk \
+            --clients-file "${{ inputs.clients_file }}" \
+            ${{ inputs.dry_run == true && '--dry-run' || '' }} \
+            ${{ inputs.skip_existing == true && '--skip-existing' || '--no-skip-existing' }} \
+            --summary-file /tmp/registration-summary.json \
+            --github-step-summary "$GITHUB_STEP_SUMMARY"
+        env:
+          CSIRO_FHIR_AUTH_64: ${{ secrets.CSIRO_FHIR_AUTH_64 }}
+
+      - name: Post results to issue
+        if: inputs.issue_number != 0 && inputs.issue_number != ''
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const summary = JSON.parse(fs.readFileSync('/tmp/registration-summary.json', 'utf8'));
+            const dryRun = summary.dry_run ? ' (DRY RUN)' : '';
+
+            let body = `## SMART Client Bulk Registration${dryRun}\n\n`;
+            body += `| Metric | Value |\n|--------|-------|\n`;
+            body += `| Total | ${summary.total} |\n`;
+            body += `| Registered | ${summary.succeeded} |\n`;
+            body += `| Skipped (existing) | ${summary.skipped} |\n`;
+            body += `| Failed | ${summary.failed} |\n`;
+            body += `| Duration | ${summary.duration_seconds}s |\n\n`;
+
+            body += `### Results\n\n| Client ID | Type | Status |\n|-----------|------|--------|\n`;
+            for (const r of summary.results) {
+              const status = r.already_exists ? 'Skipped (exists)' : r.success ? 'Registered' : `Failed: ${r.error_message}`;
+              body += `| \`${r.client_id}\` | ${r.client_type} | ${status} |\n`;
+            }
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: parseInt('${{ inputs.issue_number }}'),
+              body: body,
+            });
+
+  # ============================================================================
+  # Single Client Registration (manual dispatch)
+  # ============================================================================
+  register-single-dispatch:
+    name: Register Single Client (Manual)
+    runs-on: arc-runner-set
+    container:
+      image: python:3.12-slim
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      inputs.mode == 'single-client'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: pip install -r scripts/requirements.txt
+
+      - name: Register client
+        run: |
+          REDIRECT_URIS_ARG=""
+          if [ -n "$REDIRECT_URIS" ]; then
+            REDIRECT_URIS_ARG="--redirect-uris $REDIRECT_URIS"
+          fi
+
+          SCOPES_ARG=""
+          if [ -n "$SCOPES" ]; then
+            SCOPES_ARG="--scopes $SCOPES"
+          fi
+
+          python scripts/register_smart_client.py \
+            --client-type "$CLIENT_TYPE" \
+            --client-id "$CLIENT_ID" \
+            --client-name "$CLIENT_NAME" \
+            $REDIRECT_URIS_ARG \
+            $SCOPES_ARG \
+            ${{ inputs.dry_run == true && '--dry-run' || '' }} \
+            ${{ inputs.skip_existing == true && '--skip-existing' || '--no-skip-existing' }} \
+            --summary-file /tmp/registration-summary.json \
+            --github-step-summary "$GITHUB_STEP_SUMMARY"
+        env:
+          CSIRO_FHIR_AUTH_64: ${{ secrets.CSIRO_FHIR_AUTH_64 }}
+          CLIENT_TYPE: ${{ inputs.client_type }}
+          CLIENT_ID: ${{ inputs.client_id }}
+          CLIENT_NAME: ${{ inputs.client_name }}
+          REDIRECT_URIS: ${{ inputs.redirect_uris }}
+          SCOPES: ${{ inputs.scopes }}
+
+  # ============================================================================
+  # Single Client Registration (called from issue-labeled workflow)
+  # ============================================================================
+  register-single-issue:
+    name: Register Single Client (from Issue)
+    runs-on: arc-runner-set
+    container:
+      image: python:3.12-slim
+    if: github.event_name == 'workflow_call'
+
+    steps:
+      - name: Install system dependencies
+        run: |
+          apt-get update
+          apt-get install -y git jq curl
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: pip install -r scripts/requirements.txt
+
+      - name: Register client
+        id: register
+        run: |
+          REDIRECT_URIS_ARG=""
+          if [ -n "$REDIRECT_URIS" ]; then
+            REDIRECT_URIS_ARG="--redirect-uris $REDIRECT_URIS"
+          fi
+
+          SCOPES_ARG=""
+          if [ -n "$SCOPES" ]; then
+            SCOPES_ARG="--scopes $SCOPES"
+          fi
+
+          python scripts/register_smart_client.py \
+            --client-type "$CLIENT_TYPE" \
+            --client-id "$CLIENT_ID" \
+            --client-name "$CLIENT_NAME" \
+            $REDIRECT_URIS_ARG \
+            $SCOPES_ARG \
+            ${{ inputs.dry_run == true && '--dry-run' || '' }} \
+            --skip-existing \
+            --summary-file /tmp/registration-summary.json \
+            --github-step-summary "$GITHUB_STEP_SUMMARY"
+        env:
+          CSIRO_FHIR_AUTH_64: ${{ secrets.CSIRO_FHIR_AUTH_64 }}
+          CLIENT_TYPE: ${{ inputs.client_type }}
+          CLIENT_ID: ${{ inputs.client_id }}
+          CLIENT_NAME: ${{ inputs.client_name }}
+          REDIRECT_URIS: ${{ inputs.redirect_uris }}
+          SCOPES: ${{ inputs.scopes }}

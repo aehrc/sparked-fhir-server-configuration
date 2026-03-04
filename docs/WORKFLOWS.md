@@ -9,7 +9,8 @@ This repository uses GitHub Actions workflows to automate FHIR Implementation Gu
 ## Table of Contents
 
 - [IG Release Workflow](#ig-release-workflow)
-- [Test Data Loading](#test-data-loading)
+- [Test Data Management](#test-data-management)
+- [SMART Client Registration](#smart-client-registration)
 - [Manual Package Deployment](#manual-package-deployment)
 - [For Requestors](#for-requestors)
 - [For Repo Admins](#for-repo-admins)
@@ -245,6 +246,54 @@ See [scripts/README.md](../scripts/README.md) for local CLI examples including:
 
 ---
 
+## SMART Client Registration
+
+Register SMART on FHIR / OIDC clients on the aucore node for app developers and connectathon participants.
+
+See the **[SMART App Registration Guide](SMART-APP-REGISTRATION.md)** for full details.
+
+### Quick Start (Requestors)
+
+**Goal:** Register a SMART on FHIR client on the aucore node
+
+**Time:** ~5 minutes (automated)
+
+#### Step 1: Create Issue
+
+1. Go to [Issues > New Issue](../../issues/new/choose)
+2. Select **"SMART App Client Registration"**
+3. Fill out:
+   - **Client ID**: Unique identifier (e.g., `my-smart-app`)
+   - **Client Name**: Human-readable name
+   - **Client Type**: SMART App Launch (for interactive apps) or Backend Service (for server-to-server)
+   - **Redirect URIs**: Your app's callback URLs (SMART App Launch only)
+   - **Scopes**: Space-separated scopes
+4. Submit the issue
+
+#### Step 2: Admin Review & Approval
+
+Admin reviews and adds `ready-for-automation` label.
+
+#### Step 3: Automated Registration
+
+- Client is registered via the SmileCDR Admin JSON API (~1 minute)
+- Results with endpoint URLs posted to your issue
+- For Backend Service clients, the secret is communicated out-of-band
+
+### Connectathon Bulk Registration
+
+For connectathon events with many participants:
+
+1. Go to **Actions** > **Register SMART Clients** > **Run workflow**
+2. Select mode: `bulk-connectathon`
+3. Enable **Dry Run** first to preview
+4. Run again without dry run to register all 10 pre-configured clients
+5. Distribute client IDs to participants
+
+Pre-configured clients are defined in `module-config/connectathon-clients.json`.
+
+---
+
 ## Manual Package Deployment
 
 ### For Admins: Deploy Packages Manually
@@ -423,6 +472,7 @@ Track your request through these stages:
 | `load-test-data.yml` | Manual or workflow_call | Loads FHIR test data to a node |
 | `clear-test-data.yml` | Manual or workflow_call | Clears FHIR test data from a node |
 | `manage-test-data.yml` | Manual | Common multi-step operations (clear+load, expunge) |
+| `register-smart-clients.yml` | Manual, workflow_call, or issue label | Registers SMART/OIDC clients on aucore node |
 
 ### Workflow Inputs
 

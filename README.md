@@ -48,6 +48,19 @@ This repository manages the deployment and configuration of a multi-node Smile C
 
 Test data management is powered by the [`sparked-test-data-loader`](https://github.com/aehrc/sparked-test-data-loader) Go tool.
 
+### I want to register a SMART App / OIDC client
+
+1. [Create a SMART App Registration Request](../../issues/new/choose)
+2. Select client type (SMART App Launch or Backend Service)
+3. Provide Client ID, name, scopes, and redirect URIs
+4. Admin reviews and approves (`ready-for-automation` label)
+5. Client is automatically registered
+6. Receive your client details and endpoint URLs
+
+**Time:** ~5 minutes (automated after approval)
+
+See **[SMART App Registration Guide](docs/SMART-APP-REGISTRATION.md)**
+
 ### I want to change server configuration
 
 1. [Create a Configuration Change Request](../../issues/new/choose)
@@ -63,6 +76,7 @@ Test data management is powered by the [`sparked-test-data-loader`](https://gith
 | Document | Purpose | Audience |
 |----------|---------|----------|
 | **[Workflow Guide](docs/WORKFLOWS.md)** | Complete guide to all automated workflows | Everyone |
+| **[SMART App Registration](docs/SMART-APP-REGISTRATION.md)** | Register SMART on FHIR / OIDC clients | Developers/Participants |
 | **[Scripts README](scripts/README.md)** | How to use Python scripts locally | Developers/Admins |
 
 ## Architecture
@@ -104,7 +118,8 @@ sparked-fhir-server-configuration/
 │   ├── ISSUE_TEMPLATE/          # Request templates
 │   │   ├── 01-ig-release-request.yml
 │   │   ├── 02-configuration-change.yml
-│   │   └── 03-operational-request.yml
+│   │   ├── 03-operational-request.yml
+│   │   └── 05-smart-app-registration.yml
 │   └── workflows/               # GitHub Actions automation
 │       ├── issue-opened.yml            # Validates requests on creation
 │       ├── issue-labeled.yml           # Creates PRs automatically
@@ -113,6 +128,7 @@ sparked-fhir-server-configuration/
 │       ├── load-test-data.yml          # Load FHIR test data to a node
 │       ├── clear-test-data.yml         # Clear FHIR test data from a node
 │       ├── manage-test-data.yml        # Common test data operations (clear+load, expunge)
+│       ├── register-smart-clients.yml  # Register SMART/OIDC clients
 │       ├── validate-config.yml         # Validates config on PR
 │       └── smile-application.yml       # Terraform plan/apply
 ├── docs/
