@@ -35,15 +35,15 @@ targets:
             packageListUrl: https://hl7.org.au/fhir/package-list.json
             displayName: AU Base
             statuses: [ballot, preview, draft, trial-use]
-            versionMode: latest
+            versionMode: latest-any
           - packageId: hl7.fhir.au.core
             packageListUrl: https://hl7.org.au/fhir/core/package-list.json
             statuses: [ballot, preview, draft, trial-use]
-            versionMode: latest
+            versionMode: latest-any
           - packageId: hl7.fhir.au.ereq
             packageListUrl: https://hl7.org.au/fhir/ereq/package-list.json
             statuses: [ballot, preview, draft, trial-use]
-            versionMode: latest
+            versionMode: latest-any
           - packageId: hl7.fhir.au.ps
             packageListUrl: https://hl7.org.au/fhir/ps/package-list.json
             statuses:
