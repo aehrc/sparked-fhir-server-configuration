@@ -20,19 +20,9 @@ module "smile_cdr_dependencies" {
       data     = file("../module-config/packages/package-international-patient-summary-2.0.0.json")
     },
     {
-      name     = "package-au-patient-summary-0.4.0-draft.json"
-      location = "classes/config_seeding"
-      data     = file("../module-config/packages/package-au-patient-summary-0.4.0-draft.json")
-    },
-    {
       name     = "package-aucore-2.0.0.json"
       location = "classes/config_seeding"
       data     = file("../module-config/packages/package-aucore-2.0.0.json")
-    },
-    {
-      name     = "package-au-patient-summary-0.5.0-preview.json"
-      location = "classes/config_seeding"
-      data     = file("../module-config/packages/package-au-patient-summary-0.5.0-preview.json")
     },
     {
       name     = "package-au-base-6.0.0.json"
@@ -43,6 +33,11 @@ module "smile_cdr_dependencies" {
       name     = "package-au-erequesting-1.0.0.json"
       location = "classes/config_seeding"
       data     = file("../module-config/packages/package-au-erequesting-1.0.0.json")
+    },
+    {
+      name     = "package-au-patient-summary-1.0.0-ballot.json"
+      location = "classes/config_seeding"
+      data     = file("../module-config/packages/package-au-patient-summary-1.0.0-ballot.json")
     },
     # Users configuration moved to AWS Secrets Manager - see extra_secrets below
   ]

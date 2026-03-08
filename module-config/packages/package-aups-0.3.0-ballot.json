@@ -1,6 +1,0 @@
-{
-  "name": "hl7.fhir.au.ps",
-  "version": "0.3.0-ballot",
-  "installMode": "STORE_ONLY",
-  "fetchDependencies": false
-}
