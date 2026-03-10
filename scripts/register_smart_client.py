@@ -68,16 +68,40 @@ except ImportError:
 # =============================================================================
 
 DEFAULT_BASE_URL = "https://smile.sparked-fhir.com"
-NODE_ID = "aucore"
-MODULE_ID = "smart_auth"
-ADMIN_JSON_PATH = "aucore/admin-json"
-OIDC_CLIENTS_PATH = f"openid-connect-clients/{NODE_ID}/{MODULE_ID}"
 
-# Endpoint URLs for documentation / issue comments
-WELL_KNOWN_SUFFIX = f"{NODE_ID}/smartauth/.well-known/openid-configuration"
-AUTHORIZE_SUFFIX = f"{NODE_ID}/smartauth/authorize"
-TOKEN_SUFFIX = f"{NODE_ID}/smartauth/oauth/token"
-FHIR_BASE_SUFFIX = f"{NODE_ID}/fhir/DEFAULT"
+# Each node has its own smart_auth and local_security modules (from useDefaultModules).
+# Clients and users must be registered per-node on that node's smart_auth module.
+MODULE_ID = "smart_auth"
+SUPPORTED_NODES = ["aucore", "hl7au", "ereq"]
+DEFAULT_NODE = "aucore"
+
+# Node-specific configuration for SMART auth context paths and admin API paths.
+# Each node's smart_auth module listens on its own context path.
+NODE_CONFIG = {
+    "aucore": {"smartauth_path": "aucore/smartauth", "admin_path": "aucore/admin-json"},
+    "hl7au":  {"smartauth_path": "hl7au/smartauth",  "admin_path": "hl7au/admin-json"},
+    "ereq":   {"smartauth_path": "ereq/smartauth",   "admin_path": "ereq/admin-json"},
+}
+
+
+def well_known_suffix(node: str = DEFAULT_NODE) -> str:
+    return f"{NODE_CONFIG[node]['smartauth_path']}/.well-known/openid-configuration"
+
+
+def authorize_suffix(node: str = DEFAULT_NODE) -> str:
+    return f"{NODE_CONFIG[node]['smartauth_path']}/oauth/authorize"
+
+
+def token_suffix(node: str = DEFAULT_NODE) -> str:
+    return f"{NODE_CONFIG[node]['smartauth_path']}/oauth/token"
+
+
+def admin_json_path(node: str = DEFAULT_NODE) -> str:
+    return NODE_CONFIG[node]["admin_path"]
+
+
+def oidc_clients_path(node: str = DEFAULT_NODE) -> str:
+    return f"openid-connect-clients/{node}/{MODULE_ID}"
 
 DEFAULT_SMART_APP_SCOPES = [
     "launch/patient", "patient/*.read", "openid", "fhirUser", "offline_access"
@@ -86,6 +110,11 @@ DEFAULT_BACKEND_SCOPES = ["system/*.read"]
 
 # SmileCDR partition name used in the FHIR endpoint
 DEFAULT_PARTITION = "DEFAULT"
+
+
+def fhir_base_suffix(node: str = DEFAULT_NODE) -> str:
+    """Return the FHIR base URL path for a given node."""
+    return f"{node}/fhir/{DEFAULT_PARTITION}"
 
 
 # =============================================================================
@@ -117,6 +146,7 @@ class RegistrationSummary:
     dry_run: bool = False
     results: List[RegistrationResult] = field(default_factory=list)
     base_url: str = DEFAULT_BASE_URL
+    target_node: str = DEFAULT_NODE
 
 
 # =============================================================================
@@ -175,6 +205,7 @@ def build_smart_app_launch_payload(
     client_name: str,
     redirect_uris: List[str],
     scopes: List[str],
+    node_id: str = DEFAULT_NODE,
     access_token_timeout: int = 3600,
     refresh_token_timeout: int = 86400,
 ) -> Dict:
@@ -184,7 +215,7 @@ def build_smart_app_launch_payload(
     Suitable for browser-based or mobile SMART apps.
     """
     return {
-        "nodeId": NODE_ID,
+        "nodeId": node_id,
         "moduleId": MODULE_ID,
         "clientId": client_id,
         "clientName": client_name,
@@ -211,6 +242,7 @@ def build_backend_service_payload(
     client_id: str,
     client_name: str,
     scopes: List[str],
+    node_id: str = DEFAULT_NODE,
     client_secret: Optional[str] = None,
     access_token_timeout: int = 3600,
 ) -> Dict:
@@ -223,7 +255,7 @@ def build_backend_service_payload(
         client_secret = secrets.token_urlsafe(32)
 
     return {
-        "nodeId": NODE_ID,
+        "nodeId": node_id,
         "moduleId": MODULE_ID,
         "clientId": client_id,
         "clientName": client_name,
@@ -280,19 +312,22 @@ def create_session(auth_header: str) -> requests.Session:
 class SmartClientRegistrar:
     """Registers SMART/OIDC clients via SmileCDR Admin JSON API."""
 
-    def __init__(self, base_url: str, auth_header: str, dry_run: bool = False,
-                 skip_existing: bool = True, update_existing: bool = False):
+    def __init__(self, base_url: str, auth_header: str, node_id: str = DEFAULT_NODE,
+                 dry_run: bool = False, skip_existing: bool = True,
+                 update_existing: bool = False):
         self.base_url = base_url.rstrip("/")
-        self.admin_url = f"{self.base_url}/{ADMIN_JSON_PATH}"
+        self.node_id = node_id
+        self.admin_url = f"{self.base_url}/{admin_json_path(node_id)}"
         self.dry_run = dry_run
         self.skip_existing = skip_existing
         self.update_existing = update_existing
         self.session = create_session(auth_header)
 
     def _client_url(self, client_id: Optional[str] = None) -> str:
+        path = oidc_clients_path(self.node_id)
         if client_id:
-            return f"{self.admin_url}/{OIDC_CLIENTS_PATH}/{client_id}"
-        return f"{self.admin_url}/{OIDC_CLIENTS_PATH}"
+            return f"{self.admin_url}/{path}/{client_id}"
+        return f"{self.admin_url}/{path}"
 
     def check_client_exists(self, client_id: str) -> bool:
         """Check if an OIDC client already exists."""
@@ -507,9 +542,9 @@ class SmartClientRegistrar:
                          redirect_uris: List[str], scopes: List[str]) -> RegistrationResult:
         """Register a single client by type."""
         if client_type == "smart-app-launch":
-            payload = build_smart_app_launch_payload(client_id, client_name, redirect_uris, scopes)
+            payload = build_smart_app_launch_payload(client_id, client_name, redirect_uris, scopes, node_id=self.node_id)
         elif client_type == "backend-service":
-            payload = build_backend_service_payload(client_id, client_name, scopes)
+            payload = build_backend_service_payload(client_id, client_name, scopes, node_id=self.node_id)
         else:
             return RegistrationResult(
                 client_id=client_id,
@@ -604,15 +639,17 @@ def generate_summary_markdown(summary: RegistrationSummary) -> str:
     lines.append("### Endpoints\n")
     lines.append("| Endpoint | URL |")
     lines.append("|----------|-----|")
-    lines.append(f"| FHIR Base | `{summary.base_url}/{FHIR_BASE_SUFFIX}` |")
-    lines.append(f"| Well-Known | `{summary.base_url}/{WELL_KNOWN_SUFFIX}` |")
-    lines.append(f"| Authorize | `{summary.base_url}/{AUTHORIZE_SUFFIX}` |")
-    lines.append(f"| Token | `{summary.base_url}/{TOKEN_SUFFIX}` |")
+    node = summary.target_node
+    lines.append(f"| FHIR Base | `{summary.base_url}/{fhir_base_suffix(node)}` |")
+    lines.append(f"| Well-Known | `{summary.base_url}/{well_known_suffix(node)}` |")
+    lines.append(f"| Authorize | `{summary.base_url}/{authorize_suffix(node)}` |")
+    lines.append(f"| Token | `{summary.base_url}/{token_suffix(node)}` |")
 
     return "\n".join(lines)
 
 
-def generate_single_client_markdown(result: RegistrationResult, base_url: str) -> str:
+def generate_single_client_markdown(result: RegistrationResult, base_url: str,
+                                     target_node: str = DEFAULT_NODE) -> str:
     """Generate markdown for a single client registration (for issue comments)."""
     type_label = "SMART App Launch (Public)" if result.client_type == "smart-app-launch" else "Backend Service (Confidential)"
 
@@ -627,10 +664,10 @@ def generate_single_client_markdown(result: RegistrationResult, base_url: str) -
         "### Endpoints\n",
         "| Endpoint | URL |",
         "|----------|-----|",
-        f"| FHIR Base | `{base_url}/{FHIR_BASE_SUFFIX}` |",
-        f"| Well-Known | `{base_url}/{WELL_KNOWN_SUFFIX}` |",
-        f"| Authorize | `{base_url}/{AUTHORIZE_SUFFIX}` |",
-        f"| Token | `{base_url}/{TOKEN_SUFFIX}` |",
+        f"| FHIR Base | `{base_url}/{fhir_base_suffix(target_node)}` |",
+        f"| Well-Known | `{base_url}/{well_known_suffix(target_node)}` |",
+        f"| Authorize | `{base_url}/{authorize_suffix(target_node)}` |",
+        f"| Token | `{base_url}/{token_suffix(target_node)}` |",
         "",
     ]
 
@@ -650,7 +687,7 @@ def generate_single_client_markdown(result: RegistrationResult, base_url: str) -
             "   Contact the repo admins to receive your client secret securely.",
             "3. Test the Client Credentials flow:",
             "   ```bash",
-            f"   curl -X POST {base_url}/{TOKEN_SUFFIX} \\",
+            f"   curl -X POST {base_url}/{token_suffix(target_node)} \\",
             '     -H "Content-Type: application/x-www-form-urlencoded" \\',
             f'     -d "grant_type=client_credentials&client_id={result.client_id}&client_secret=YOUR_SECRET"',
             "   ```",
@@ -720,6 +757,10 @@ def main():
                         help="Space-separated SMART/OIDC scopes")
     parser.add_argument("--contact-email", default="",
                         help="Contact email for the app owner (metadata only)")
+    parser.add_argument("--node", default=DEFAULT_NODE,
+                        choices=SUPPORTED_NODES,
+                        help=f"Target SmileCDR node (default: {DEFAULT_NODE}). "
+                             "Registers client on this node's smart_auth module and shows matching endpoints.")
 
     # Bulk options
     parser.add_argument("--bulk", action="store_true",
@@ -753,6 +794,7 @@ def main():
     registrar = SmartClientRegistrar(
         base_url=args.base_url,
         auth_header=args.auth_header,
+        node_id=args.node,
         dry_run=args.dry_run,
         skip_existing=args.skip_existing,
         update_existing=args.update_existing,
@@ -764,6 +806,7 @@ def main():
             sys.exit(1)
 
         summary = registrar.register_bulk(args.clients_file)
+        summary.target_node = args.node
 
         # Write outputs
         md = generate_summary_markdown(summary)
@@ -810,9 +853,10 @@ def main():
             dry_run=args.dry_run,
             results=[result],
             base_url=args.base_url,
+            target_node=args.node,
         )
 
-        md = generate_single_client_markdown(result, args.base_url) if result.success else generate_summary_markdown(summary)
+        md = generate_single_client_markdown(result, args.base_url, args.node) if result.success else generate_summary_markdown(summary)
         print(f"\n{md}")
 
         if args.github_step_summary:

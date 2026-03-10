@@ -4,17 +4,18 @@ Complete guide to registering SMART on FHIR / OIDC clients on the Sparked FHIR S
 
 ## Key Endpoints
 
+| Node | FHIR Base | Well-Known | Authorize | Token |
+|------|-----------|------------|-----------|-------|
+| aucore | `https://smile.sparked-fhir.com/aucore/fhir/DEFAULT` | `https://smile.sparked-fhir.com/aucore/smartauth/.well-known/openid-configuration` | `https://smile.sparked-fhir.com/aucore/smartauth/oauth/authorize` | `https://smile.sparked-fhir.com/aucore/smartauth/oauth/token` |
+| hl7au | `https://smile.sparked-fhir.com/hl7au/fhir/DEFAULT` | `https://smile.sparked-fhir.com/hl7au/smartauth/.well-known/openid-configuration` | `https://smile.sparked-fhir.com/hl7au/smartauth/oauth/authorize` | `https://smile.sparked-fhir.com/hl7au/smartauth/oauth/token` |
+| ereq | `https://smile.sparked-fhir.com/ereq/fhir/DEFAULT` | `https://smile.sparked-fhir.com/ereq/smartauth/.well-known/openid-configuration` | `https://smile.sparked-fhir.com/ereq/smartauth/oauth/authorize` | `https://smile.sparked-fhir.com/ereq/smartauth/oauth/token` |
+
 | Endpoint | URL |
 |----------|-----|
-| FHIR Base | `https://smile.sparked-fhir.com/aucore/fhir/DEFAULT` |
-| Well-Known (OIDC) | `https://smile.sparked-fhir.com/aucore/smartauth/.well-known/openid-configuration` |
-| SMART Configuration | `https://smile.sparked-fhir.com/aucore/smartauth/.well-known/smart-configuration` |
-| Authorize | `https://smile.sparked-fhir.com/aucore/smartauth/oauth/authorize` |
-| Token | `https://smile.sparked-fhir.com/aucore/smartauth/oauth/token` |
-| Login Page | `https://smile.sparked-fhir.com/aucore/smartauth/signin` |
+| Login Page (aucore) | `https://smile.sparked-fhir.com/aucore/smartauth/signin` |
 | Admin Console | `https://smile.sparked-fhir.com/aucore/console` |
 
-> **Note**: SMART auth is only configured on the **aucore** node. The hl7au and ereq nodes do not have SMART auth modules.
+> **Note**: Each node has its own `smart_auth` and `local_security` modules (via `useDefaultModules`). Clients and users must be registered **per-node** on the target node's smart_auth module. Use `--node` with the registration scripts to target a specific node. All nodes share the same JWKS keystore for token signing.
 
 ## Client Types
 
