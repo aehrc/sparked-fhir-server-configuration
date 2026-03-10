@@ -9,7 +9,7 @@ body:
     attributes:
       value: |
         ## SMART App Client Registration Request
-        Use this template to request registration of a SMART on FHIR client on the Sparked FHIR Server (aucore node).
+        Use this template to request registration of a SMART on FHIR client on the Sparked FHIR Server.
 
         **Two client types are supported:**
         - **SMART App Launch** — For interactive apps (EHR launch, standalone launch). Public client with PKCE, no secret required.
@@ -48,6 +48,23 @@ body:
         - Backend Service
     validations:
       required: true
+
+  - type: checkboxes
+    id: target-nodes
+    attributes:
+      label: Target Nodes
+      description: |
+        Select which FHIR server node(s) to register the client on. Each node has its own client registry and auth endpoints.
+        - **aucore** — AU Core / general purpose
+        - **hl7au** — HL7 AU IGs
+        - **ereq** — eRequesting
+      options:
+        - label: "aucore"
+          required: false
+        - label: "hl7au"
+          required: false
+        - label: "ereq"
+          required: false
 
   - type: textarea
     id: redirect-uris

@@ -82,13 +82,12 @@ except ImportError:
 # =============================================================================
 
 DEFAULT_BASE_URL = "https://smile.sparked-fhir.com"
-NODE_ID = "aucore"
-# The security module ID for the aucore node. This is the Local Inbound Security
-# module which manages users who authenticate via the SMART auth login page.
-# The smart_auth (SMART Outbound Security) module depends on this for username/password auth.
-SECURITY_MODULE_ID = "local_security"
-ADMIN_JSON_PATH = f"{NODE_ID}/admin-json"
-USER_MGMT_PATH = f"user-management/{NODE_ID}/{SECURITY_MODULE_ID}"
+
+# Each node has its own local_security (Local Inbound Security) module via useDefaultModules.
+# The smart_auth (SMART Outbound Security) module depends on local_security for
+# username/password authentication. Use --node to target a specific node.
+DEFAULT_NODE_ID = "aucore"
+DEFAULT_SECURITY_MODULE_ID = "local_security"
 
 DEFAULT_PARTITION = "DEFAULT"
 
@@ -254,16 +253,20 @@ def create_session(auth_header: str) -> requests.Session:
 class SmartUserManager:
     """Manages SmileCDR users via the Admin JSON User Management API."""
 
-    def __init__(self, base_url: str, auth_header: str, dry_run: bool = False,
-                 skip_existing: bool = True):
+    def __init__(self, base_url: str, auth_header: str,
+                 node_id: str = DEFAULT_NODE_ID,
+                 module_id: str = DEFAULT_SECURITY_MODULE_ID,
+                 dry_run: bool = False, skip_existing: bool = True):
         self.base_url = base_url.rstrip("/")
-        self.admin_url = f"{self.base_url}/{ADMIN_JSON_PATH}"
+        self.node_id = node_id
+        self.module_id = module_id
+        self.admin_url = f"{self.base_url}/{node_id}/admin-json"
         self.dry_run = dry_run
         self.skip_existing = skip_existing
         self.session = create_session(auth_header)
 
     def _user_url(self) -> str:
-        return f"{self.admin_url}/{USER_MGMT_PATH}"
+        return f"{self.admin_url}/user-management/{self.node_id}/{self.module_id}"
 
     def check_user_exists(self, username: str) -> bool:
         """Check if a user already exists by searching for the username.
@@ -517,6 +520,12 @@ def main():
     parser.add_argument("--patient-id",
                         help="Patient resource ID for default patient launch context")
 
+    # Node/module options
+    parser.add_argument("--node", default=DEFAULT_NODE_ID,
+                        help=f"SmileCDR node ID (default: {DEFAULT_NODE_ID})")
+    parser.add_argument("--module", default=DEFAULT_SECURITY_MODULE_ID,
+                        help=f"Security module ID (default: {DEFAULT_SECURITY_MODULE_ID})")
+
     # Bulk options
     parser.add_argument("--bulk", action="store_true",
                         help="Bulk create users from JSON file")
@@ -549,6 +558,8 @@ def main():
     manager = SmartUserManager(
         base_url=args.base_url,
         auth_header=args.auth_header,
+        node_id=args.node,
+        module_id=args.module,
         dry_run=args.dry_run,
         skip_existing=args.skip_existing,
     )

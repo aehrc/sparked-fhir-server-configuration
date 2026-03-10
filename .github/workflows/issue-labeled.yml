@@ -1090,6 +1090,7 @@ jobs:
       redirect_uris: ${{ steps.issue.outputs.redirect_uris }}
       scopes: ${{ steps.issue.outputs.scopes }}
       contact_email: ${{ steps.issue.outputs.contact_email }}
+      target_nodes: ${{ steps.issue.outputs.target_nodes }}
       issue_number: ${{ steps.issue.outputs.issue_number }}
 
     steps:
@@ -1136,6 +1137,22 @@ jobs:
             const scopes = extractField('Scopes');
             const contactEmail = extractField('Contact Email');
 
+            // Extract target nodes from checkboxes
+            const targetNodesSection = extractField('Target Nodes');
+            const selectedNodes = [];
+            if (targetNodesSection) {
+              const lines = targetNodesSection.split('\n');
+              for (const line of lines) {
+                if (line.includes('[x]') || line.includes('[X]')) {
+                  if (line.includes('aucore')) selectedNodes.push('aucore');
+                  if (line.includes('hl7au')) selectedNodes.push('hl7au');
+                  if (line.includes('ereq')) selectedNodes.push('ereq');
+                }
+              }
+            }
+            // Default to aucore if no nodes selected (backwards compatibility)
+            const targetNodes = selectedNodes.length > 0 ? selectedNodes.join(',') : 'aucore';
+
             core.setOutput('issue_number', issueNumber);
             core.setOutput('client_id', clientId);
             core.setOutput('client_name', clientName);
@@ -1143,6 +1160,7 @@ jobs:
             core.setOutput('redirect_uris', redirectUris);
             core.setOutput('scopes', scopes);
             core.setOutput('contact_email', contactEmail);
+            core.setOutput('target_nodes', targetNodes);
 
             if (!clientId || !clientName || !clientType) {
               core.setFailed('Missing required fields: Client ID, Client Name, or Client Type');
@@ -1188,15 +1206,38 @@ jobs:
             REDIRECT_URIS_ARG="--redirect-uris $URIS"
           fi
 
-          python scripts/register_smart_client.py \
-            --client-type "$CLIENT_TYPE_ARG" \
-            --client-id "$CLIENT_ID" \
-            --client-name "$CLIENT_NAME" \
-            $REDIRECT_URIS_ARG \
-            --scopes "$SCOPES" \
-            --contact-email "$CONTACT_EMAIL" \
-            --summary-file /tmp/registration-result.json \
-            --github-step-summary "$GITHUB_STEP_SUMMARY"
+          # Register on each target node
+          IFS=',' read -ra NODES <<< "$TARGET_NODES"
+          FAILED=0
+          for NODE in "${NODES[@]}"; do
+            echo "=== Registering on node: $NODE ==="
+            python scripts/register_smart_client.py \
+              --node "$NODE" \
+              --client-type "$CLIENT_TYPE_ARG" \
+              --client-id "$CLIENT_ID" \
+              --client-name "$CLIENT_NAME" \
+              $REDIRECT_URIS_ARG \
+              --scopes "$SCOPES" \
+              --contact-email "$CONTACT_EMAIL" \
+              --summary-file "/tmp/registration-result-${NODE}.json" \
+              --github-step-summary "$GITHUB_STEP_SUMMARY" || FAILED=1
+          done
+
+          # Merge results into a single summary
+          python3 -c "
+          import json, glob
+          results = []
+          for f in sorted(glob.glob('/tmp/registration-result-*.json')):
+              data = json.load(open(f))
+              node = f.split('-')[-1].replace('.json', '')
+              for r in data.get('results', []):
+                  r['node'] = node
+                  results.append(r)
+          merged = {'results': results, 'target_nodes': '$TARGET_NODES'}
+          json.dump(merged, open('/tmp/registration-result.json', 'w'), indent=2)
+          "
+
+          exit $FAILED
         env:
           CSIRO_FHIR_AUTH_64: ${{ secrets.CSIRO_FHIR_AUTH_64 }}
           CLIENT_TYPE: ${{ steps.issue.outputs.client_type }}
@@ -1205,6 +1246,7 @@ jobs:
           REDIRECT_URIS: ${{ steps.issue.outputs.redirect_uris }}
           SCOPES: ${{ steps.issue.outputs.scopes }}
           CONTACT_EMAIL: ${{ steps.issue.outputs.contact_email }}
+          TARGET_NODES: ${{ steps.issue.outputs.target_nodes }}
 
       - name: Post success comment
         if: success()
@@ -1214,6 +1256,7 @@ jobs:
             const fs = require('fs');
             const summary = JSON.parse(fs.readFileSync('/tmp/registration-result.json', 'utf8'));
             const result = summary.results[0];
+            const nodes = summary.target_nodes.split(',');
             const issueNumber = parseInt('${{ steps.issue.outputs.issue_number }}');
             const baseUrl = 'https://smile.sparked-fhir.com';
 
@@ -1225,14 +1268,16 @@ jobs:
             body += `| Field | Value |\n|-------|-------|\n`;
             body += `| Client ID | \`${result.client_id}\` |\n`;
             body += `| Client Name | ${result.client_name} |\n`;
-            body += `| Client Type | ${clientType} |\n\n`;
+            body += `| Client Type | ${clientType} |\n`;
+            body += `| Registered On | ${nodes.join(', ')} |\n\n`;
 
             body += `### Endpoints\n\n`;
-            body += `| Endpoint | URL |\n|----------|-----|\n`;
-            body += `| FHIR Base | \`${baseUrl}/aucore/fhir/DEFAULT\` |\n`;
-            body += `| Well-Known | \`${baseUrl}/aucore/smartauth/.well-known/openid-configuration\` |\n`;
-            body += `| Authorize | \`${baseUrl}/aucore/smartauth/authorize\` |\n`;
-            body += `| Token | \`${baseUrl}/aucore/smartauth/oauth/token\` |\n\n`;
+            body += `| Node | FHIR Base | Well-Known | Authorize | Token |\n`;
+            body += `|------|-----------|------------|-----------|-------|\n`;
+            for (const node of nodes) {
+              body += `| ${node} | \`${baseUrl}/${node}/fhir/DEFAULT\` | \`${baseUrl}/${node}/smartauth/.well-known/openid-configuration\` | \`${baseUrl}/${node}/smartauth/oauth/authorize\` | \`${baseUrl}/${node}/smartauth/oauth/token\` |\n`;
+            }
+            body += `\n`;
 
             if (result.client_type === 'smart-app-launch') {
               body += `### Next Steps\n`;
@@ -1246,7 +1291,7 @@ jobs:
               body += `2. **Client Secret**: For security, the secret is NOT posted here. Contact the repo admins to receive your client secret securely.\n`;
               body += `3. Test the Client Credentials flow:\n`;
               body += `   \`\`\`bash\n`;
-              body += `   curl -X POST ${baseUrl}/aucore/smartauth/oauth/token \\\n`;
+              body += `   curl -X POST ${baseUrl}/${nodes[0]}/smartauth/oauth/token \\\n`;
               body += `     -H "Content-Type: application/x-www-form-urlencoded" \\\n`;
               body += `     -d "grant_type=client_credentials&client_id=${result.client_id}&client_secret=YOUR_SECRET"\n`;
               body += `   \`\`\`\n`;

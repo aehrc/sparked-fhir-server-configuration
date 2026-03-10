@@ -57,7 +57,7 @@ cdrNodes:
           partitioning.tenant_identification_strategy: "URL_BASED"
           context_path: "aucore/fhir"
           # base_url.fixed: ""
-          # security.oic.enabled: true
+          security.oic.enabled: true
       package_registry:
         config:
           context_path: "aucore/package"
@@ -123,6 +123,7 @@ cdrNodes:
           request_validating.enabled: true
           partitioning.tenant_identification_strategy: "URL_BASED"
           context_path: "hl7au/fhir"
+          security.oic.enabled: true
       package_registry:
         config:
           context_path: "hl7au/package"
@@ -132,6 +133,10 @@ cdrNodes:
       admin_json:
         config:
           context_path: "hl7au/admin-json"
+      smart_auth:
+        config:
+          context_path: "hl7au/smartauth"
+          cors.enabled: true
       fhirweb_endpoint:
         enabled: true
         config:
@@ -211,6 +216,7 @@ cdrNodes:
           request_validating.fail_on_severity: "FATAL"
           partitioning.tenant_identification_strategy: "URL_BASED"
           context_path: "ereq/fhir"
+          security.oic.enabled: true
       package_registry:
         config:
           context_path: "ereq/package"
@@ -220,6 +226,10 @@ cdrNodes:
       admin_json:
         config:
           context_path: "ereq/admin-json"
+      smart_auth:
+        config:
+          context_path: "ereq/smartauth"
+          cors.enabled: true
       fhirweb_endpoint:
         enabled: true
         config:
@@ -235,4 +245,4 @@ modules:
     enabled: false
   # smart_auth:
   #   name:  security_out_smart
-# src/main/charts/smilecdr/default-modules.yaml
+# src/main/charts/smilecdr/default-modules.yaml https://gitlab.com/smilecdr-public/smile-dh-helm-charts/-/raw/main/src/main/charts/smilecdr/default-modules.yaml
