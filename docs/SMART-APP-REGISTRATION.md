@@ -9,7 +9,7 @@ Complete guide to registering SMART on FHIR / OIDC clients on the Sparked FHIR S
 | FHIR Base | `https://smile.sparked-fhir.com/aucore/fhir/DEFAULT` |
 | Well-Known (OIDC) | `https://smile.sparked-fhir.com/aucore/smartauth/.well-known/openid-configuration` |
 | SMART Configuration | `https://smile.sparked-fhir.com/aucore/smartauth/.well-known/smart-configuration` |
-| Authorize | `https://smile.sparked-fhir.com/aucore/smartauth/authorize` |
+| Authorize | `https://smile.sparked-fhir.com/aucore/smartauth/oauth/authorize` |
 | Token | `https://smile.sparked-fhir.com/aucore/smartauth/oauth/token` |
 | Login Page | `https://smile.sparked-fhir.com/aucore/smartauth/signin` |
 | Admin Console | `https://smile.sparked-fhir.com/aucore/console` |
@@ -160,7 +160,7 @@ Sparked FHIR Server - SMART on FHIR Connection Details
 =======================================================
 
 FHIR Base URL:     https://smile.sparked-fhir.com/aucore/fhir/DEFAULT
-Authorize URL:     https://smile.sparked-fhir.com/aucore/smartauth/authorize
+Authorize URL:     https://smile.sparked-fhir.com/aucore/smartauth/oauth/authorize
 Token URL:         https://smile.sparked-fhir.com/aucore/smartauth/oauth/token
 Well-Known:        https://smile.sparked-fhir.com/aucore/smartauth/.well-known/openid-configuration
 
@@ -204,6 +204,7 @@ Common mistakes with endpoint URLs:
 
 | Wrong | Correct |
 |-------|---------|
+| `/aucore/smartauth/authorize` | `/aucore/smartauth/oauth/authorize` |
 | `/aucore/smartauth/token` | `/aucore/smartauth/oauth/token` |
 | `/aucore/oauth/token` | `/aucore/smartauth/oauth/token` |
 | `/aucore/smart/token` | `/aucore/smartauth/oauth/token` |
