@@ -83,10 +83,10 @@ except ImportError:
 
 DEFAULT_BASE_URL = "https://smile.sparked-fhir.com"
 NODE_ID = "aucore"
-# The security module ID for the aucore node. This is the SMART inbound security
-# module (security_in_smart) which manages users who authenticate via the SMART
-# auth login page. Check module-config/simplified-multinode.yaml for the config.
-SECURITY_MODULE_ID = "security_in_smart"
+# The security module ID for the aucore node. This is the Local Inbound Security
+# module which manages users who authenticate via the SMART auth login page.
+# The smart_auth (SMART Outbound Security) module depends on this for username/password auth.
+SECURITY_MODULE_ID = "local_security"
 ADMIN_JSON_PATH = f"{NODE_ID}/admin-json"
 USER_MGMT_PATH = f"user-management/{NODE_ID}/{SECURITY_MODULE_ID}"
 
