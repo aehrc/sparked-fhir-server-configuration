@@ -35,7 +35,6 @@ This repository uses GitHub Actions workflows to automate FHIR Implementation Gu
    - **NPM Package ID**: e.g., "hl7.fhir.uv.ips" (optional - can be auto-generated)
    - **Target Nodes**: Check which servers need this IG:
      - ☑ aucore (AU Core FHIR Server)
-     - ☑ hl7au (HL7 AU Base Server)
      - ☐ ereq (eRequesting Server)
    - **Deployment Preferences**:
      - ☐ Request immediate deployment after change is approved and merged

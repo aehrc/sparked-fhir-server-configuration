@@ -90,8 +90,6 @@ body:
       options:
         - label: aucore (AU Core FHIR Server)
           required: false
-        - label: hl7au (HL7 AU Base Server)
-          required: false
         - label: ereq (eRequesting Server)
           required: false
 
