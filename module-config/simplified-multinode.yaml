@@ -46,7 +46,7 @@ cdrNodes:
           partitioning.partition_selection_mode: "REQUEST_TENANT"
           # search_parameter_seeding.disable_patterns: ""
           # search_parameter_seeding.enable_patterns: ""
-          # ig_support.ips.generation_strategy_class: "ca.uhn.fhir.jpa.ig.DefaultIpsGenerationStrategy" # removed as causes issues, better to stay on default https://smilecdr.com/docs/v/2024.08.R01/configuration_categories/fhir_storage_ig_support.html
+          ig_support.ips.generation_strategy_class: "au.org.hl7.fhir.ps.strategy.AupsGenerationStrategy"
           db.driver: POSTGRES_9_4
           db.url: jdbc:postgresql://#{env['AUCORE_DB_URL']}:#{env['AUCORE_DB_PORT']}/#{env['AUCORE_DB_DATABASE']}?sslmode=require
           db.password: "#{env['AUCORE_DB_PASS']}"
