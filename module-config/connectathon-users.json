@@ -44,6 +44,20 @@
       "familyName": "User 06",
       "permissionLevel": "read-write",
       "practitionerId": "guthrie-aaron"
+    },
+    {
+      "username": "shovan-roy",
+      "givenName": "Shovan",
+      "familyName": "Roy",
+      "permissionLevel": "read-only",
+      "practitionerId": "guthrie-aaron"
+    },
+    {
+      "username": "intervise-user",
+      "givenName": "Intervise",
+      "familyName": "User",
+      "permissionLevel": "read-only",
+      "practitionerId": "guthridge-jarred"
     }
   ]
 }
