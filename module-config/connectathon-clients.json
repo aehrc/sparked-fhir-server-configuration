@@ -71,6 +71,27 @@
       "clientType": "backend-service",
       "scopes": ["system/*.*"],
       "redirectUris": []
+    },
+    {
+      "clientId": "techentrro-ps-app",
+      "clientName": "Techentrro",
+      "clientType": "smart-app-launch",
+      "scopes": ["openid", "profile", "fhirUser", "launch", "online_access", "patient/*.rs"],
+      "redirectUris": ["https://localhost:5173", "https://localhost:5173/", "https://ti-my-patient-summary-v3.vercel.app", "https://ti-my-patient-summary-v3.vercel.app/"]
+    },
+    {
+      "clientId": "intervise-backend",
+      "clientName": "Intervise PS-App Backend",
+      "clientType": "backend-service",
+      "scopes": ["system/*.read"],
+      "redirectUris": []
+    },
+    {
+      "clientId": "intervise-ps-app",
+      "clientName": "Intervise PS-App",
+      "clientType": "smart-app-launch",
+      "scopes": ["openid", "fhirUser", "launch/patient", "patient/*.rs", "offline_access"],
+      "redirectUris": ["https://dev.d18sjnf8p5esel.amplifyapp.com/cb", "http://localhost:3000/cb"]
     }
   ]
 }

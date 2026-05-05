@@ -105,6 +105,37 @@ body:
     validations:
       required: true
 
+  - type: markdown
+    attributes:
+      value: |
+        ### Launch Context (SMART App Launch only)
+        A user account will be created for your app. The launch context pre-populates the FHIR context when a user logs in.
+        Leave blank to use the default test practitioner.
+
+  - type: input
+    id: practitioner-id
+    attributes:
+      label: Practitioner Resource ID (optional)
+      description: |
+        FHIR Practitioner resource ID to use as the default launch context for this user.
+        This sets the `practitioner` context available to your app after login.
+        Leave blank to use the default test practitioner.
+      placeholder: "guthrie-aaron"
+    validations:
+      required: false
+
+  - type: input
+    id: patient-id
+    attributes:
+      label: Patient Resource ID (optional)
+      description: |
+        FHIR Patient resource ID to pre-select as the default patient launch context.
+        Only needed if your app requires a specific patient to be pre-loaded on login.
+        For most apps, leave blank — the user selects the patient during the launch flow.
+      placeholder: "smith-john"
+    validations:
+      required: false
+
   - type: dropdown
     id: urgency
     attributes:

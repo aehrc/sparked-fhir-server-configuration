@@ -77,7 +77,7 @@ cdrNodes:
           context_path: "aucore/smartauth"
           auth_request_detail.whitelist: "aud,grant_type,scope,launch"
           # openid.signing.keystore_id: default-keystore # do later
-          # post_authorize_script.text: "" ## do later
+          post_authorize_script.file: "classpath:config_seeding/smart-post-authorize.js"
           cors.enabled: true
       security_in_smart:
         name: security_in_smart
