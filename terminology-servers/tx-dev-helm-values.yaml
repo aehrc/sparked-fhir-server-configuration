@@ -50,7 +50,7 @@ targets:
               - ballot
             versionMode: pinned
             versions:
-              - 1.0.0-ballot
+              - 1.0.0-preview
 
 
 resources:
