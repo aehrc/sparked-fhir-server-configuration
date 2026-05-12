@@ -27,7 +27,7 @@ mappedFiles:
     path: /home/smile/smilecdr/classes/config_seeding
   package-au-erequesting-1.0.0.json:
     path: /home/smile/smilecdr/classes/config_seeding
-  package-au-patient-summary-1.0.0-ballot.json:
+  package-au-patient-summary-1.0.0-preview.json:
     path: /home/smile/smilecdr/classes/config_seeding
 
 # Mount users.json from AWS Secrets Manager

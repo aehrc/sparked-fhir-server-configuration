@@ -34,16 +34,16 @@ module "smile_cdr_dependencies" {
       location = "classes/config_seeding"
       data     = file("../module-config/packages/package-au-erequesting-1.0.0.json")
     },
-    {
-      name     = "package-au-patient-summary-1.0.0-ballot.json"
-      location = "classes/config_seeding"
-      data     = file("../module-config/packages/package-au-patient-summary-1.0.0-ballot.json")
-    },
     # SMART auth callback script
     {
       name     = "smart-post-authorize.js"
       location = "classes/config_seeding"
       data     = file("../module-config/smart-post-authorize.js")
+    },
+    {
+      name     = "package-au-patient-summary-1.0.0-preview.json"
+      location = "classes/config_seeding"
+      data     = file("../module-config/packages/package-au-patient-summary-1.0.0-preview.json")
     },
     # Users configuration moved to AWS Secrets Manager - see extra_secrets below
   ]
