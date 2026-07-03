@@ -92,6 +92,13 @@
       "clientType": "smart-app-launch",
       "scopes": ["openid", "fhirUser", "launch/patient", "patient/*.rs", "offline_access"],
       "redirectUris": ["https://dev.d18sjnf8p5esel.amplifyapp.com/cb", "http://localhost:3000/cb"]
+    },
+    {
+      "clientId": "kre8-smart-health-exchange",
+      "clientName": "Smart Health Exchange",
+      "clientType": "smart-app-launch",
+      "scopes": ["openid", "fhirUser", "launch", "patient/*.read", "offline_access"],
+      "redirectUris": ["https://dev.kre8.health/SmartHealthExchange/SSO/", "https://dev.kre8.health/SoF/Redirect"]
     }
   ]
 }

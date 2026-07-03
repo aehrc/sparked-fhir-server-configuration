@@ -58,6 +58,13 @@
       "familyName": "User",
       "permissionLevel": "read-only",
       "practitionerId": "guthridge-jarred"
+    },
+    {
+      "username": "charles-papp",
+      "givenName": "Charles",
+      "familyName": "Papp",
+      "permissionLevel": "read-only",
+      "practitionerId": "guthrie-aaron"
     }
   ]
 }
