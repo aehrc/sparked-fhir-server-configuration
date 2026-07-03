@@ -88,11 +88,12 @@ body:
 
         💡 **Tip**: Most Australian IGs should be requested for both `aucore` and `hl7au`. eRequesting-specific IGs should also include `ereq`.
       options:
-        - label: aucore (AU Core FHIR Server)
+        - label: aucore (AU Core Sparked FHIR Server)
           required: false
-        - label: ereq (eRequesting Server)
+        - label: ereq (AU Core Sparked eRequesting Server)
           required: false
-
+        - label: hl7au (HL7AU Reference Server)
+          required: false
   - type: checkboxes
     id: deployment-options
     attributes:
