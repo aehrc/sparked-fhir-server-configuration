@@ -75,6 +75,7 @@ See **[SMART App Registration Guide](docs/SMART-APP-REGISTRATION.md)**
 
 | Document | Purpose | Audience |
 |----------|---------|----------|
+| **[Service Catalogue](docs/SERVICE-CATALOGUE.md)** | Menu of every request type, its SLA, and what happens after you submit | Everyone |
 | **[Workflow Guide](docs/WORKFLOWS.md)** | Complete guide to all automated workflows | Everyone |
 | **[SMART App Registration](docs/SMART-APP-REGISTRATION.md)** | Register SMART on FHIR / OIDC clients | Developers/Participants |
 | **[Scripts README](scripts/README.md)** | How to use Python scripts locally | Developers/Admins |
@@ -115,11 +116,15 @@ The server currently hosts (see [module-config/packages/](module-config/packages
 ```
 sparked-fhir-server-configuration/
 ├── .github/
-│   ├── ISSUE_TEMPLATE/          # Request templates
+│   ├── ISSUE_TEMPLATE/          # Service catalogue request forms
+│   │   ├── config.yml                     # Chooser config (blank issues disabled)
 │   │   ├── 01-ig-release-request.yml
 │   │   ├── 02-configuration-change.yml
 │   │   ├── 03-operational-request.yml
-│   │   └── 05-smart-app-registration.yml
+│   │   ├── 04-tx-content-change.yml
+│   │   ├── 05-smart-app-registration.yml
+│   │   └── 06-general-request.yml
+│   ├── labels.yml               # Label source of truth (synced by sync-labels.yml)
 │   └── workflows/               # GitHub Actions automation
 │       ├── issue-opened.yml            # Validates requests on creation
 │       ├── issue-labeled.yml           # Creates PRs automatically
@@ -130,8 +135,11 @@ sparked-fhir-server-configuration/
 │       ├── manage-test-data.yml        # Common test data operations (clear+load, expunge)
 │       ├── register-smart-clients.yml  # Register SMART/OIDC clients
 │       ├── validate-config.yml         # Validates config on PR
+│       ├── sync-labels.yml             # Syncs labels.yml (non-destructive)
+│       ├── add-to-project.yml          # Adds new issues to the catalogue board
 │       └── smile-application.yml       # Terraform plan/apply
 ├── docs/
+│   ├── SERVICE-CATALOGUE.md          # Catalogue of request types, SLAs, lifecycle
 │   ├── WORKFLOWS.md                  # Complete workflow guide
 │   ├── SMART-APP-REGISTRATION.md     # SMART/OIDC client registration guide
 │   └── confluence-connectathon-entry.md  # Content for Confluence connectathon pages
@@ -242,25 +250,37 @@ sparked-fhir-server-configuration/
 - **Deployment verification** - User confirms functionality
 - **Issue closure** - Admin closes after verification
 
+## Service Catalogue
+
+Every change to the Sparked FHIR Server is requested as a structured issue. Pick the
+offering that matches your need and click **Raise request**. Blank issues are disabled, so
+anything that does not fit a specific offering (a bug, a question, an idea, or a rollback)
+goes through **General / Bug / Question**.
+
+| Offering | What it's for | Automation | Target SLA | Raise request |
+|----------|---------------|------------|------------|---------------|
+| **IG Release** | Add, update, or roll back a FHIR Implementation Guide | Semi-automated | 1 to 2 weeks | [Raise request](https://github.com/aehrc/sparked-fhir-server-configuration/issues/new?template=01-ig-release-request.yml) |
+| **Configuration Change** | Change Smile CDR modules, endpoints, security, or settings | Manual | 1 to 3 weeks | [Raise request](https://github.com/aehrc/sparked-fhir-server-configuration/issues/new?template=02-configuration-change.yml) |
+| **Operational Request** | Load test data, expunge, refresh, restart, backup/restore | Semi-automated | Hours to days | [Raise request](https://github.com/aehrc/sparked-fhir-server-configuration/issues/new?template=03-operational-request.yml) |
+| **Terminology Content Change** | Add/remove/modify IG packages on tx.dev / tx.hl7 | Semi-automated | 1 to 2 weeks | [Raise request](https://github.com/aehrc/sparked-fhir-server-configuration/issues/new?template=04-tx-content-change.yml) |
+| **SMART App / OIDC Registration** | Register a SMART on FHIR or backend OIDC client | Semi-automated | 1 to 3 business days | [Raise request](https://github.com/aehrc/sparked-fhir-server-configuration/issues/new?template=05-smart-app-registration.yml) |
+| **General / Bug / Question** | Anything not covered above, including rollback | Manual (triage) | Best-effort | [Raise request](https://github.com/aehrc/sparked-fhir-server-configuration/issues/new?template=06-general-request.yml) |
+
+See the full request lifecycle, per-offering detail, and label legend in
+**[docs/SERVICE-CATALOGUE.md](docs/SERVICE-CATALOGUE.md)**.
+
 ## Making Requests
-
-### Types of Requests
-
-| Type | Use When | Example | Timeline |
-|------|----------|---------|----------|
-| **IG Release** | Adding/updating FHIR specifications | "Deploy IPS 3.0.0 to aucore and hl7au" | 1-2 weeks |
-| **Configuration** | Changing server behavior | "Enable FHIR subscriptions on ereq node" | 1-3 weeks |
-| **Operations** | Loading/managing data | "Load 50 test patients for testing" | Hours to days |
 
 ### Request Status Labels
 
 Watch your issue for status updates:
 
 - `needs-review` → Awaiting admin review
+- `needs-revision` → Returned to you for changes before review continues
 - `approved` → Approved, ready to implement
 - `ready-for-automation` → Approved for automated PR generation
 - `in-progress` → PR created, being reviewed
-- `deploy-immediately` → (optional) Deploy automatically once the PR merges
+- `deploy-immediately` → (optional flag) Deploy automatically once the PR merges
 - `deployed` → Deployed, please verify
 - `complete` → Verified and closed
 
