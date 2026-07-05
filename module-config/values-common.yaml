@@ -19,11 +19,13 @@ serviceAccount:
 mappedFiles:
   # logback.xml:
   #   path: /home/smile/smilecdr/classes
-  package-aucore-2.0.0.json:
+  package-aucore-2.1.0-draft.json:
+    path: /home/smile/smilecdr/classes/config_seeding
+  package-international-patient-summary-2.0.1.json:
     path: /home/smile/smilecdr/classes/config_seeding
   package-international-patient-summary-2.0.0.json:
     path: /home/smile/smilecdr/classes/config_seeding
-  package-au-base-6.0.0.json:
+  package-au-base-6.1.1-draft.json:
     path: /home/smile/smilecdr/classes/config_seeding
   package-au-erequesting-1.0.0.json:
     path: /home/smile/smilecdr/classes/config_seeding

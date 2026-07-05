@@ -1,6 +1,6 @@
 {
   "name": "hl7.fhir.au.core",
-  "version": "2.0.0",
+  "version": "2.1.0-draft",
   "installMode": "STORE_AND_INSTALL",
   "fetchDependencies": false
 }
