@@ -114,27 +114,35 @@ jobs:
         env:
           SMILECDR_BASE_URL: ${{ steps.inputs.outputs.base_url }}
           SMILECDR_AUTH_BASIC: ${{ secrets.auth_token || secrets.CSIRO_FHIR_AUTH_64 }}
+          # Passed via env (not inline ${{ }}) so the custom_packages JSON keeps
+          # its double quotes and reaches the script as a single argument.
+          NODES: ${{ steps.inputs.outputs.nodes }}
+          PACKAGE_SOURCE: ${{ steps.inputs.outputs.package_source }}
+          CUSTOM_PACKAGES: ${{ steps.inputs.outputs.custom_packages }}
+          DRY_RUN: ${{ steps.inputs.outputs.dry_run }}
+          FORCE_REINSTALL: ${{ steps.inputs.outputs.force_reinstall }}
         run: |
-          # Build command arguments
-          ARGS="--nodes ${{ steps.inputs.outputs.nodes }}"
-          ARGS="$ARGS --source ${{ steps.inputs.outputs.package_source }}"
+          # Build command arguments as an array so the custom_packages JSON is
+          # preserved as one quoted argument (previously the quotes were stripped
+          # by word-splitting, breaking the 'custom' source).
+          ARGS=(--nodes "$NODES" --source "$PACKAGE_SOURCE")
 
-          if [ "${{ steps.inputs.outputs.dry_run }}" = "true" ]; then
-            ARGS="$ARGS --dry-run"
+          if [ "$DRY_RUN" = "true" ]; then
+            ARGS+=(--dry-run)
           fi
 
-          if [ "${{ steps.inputs.outputs.force_reinstall }}" = "true" ]; then
-            ARGS="$ARGS --force-reinstall"
+          if [ "$FORCE_REINSTALL" = "true" ]; then
+            ARGS+=(--force-reinstall)
           fi
 
-          if [ "${{ steps.inputs.outputs.package_source }}" = "custom" ]; then
-            ARGS="$ARGS --packages ${{ steps.inputs.outputs.custom_packages }}"
+          if [ "$PACKAGE_SOURCE" = "custom" ]; then
+            ARGS+=(--packages "$CUSTOM_PACKAGES")
           fi
 
           # Run the script and capture output
-          echo "Running: python scripts/sync_packages.py $ARGS"
+          echo "Running: python scripts/sync_packages.py ${ARGS[*]}"
           set +e  # Don't exit on error
-          OUTPUT=$(python scripts/sync_packages.py $ARGS 2>&1)
+          OUTPUT=$(python scripts/sync_packages.py "${ARGS[@]}" 2>&1)
           EXIT_CODE=$?
           set -e
 
