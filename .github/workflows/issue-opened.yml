@@ -156,6 +156,7 @@ jobs:
             const igName = extractField('Implementation Guide Name');
             const igVersion = extractField('IG Version');
             const packageId = extractField('NPM Package ID') || '';
+            const packageUrl = extractField('Custom Package URL') || '';
 
             // Extract target nodes from checkboxes
             const targetNodesSection = extractField('Target SmileCDR Nodes');
@@ -172,14 +173,16 @@ jobs:
               }
             }
 
-            // Extract package options
+            // Extract package options. Filter to checkbox lines so option 0 is
+            // always installMode and option 1 fetchDependencies, regardless of
+            // any blank lines (mirrors the create-ig-pr job).
             const packageOptions = extractField('Package Installation Options');
-            const lines = packageOptions.split('\n');
+            const optionLines = packageOptions.split('\n').filter(l => l.includes('- ['));
 
-            const installModeChecked = lines.length > 0 && (lines[0].includes('[X]') || lines[0].includes('[x]'));
+            const installModeChecked = optionLines.length > 0 && (optionLines[0].includes('[X]') || optionLines[0].includes('[x]'));
             const installMode = installModeChecked ? 'STORE_AND_INSTALL' : 'STORE_ONLY';
 
-            const fetchDepsChecked = lines.length > 1 && (lines[1].includes('[X]') || lines[1].includes('[x]'));
+            const fetchDepsChecked = optionLines.length > 1 && (optionLines[1].includes('[X]') || optionLines[1].includes('[x]'));
 
             const safeName = igName.toLowerCase()
               .replace(/[^a-z0-9]+/g, '-')
@@ -197,6 +200,7 @@ jobs:
             core.setOutput('ig_version', igVersion);
             core.setOutput('package_id', finalPackageId);
             core.setOutput('package_id_provided', packageId ? 'true' : 'false');
+            core.setOutput('package_url', packageUrl);
             core.setOutput('install_mode', installMode);
             core.setOutput('fetch_dependencies', fetchDepsChecked);
             core.setOutput('package_file_name', packageFileName);
@@ -243,12 +247,18 @@ jobs:
           NODES="${{ steps.parse.outputs.selected_nodes }}"
           PACKAGE_NAME="${{ steps.parse.outputs.package_id }}"
           PACKAGE_VERSION="${{ steps.parse.outputs.ig_version }}"
+          PACKAGE_URL="${{ steps.parse.outputs.package_url }}"
 
           echo "Running dry-run for package: $PACKAGE_NAME@$PACKAGE_VERSION"
           echo "Target nodes: $NODES"
 
+          PACKAGE_URL_FIELD=""
+          if [ -n "$PACKAGE_URL" ]; then
+            PACKAGE_URL_FIELD=", \"packageUrl\": \"$PACKAGE_URL\""
+          fi
+
           CUSTOM_PACKAGE=$(cat <<EOF
-          [{"name": "$PACKAGE_NAME", "version": "$PACKAGE_VERSION", "installMode": "${{ steps.parse.outputs.install_mode }}", "fetchDependencies": ${{ steps.parse.outputs.fetch_dependencies }}}]
+          [{"name": "$PACKAGE_NAME", "version": "$PACKAGE_VERSION", "installMode": "${{ steps.parse.outputs.install_mode }}", "fetchDependencies": ${{ steps.parse.outputs.fetch_dependencies }}$PACKAGE_URL_FIELD}]
           EOF
           )
 
@@ -295,6 +305,11 @@ jobs:
               comment += `- **Install Mode**: ${{ steps.parse.outputs.install_mode }}\n`;
               comment += `- **Fetch Dependencies**: ${{ steps.parse.outputs.fetch_dependencies }}\n`;
               comment += `- **Target Nodes**: ${{ steps.parse.outputs.selected_nodes }}\n`;
+
+              const previewPackageUrl = '${{ steps.parse.outputs.package_url }}';
+              if (previewPackageUrl) {
+                comment += `- **Custom Package URL**: ${previewPackageUrl}\n`;
+              }
 
               comment += '\n### Dry-Run Preview\n\n';
 

@@ -168,6 +168,12 @@ All acceptance criteria met!
 
 A repo admin will close the issue once confirmed.
 
+### Notes: version bumps, custom package URLs, and batching
+
+- **Version bumps replace in place.** When the request is an *Update*, the automation matches the existing package by its FHIR package **id** (not the filename) and swaps the version in `startup_installation_specs` in place, reusing the existing filename stem (e.g. `package-aucore-2.0.0.json` → `package-aucore-2.1.0-draft.json`). If the old package file ends up referenced by no node, it is deleted and its `values-common.yaml` / `terraform/main.tf` entries are removed automatically. A file still used by another node (e.g. IPS retained on `ereq`) is kept. Install order is preserved; packages are never re-sorted.
+- **Custom Package URL.** Most IGs, including `-draft`/`-preview` versions, resolve from `packages.fhir.org` and need nothing extra. Use the template's **Custom Package URL** field only when a package is not on the registry or when a specific publication build must override a stale registry copy. (Tip: check existence with a GET, since `packages.fhir.org` returns 404 to `HEAD` requests.)
+- **Batch related bumps into one issue/PR.** Separate IG issues each produce their own PR editing the same three files (`simplified-multinode.yaml`, `values-common.yaml`, `terraform/main.tf`), so two open at once will conflict on merge. For a coordinated set (e.g. AU Base + AU Core + IPS for a testing event), request them together or merge them one at a time, rebasing in between.
+
 ---
 
 ## Test Data Management
@@ -209,7 +215,7 @@ For common multi-step operations, use the **Manage Test Data** workflow:
    - **Data Source**: URL to test data repository
    - **Upload Mode**: individual or transaction
    - **Business Justification**: Why you need this data
-4. Admin approves (`status:approved` label)
+4. Admin approves (`approved` label)
 5. Data loads automatically via the `sparked-test-data-loader` tool
 
 #### Verification
@@ -370,11 +376,12 @@ The workflow will:
 Track your request through these stages:
 
 - `needs-review` → Awaiting admin review
-- `status:approved` → Approved, automation triggered
-- `status:in-progress` → PR created, being reviewed
-- `status:deploying` → Deployment in progress
-- `status:deployed` → Deployed, awaiting your verification
-- `status:complete` → Verified and closed
+- `approved` → Approved, ready to implement
+- `ready-for-automation` → Approved for automated PR generation
+- `in-progress` → PR created, being reviewed
+- `deploy-immediately` → (optional) Deploy automatically once the PR merges
+- `deployed` → Deployed, awaiting your verification
+- `complete` → Verified and closed
 
 ### Tips for Successful Requests
 
@@ -436,7 +443,7 @@ Track your request through these stages:
    - Confirm environment is correct
 
 2. **Approve**
-   - Add label: `status:approved`
+   - Add label: `approved`
    - Workflow triggers automatically
 
 3. **Or use Manage Test Data workflow directly**
@@ -499,9 +506,9 @@ Track your request through these stages:
 
 | Workflow | Trigger | Purpose |
 |----------|---------|---------|
-| `ig-request-validation.yml` | Issue created/edited with `ig-release` label | Validates issue fields, runs dry-run preview |
-| `issue-ig-pr-creator.yml` | Issue labeled `ready-for-automation` | Creates PR with package config changes |
-| `issue-pr-merge-updater.yml` | PR merged | Posts deployment options or triggers auto-deployment |
+| `issue-opened.yml` (job: `validate-ig`) | Issue created/edited with `ig-release` label | Validates issue fields, runs dry-run preview |
+| `issue-labeled.yml` (job: `create-ig-pr`) | Issue labeled `ready-for-automation` | Creates PR with package config changes |
+| `pr-merged.yml` | PR merged | Posts deployment options or triggers auto-deployment |
 | `reload-ig-config.yml` | Manual or workflow_call | Deploys packages to SmileCDR nodes |
 | `load-test-data.yml` | Manual or workflow_call | Loads FHIR test data to a node |
 | `clear-test-data.yml` | Manual or workflow_call | Clears FHIR test data from a node |

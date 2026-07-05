@@ -28,10 +28,11 @@ Usage:
 """
 
 import argparse
+import json
 import re
 import sys
 from pathlib import Path
-from typing import List, Set, Tuple
+from typing import List, Optional, Tuple
 
 
 def find_node_package_spec_line(content: str, node_name: str) -> Tuple[int, int, str]:
@@ -110,45 +111,82 @@ def build_package_spec(packages: List[str]) -> str:
     return '"' + ' '.join(classpath_refs) + '"'
 
 
+def read_package_id(packages_dir: Path, filename: str) -> Optional[str]:
+    """Read the FHIR package id (the `name` field) from a package JSON file.
+
+    Returns None if the file is missing or unreadable, so callers can fall back
+    to filename-only handling instead of crashing.
+    """
+    path = packages_dir / filename
+    try:
+        with open(path, 'r') as f:
+            return json.load(f).get('name')
+    except (OSError, ValueError):
+        return None
+
+
 def update_node_package_in_file(
     content: str,
     node_name: str,
     package_name: str,
-    action: str
-) -> Tuple[bool, str, str]:
+    action: str,
+    packages_dir: Path,
+) -> Tuple[bool, str, str, Optional[str]]:
     """
-    Update a single node's package configuration in the file content
+    Update a single node's package configuration in the file content.
 
-    Returns: (changed, message, new_content)
+    For 'add', if the node already lists a different version of the same FHIR
+    package (matched by the package `name`/id, not the filename), that entry is
+    replaced in place. This makes version bumps an in-place swap rather than
+    appending a second, conflicting version. Existing install order is preserved
+    (no alphabetical re-sort), so dependency ordering such as au-base before
+    au-core is not disturbed.
+
+    Returns: (changed, message, new_content, superseded_filename)
+    where superseded_filename is the previous-version file that was replaced on
+    this node (or None).
     """
     line_num, indent_spaces, current_value = find_node_package_spec_line(content, node_name)
 
     if line_num == -1:
-        return False, f"Could not find package_registry.startup_installation_specs for node '{node_name}'", content
+        return False, f"Could not find package_registry.startup_installation_specs for node '{node_name}'", content, None
 
-    # Parse current packages
-    current_packages = parse_package_spec(current_value)
-    package_set = set(current_packages)
+    # Parse current packages, preserving order
+    packages = parse_package_spec(current_value)
+    superseded: Optional[str] = None
 
-    # Perform action
     if action == 'add':
-        if package_name in package_set:
-            return False, f"Package '{package_name}' already configured on node '{node_name}'", content
-        package_set.add(package_name)
-        message = f"Added '{package_name}' to node '{node_name}'"
+        if package_name in packages:
+            return False, f"Package '{package_name}' already configured on node '{node_name}'", content, None
+
+        new_id = read_package_id(packages_dir, package_name)
+        # Find an existing entry for the same FHIR package (same id).
+        replace_index = -1
+        if new_id is not None:
+            for i, existing in enumerate(packages):
+                if read_package_id(packages_dir, existing) == new_id:
+                    replace_index = i
+                    break
+
+        if replace_index >= 0:
+            superseded = packages[replace_index]
+            packages[replace_index] = package_name
+            message = f"Replaced '{superseded}' with '{package_name}' on node '{node_name}'"
+        else:
+            packages.append(package_name)
+            message = f"Added '{package_name}' to node '{node_name}'"
 
     elif action == 'remove':
-        if package_name not in package_set:
-            return False, f"Package '{package_name}' not found on node '{node_name}'", content
-        package_set.remove(package_name)
+        if package_name not in packages:
+            return False, f"Package '{package_name}' not found on node '{node_name}'", content, None
+        packages = [p for p in packages if p != package_name]
         message = f"Removed '{package_name}' from node '{node_name}'"
 
     else:
-        return False, f"Invalid action: {action}", content
+        return False, f"Invalid action: {action}", content, None
 
-    # Build new package spec
-    new_packages = sorted(package_set)
-    new_spec_value = build_package_spec(new_packages)
+    # Build new package spec (order preserved)
+    new_spec_value = build_package_spec(packages)
 
     # Replace the line in content
     lines = content.split('\n')
@@ -156,7 +194,7 @@ def update_node_package_in_file(
     lines[line_num] = f"{indent}package_registry.startup_installation_specs: {new_spec_value}"
 
     new_content = '\n'.join(lines)
-    return True, message, new_content
+    return True, message, new_content, superseded
 
 
 def main():
@@ -193,6 +231,14 @@ def main():
     )
 
     parser.add_argument(
+        '--packages-dir',
+        type=Path,
+        default=Path('module-config/packages'),
+        help='Directory holding package-*.json files, used to match packages by '
+             'id for in-place version replacement (default: module-config/packages)'
+    )
+
+    parser.add_argument(
         '--dry-run',
         action='store_true',
         help='Preview changes without modifying the file'
@@ -222,16 +268,19 @@ def main():
     # Track changes
     changes_made = []
     errors = []
+    superseded_files: List[str] = []
 
     # Update each node
     for node_name in nodes:
-        changed, message, content = update_node_package_in_file(
-            content, node_name, args.package, args.action
+        changed, message, content, superseded = update_node_package_in_file(
+            content, node_name, args.package, args.action, args.packages_dir
         )
 
         if changed:
             changes_made.append(message)
             print(f"✅ {message}")
+            if superseded and superseded not in superseded_files:
+                superseded_files.append(superseded)
         else:
             errors.append(message)
             print(f"⚠️  {message}")
@@ -259,12 +308,24 @@ def main():
         if errors:
             print(f"   {len(errors)} error(s) encountered")
 
+    # Determine which superseded files are now fully unreferenced across ALL
+    # nodes in the (updated) config. Only those are safe to delete; a file still
+    # referenced by another node (e.g. IPS retained on ereq) must be kept.
+    orphaned_files = [
+        f for f in superseded_files
+        if f"config_seeding/{f}" not in content
+    ]
+
     # Print summary
     print("\n" + "=" * 80)
     print("SUMMARY")
     print("=" * 80)
     print(f"Changes: {len(changes_made)}")
     print(f"Errors: {len(errors)}")
+
+    # Machine-readable outputs for the calling workflow.
+    print(f"SUPERSEDED_FILES={','.join(superseded_files)}")
+    print(f"ORPHANED_FILES={','.join(orphaned_files)}")
 
     if errors and not changes_made:
         sys.exit(1)
