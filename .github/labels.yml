@@ -1,6 +1,11 @@
-# GitHub Labels Configuration
-# Use with: gh label create --force $(cat .github/labels.yml)
-# Or manually create these labels in GitHub UI
+# GitHub Labels Configuration - source of truth for the label-sync workflow
+# (.github/workflows/sync-labels.yml). Synced NON-DESTRUCTIVELY: labels absent
+# here are never pruned. scripts/setup-labels.sh must be kept in sync with this file.
+#
+# Do NOT rename these trigger labels - the issue automation matches them as exact
+# strings and renaming would silently break it:
+#   ig-release, tx-content, configuration, operations, smart-client,
+#   ready-for-automation, approved, auto-pr-created, deploy-immediately
 
 # Request Types
 - name: "ig-release"
@@ -19,10 +24,14 @@
   color: "006b75"
   description: "Terminology server content change request"
 
-# Status Labels (simplified flow: needs-review → approved → in-progress → deployed → complete)
+# Status Labels (flow: needs-review → approved → ready-for-automation → in-progress → deployed → complete)
 - name: "needs-review"
   color: "fbca04"
   description: "Awaiting technical review"
+
+- name: "needs-revision"
+  color: "fbef2c"
+  description: "Returned to requestor for changes before review can continue"
 
 - name: "approved"
   color: "0e8a16"
@@ -62,6 +71,14 @@
   description: "Low - Can wait for next scheduled release"
 
 # General Labels
+- name: "bug"
+  color: "d73a4a"
+  description: "Something is not working"
+
+- name: "enhancement"
+  color: "a2eeef"
+  description: "New feature or improvement request"
+
 - name: "automation"
   color: "bfdadc"
   description: "Request to automate an operation"
