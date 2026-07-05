@@ -95,13 +95,15 @@ body:
       description: |
         Which SmileCDR nodes should this IG package be deployed to?
 
-        All nodes are on the CSIRO-hosted Sparked dev server (`smile.sparked-fhir.com`). This
-        is not the external HL7 AU reference server at `fhir.hl7.org.au`.
+        The `aucore` and `ereq` nodes make up the **Sparked Dev FHIR Server**. The `hl7au` node
+        is the Sparked-hosted development instance of the **HL7 AU Reference Server**'s AU Core
+        node. All are on `smile.sparked-fhir.com`; none is the production HL7 AU reference
+        server at `fhir.hl7.org.au`.
 
         **Node Descriptions:**
-        - **aucore**: AU Core node - general Australian FHIR profiles and validation (`smile.sparked-fhir.com/aucore`)
-        - **hl7au**: HL7 AU Base node - Base Australian specifications and extensions (`smile.sparked-fhir.com/hl7au`)
-        - **ereq**: eRequesting node - electronic requesting workflows and integrations (`smile.sparked-fhir.com/ereq`)
+        - **aucore**: AU Core node of the Sparked Dev FHIR Server (`smile.sparked-fhir.com/aucore`)
+        - **ereq**: eRequesting node of the Sparked Dev FHIR Server (`smile.sparked-fhir.com/ereq`)
+        - **hl7au**: dev instance of the HL7 AU Reference Server's AU Core node (`smile.sparked-fhir.com/hl7au`); production is the separate `fhir.hl7.org.au/aucore`
 
         **Tip**: Most Australian IGs should be requested for both `aucore` and `hl7au`. eRequesting-specific IGs should also include `ereq`.
       options:
@@ -109,7 +111,7 @@ body:
           required: false
         - label: ereq (Sparked dev eRequesting node)
           required: false
-        - label: hl7au (Sparked dev HL7 AU Base node)
+        - label: hl7au (Sparked dev HL7 AU Reference Server node)
           required: false
   - type: checkboxes
     id: deployment-options

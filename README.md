@@ -85,15 +85,16 @@ Test data management is powered by the [`sparked-test-data-loader`](https://gith
 ### SmileCDR Nodes
 
 All FHIR nodes below are CSIRO-hosted on `smile.sparked-fhir.com` and share the CSIRO
-credentials used by the automation. They are the Sparked **dev** environment. Do not confuse
-the `hl7au` node here with the external HL7 AU reference server at `fhir.hl7.org.au`, which is
-a separate system (see [Governance](#governance)).
+credentials used by the automation. The `aucore` and `ereq` nodes make up the **Sparked Dev
+FHIR Server**; the `hl7au` node is the Sparked-hosted **dev instance of the HL7 AU Reference
+Server**'s AU Core node. None of these is the production HL7 AU reference server at
+`fhir.hl7.org.au` (a separate system, see [Governance](#governance)).
 
 | Node | Purpose | FHIR endpoint | Database Module |
 |------|---------|---------------|----------------|
-| `aucore` | AU Core FHIR profiles and validation | `smile.sparked-fhir.com/aucore/fhir/DEFAULT` | aucore |
-| `hl7au` | HL7 AU Base profiles (Sparked dev, not `fhir.hl7.org.au`) | `smile.sparked-fhir.com/hl7au/fhir/DEFAULT` | hl7au |
-| `ereq` | eRequesting workflows and integrations | `smile.sparked-fhir.com/ereq/fhir/DEFAULT` | ereq |
+| `aucore` | AU Core node of the Sparked Dev FHIR Server | `smile.sparked-fhir.com/aucore/fhir/DEFAULT` | aucore |
+| `ereq` | eRequesting node of the Sparked Dev FHIR Server | `smile.sparked-fhir.com/ereq/fhir/DEFAULT` | ereq |
+| `hl7au` | Dev instance of the HL7 AU Reference Server's AU Core node (production is `fhir.hl7.org.au`) | `smile.sparked-fhir.com/hl7au/fhir/DEFAULT` | hl7au |
 | - | Cluster management | - | clustermgr |
 | - | FHIR persistence layer | - | persistence |
 | - | Audit logs | - | audit |

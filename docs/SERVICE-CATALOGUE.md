@@ -260,8 +260,9 @@ dev environments from HL7-hosted reference environments.
 | `tx.hl7` terminology server | `synd.tx.hl7.org.au` (HL7) | Elevated: `needs:hl7-approval` + Brett Esler sign-off |
 | `fhir.hl7.org.au` FHIR reference server | `fhir.hl7.org.au` (HL7) | Elevated: `needs:hl7-approval` + Brett Esler sign-off; not an automation target today |
 
-Note that the `hl7au` **node** is the CSIRO Sparked dev instance at
-`smile.sparked-fhir.com/hl7au`. It is not the external HL7 AU reference server at
+The `aucore` and `ereq` nodes make up the Sparked Dev FHIR Server. The `hl7au` **node** is
+the Sparked-hosted dev instance of the HL7 AU Reference Server's AU Core node
+(`smile.sparked-fhir.com/hl7au`). It is not the production HL7 AU reference server at
 `fhir.hl7.org.au`, which is a separate system.
 
 For any request that changes an HL7-hosted reference environment, a reviewer adds
