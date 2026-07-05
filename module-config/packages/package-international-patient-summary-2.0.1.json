@@ -1,0 +1,7 @@
+{
+  "name": "hl7.fhir.uv.ips",
+  "version": "2.0.1",
+  "installMode": "STORE_ONLY",
+  "fetchDependencies": true,
+  "packageUrl": "https://hl7.org/fhir/uv/ips/2.0.1/package.tgz"
+}
