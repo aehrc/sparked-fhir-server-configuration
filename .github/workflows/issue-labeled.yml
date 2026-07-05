@@ -110,7 +110,7 @@ jobs:
             }
 
             // Extract deployment preference from checkbox (template header is
-            // "Deployment Preferences" — must match exactly or it never triggers)
+            // "Deployment Preferences"; must match exactly or it never triggers)
             const deploymentSection = extractField('Deployment Preferences');
             const deployImmediately = deploymentSection.includes('[x]') || deploymentSection.includes('[X]');
 
