@@ -55,9 +55,9 @@ body:
       label: Target Nodes
       description: |
         Select which FHIR server node(s) to register the client on. Each node has its own client registry and auth endpoints.
-        - **aucore**: AU Core / general purpose Sparked FHIR Dev Server
-        - **hl7au**: HL7 AU Reference Server
-        - **ereq**: eRequesting Sparked FHIR Dev Server
+        - **aucore**: AU Core / general purpose Sparked dev server (`smile.sparked-fhir.com/aucore`)
+        - **hl7au**: HL7 AU Base profiles on the Sparked dev server (`smile.sparked-fhir.com/hl7au`), not the external `fhir.hl7.org.au`
+        - **ereq**: eRequesting Sparked dev server (`smile.sparked-fhir.com/ereq`)
       options:
         - label: "aucore"
           required: false

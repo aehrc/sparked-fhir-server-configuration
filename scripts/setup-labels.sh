@@ -15,6 +15,7 @@ gh label create "tx-content" --color "006b75" --description "Terminology server 
 # Status Labels (flow: needs-review → approved → ready-for-automation → in-progress → deployed → complete)
 gh label create "needs-review" --color "fbca04" --description "Awaiting technical review" --force
 gh label create "needs-revision" --color "fbef2c" --description "Returned to requestor for changes before review can continue" --force
+gh label create "needs:hl7-approval" --color "d4520f" --description "Targets an HL7-hosted reference environment (fhir.hl7.org.au or tx.hl7); requires Brett Esler sign-off before approval" --force
 gh label create "approved" --color "0e8a16" --description "Request approved, ready to implement" --force
 gh label create "in-progress" --color "0075ca" --description "Work in progress" --force
 gh label create "deployed" --color "28a745" --description "Changes deployed, awaiting verification" --force
