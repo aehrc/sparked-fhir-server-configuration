@@ -60,7 +60,7 @@ The system automatically:
 - Name: International Patient Summary
 - Version: 2.0.0
 - Package ID: hl7.fhir.uv.ips
-- Target Nodes: aucore, hl7au
+- Target Nodes: aucore
 
 ### 📦 Dry-Run Preview
 ✅ Dry-run completed successfully!
@@ -97,7 +97,7 @@ A Pull Request has been automatically generated: PR #45
 
 ### What was generated:
 - ✅ Package file: package-ips-2.0.0.json
-- ✅ Updated: simplified-multinode.yaml for aucore, hl7au
+- ✅ Updated: simplified-multinode.yaml for aucore
 - ✅ Updated: terraform/main.tf
 
 ### Next Steps:
@@ -237,7 +237,7 @@ Please verify the data has been loaded as expected.
 1. Go to **Actions** → **Clear Test Data** → **Run workflow**
 2. Select:
    - **Delete mode**: `targeted` (match test data files) or `wipe-all` (everything)
-   - **Target node**: aucore, hl7au, ereq
+   - **Target node**: aucore, ereq
    - **Expunge**: Enable for physical removal (not just soft-delete)
 3. Click **Run workflow**
 
@@ -344,7 +344,7 @@ If you need to deploy packages outside of the automated workflow:
 2. Click **"Run workflow"**
 3. Configure:
    - **Base URL**: `https://smile.sparked-fhir.com` (default)
-   - **Nodes**: `aucore,hl7au` or `all`
+   - **Nodes**: `aucore,ereq` or `all`
    - **Package Source**:
      - `config` - Read from simplified-multinode.yaml (recommended)
      - `packages-dir` - Load all JSON files from packages/
@@ -419,7 +419,7 @@ Track your request through these stages:
 
    **Notes:**
    - Package ID auto-generated as hl7.fhir.uv.ips
-   - Will update aucore and hl7au nodes
+   - Will update aucore and ereq nodes
    - Standard configuration, no special requirements
    ```
 

@@ -167,7 +167,6 @@ jobs:
               for (const line of lines) {
                 if (line.includes('[x]') || line.includes('[X]')) {
                   if (line.includes('aucore')) selectedNodes.push('aucore');
-                  if (line.includes('hl7au')) selectedNodes.push('hl7au');
                   if (line.includes('ereq')) selectedNodes.push('ereq');
                 }
               }

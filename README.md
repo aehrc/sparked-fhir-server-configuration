@@ -9,7 +9,7 @@ This repository manages the deployment and configuration of a multi-node Smile C
 ### Key Features
 
 - **Automated IG Deployment** - Request and deploy FHIR IGs through GitHub Issues
-- **Multi-Node Configuration** - Deploy to specific SmileCDR nodes (aucore, hl7au, ereq)
+- **Multi-Node Configuration** - Deploy to specific SmileCDR nodes (aucore, ereq)
 - **Automatic Validation** - Instant feedback on configuration changes
 - **Flexible Deployment** - Deploy immediately, schedule for later, or wait for restart
 - **Complete Audit Trail** - All changes tracked in git with issue references
@@ -84,15 +84,19 @@ Test data management is powered by the [`sparked-test-data-loader`](https://gith
 
 ### SmileCDR Nodes
 
-| Node | Purpose | Database Module |
-|------|---------|----------------|
-| `aucore` | AU Core FHIR profiles and validation | aucore |
-| `hl7au` | HL7 AU Base specifications and extensions | hl7au |
-| `ereq` | eRequesting workflows and integrations | ereq |
-| - | Cluster management | clustermgr |
-| - | FHIR persistence layer | persistence |
-| - | Audit logs | audit |
-| - | Transactions | transaction |
+The FHIR nodes below make up the **Sparked Dev FHIR Server**, CSIRO-hosted on
+`smile.sparked-fhir.com` and sharing the CSIRO credentials used by the automation. This is
+not the HL7 AU reference server at `fhir.hl7.org.au`, which is a separate system (see
+[Governance](#governance)).
+
+| Node | Purpose | FHIR endpoint | Database Module |
+|------|---------|---------------|----------------|
+| `aucore` | AU Core node of the Sparked Dev FHIR Server | `smile.sparked-fhir.com/aucore/fhir/DEFAULT` | aucore |
+| `ereq` | eRequesting node of the Sparked Dev FHIR Server | `smile.sparked-fhir.com/ereq/fhir/DEFAULT` | ereq |
+| - | Cluster management | - | clustermgr |
+| - | FHIR persistence layer | - | persistence |
+| - | Audit logs | - | audit |
+| - | Transactions | - | transaction |
 
 ### Current Implementation Guides
 
@@ -199,7 +203,7 @@ python scripts/sync_packages.py \
 # Test config update (dry-run)
 python scripts/update_node_packages.py \
   --action add \
-  --nodes aucore,hl7au \
+  --nodes aucore,ereq \
   --package package-example.json \
   --dry-run
 
@@ -257,7 +261,7 @@ Actions → "Re/load IG Packages" → Run workflow
 
 # Via script locally
 python scripts/sync_packages.py \
-  --nodes aucore,hl7au \
+  --nodes aucore,ereq \
   --source config \
   --dry-run  # Remove for actual deployment
 ```
@@ -267,7 +271,7 @@ python scripts/sync_packages.py \
 # Add package to nodes
 python scripts/update_node_packages.py \
   --action add \
-  --nodes aucore,hl7au \
+  --nodes aucore,ereq \
   --package package-international-patient-summary-2.0.1.json
 
 # Remove package from nodes
@@ -296,6 +300,22 @@ python scripts/update_node_packages.py \
 - **ADR Required** for significant technical decisions (new modules, major config changes)
 - **Decision Makers**: DTR, Brett Esler
 - **ADR Timeline**: Add 1-2 weeks to implementation timeline
+
+#### HL7-hosted reference environments (elevated approval)
+
+Two environments are HL7-hosted reference systems, separate from the CSIRO-hosted Sparked
+dev nodes on `smile.sparked-fhir.com`, and require higher scrutiny:
+
+| Environment | What it is | Managed here? |
+|-------------|------------|---------------|
+| `fhir.hl7.org.au` | The official HL7 AU FHIR reference server | Not an automation target; changes are out of band |
+| `tx.hl7` (`synd.tx.hl7.org.au`) | The HL7 AU terminology reference server | Yes, via the Terminology Content offering (`tx-hl7-helm-values.yaml`) |
+
+Any request that changes one of these environments must be labelled **`needs:hl7-approval`**
+and receive **Brett Esler's** sign-off before it is `approved` or `ready-for-automation`.
+This is a documented process gate: reviewers must not approve or arm automation on such a
+request until that sign-off is recorded on the issue. The CSIRO Sparked dev nodes (`aucore`,
+`ereq`) follow the normal workflow.
 
 ### SLA Expectations
 

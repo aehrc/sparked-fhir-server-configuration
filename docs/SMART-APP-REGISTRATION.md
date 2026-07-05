@@ -7,7 +7,6 @@ Complete guide to registering SMART on FHIR / OIDC clients on the Sparked FHIR S
 | Node | FHIR Base | Well-Known | Authorize | Token |
 |------|-----------|------------|-----------|-------|
 | aucore | `https://smile.sparked-fhir.com/aucore/fhir/DEFAULT` | `https://smile.sparked-fhir.com/aucore/smartauth/.well-known/openid-configuration` | `https://smile.sparked-fhir.com/aucore/smartauth/oauth/authorize` | `https://smile.sparked-fhir.com/aucore/smartauth/oauth/token` |
-| hl7au | `https://smile.sparked-fhir.com/hl7au/fhir/DEFAULT` | `https://smile.sparked-fhir.com/hl7au/smartauth/.well-known/openid-configuration` | `https://smile.sparked-fhir.com/hl7au/smartauth/oauth/authorize` | `https://smile.sparked-fhir.com/hl7au/smartauth/oauth/token` |
 | ereq | `https://smile.sparked-fhir.com/ereq/fhir/DEFAULT` | `https://smile.sparked-fhir.com/ereq/smartauth/.well-known/openid-configuration` | `https://smile.sparked-fhir.com/ereq/smartauth/oauth/authorize` | `https://smile.sparked-fhir.com/ereq/smartauth/oauth/token` |
 
 | Endpoint | URL |

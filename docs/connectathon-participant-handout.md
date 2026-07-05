@@ -22,7 +22,7 @@ No — it supports both read and write, but writes require authentication:
 | Authorize | `https://smile.sparked-fhir.com/aucore/smartauth/oauth/authorize` |
 | Token | `https://smile.sparked-fhir.com/aucore/smartauth/oauth/token` |
 
-> Other nodes follow the same pattern with `/hl7au/...` and `/ereq/...` in place of `/aucore/...`.
+> Other nodes follow the same pattern with `/ereq/...` in place of `/aucore/...`.
 > Note the `/oauth/` segment in the authorize/token paths.
 
 ## Getting a client (registration is required for writes)

@@ -19,7 +19,6 @@ on:
         default: "aucore"
         options:
           - aucore
-          - hl7au
           - ereq
       dry_run:
         description: "Dry run (preview without making changes)"
