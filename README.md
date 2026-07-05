@@ -40,7 +40,7 @@ This repository manages the deployment and configuration of a multi-node Smile C
 **Via issue request:**
 1. [Create an Operational Request](../../issues/new/choose)
 2. Specify the data source and upload mode
-3. Admin approves (`status:approved` label)
+3. Admin approves (`approved` label)
 4. Data loads automatically
 5. Verify and close
 
@@ -257,11 +257,12 @@ sparked-fhir-server-configuration/
 Watch your issue for status updates:
 
 - `needs-review` → Awaiting admin review
-- `status:approved` → Approved, ready for automation
-- `status:in-progress` → PR created, being reviewed
-- `status:deploying` → Deployment in progress
-- `status:deployed` → Deployed, please verify
-- `status:complete` → Verified and closed
+- `approved` → Approved, ready to implement
+- `ready-for-automation` → Approved for automated PR generation
+- `in-progress` → PR created, being reviewed
+- `deploy-immediately` → (optional) Deploy automatically once the PR merges
+- `deployed` → Deployed, please verify
+- `complete` → Verified and closed
 
 ## For Developers
 
@@ -315,14 +316,14 @@ find module-config/packages -name "*.json" -exec jq empty {} \;
 brew install gh
 gh auth login
 
-# Test validation workflow
-gh workflow run ig-request-validation.yml -f issue_number=123
+# Test validation workflow (validate-ig job)
+gh workflow run issue-opened.yml -f issue_number=123 -f job_type=validate-ig
 
-# Test PR creation workflow
-gh workflow run issue-ig-pr-creator.yml -f issue_number=123
+# Test PR creation workflow (create-ig-pr job)
+gh workflow run issue-labeled.yml -f issue_number=123 -f job_type=create-ig-pr
 
 # View workflow logs
-gh run list --workflow=ig-request-validation.yml
+gh run list --workflow=issue-opened.yml
 gh run view <run-id> --log
 ```
 
