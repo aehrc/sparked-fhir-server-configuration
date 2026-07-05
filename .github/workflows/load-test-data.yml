@@ -18,7 +18,6 @@ on:
         default: "aucore"
         options:
           - aucore
-          - hl7au
           - ereq
           - custom
       custom_fhir_url:
@@ -155,7 +154,6 @@ jobs:
           # Resolve FHIR URL from node name
           case "$TARGET_NODE" in
             aucore) FHIR_URL="https://smile.sparked-fhir.com/aucore/fhir/DEFAULT" ;;
-            hl7au)  FHIR_URL="https://smile.sparked-fhir.com/hl7au/fhir/DEFAULT" ;;
             ereq)   FHIR_URL="https://smile.sparked-fhir.com/ereq/fhir/DEFAULT" ;;
             custom) FHIR_URL="$CUSTOM_FHIR_URL" ;;
             *)      echo "::error::Unknown target node: $TARGET_NODE"; exit 1 ;;

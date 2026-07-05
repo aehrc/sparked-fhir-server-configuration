@@ -113,7 +113,7 @@ body:
       description: Which node should the test data load into? Defaults to aucore if left blank.
       options:
         - aucore
-        - hl7au
+        - ereq
     validations:
       required: false
 

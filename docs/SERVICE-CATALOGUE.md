@@ -50,7 +50,7 @@ the Sparked FHIR Server nodes.
   what they can; the team completes the technical details.
 - **Required inputs:** IG name, IG version, NPM package ID, urgency, request type.
 - **Optional inputs:** IG documentation URL, custom package `.tgz` URL, target nodes
-  (aucore / ereq / hl7au), immediate-deployment preference, test-data/examples needs, and
+  (aucore / ereq), immediate-deployment preference, test-data/examples needs, and
   package install options.
 - **Fulfilment:** automated validation runs a dry-run and posts a preview comment. An admin
   gates the request by adding `ready-for-automation`, which triggers an automated PR that
@@ -61,7 +61,7 @@ the Sparked FHIR Server nodes.
   auto-deploy).
 - **SLA:** 1 to 2 weeks end-to-end (calendar lead time); roughly 20 minutes of hands-on time
   once `ready-for-automation` is applied. Add 1 to 2 weeks if an ADR is required.
-- **Example:** "Deploy IPS 2.0.1 to aucore and hl7au, deploy immediately."
+- **Example:** "Deploy IPS 2.0.1 to aucore, deploy immediately."
 
 ### Configuration Change
 
@@ -255,15 +255,14 @@ dev environments from HL7-hosted reference environments.
 
 | Environment | Host | Scrutiny |
 |-------------|------|----------|
-| `aucore`, `ereq`, `hl7au` nodes | `smile.sparked-fhir.com` (CSIRO) | Normal workflow |
+| `aucore`, `ereq` nodes | `smile.sparked-fhir.com` (CSIRO) | Normal workflow |
 | `tx.dev` terminology server | `synd.ontoserver.csiro.au` (CSIRO) | Normal workflow |
 | `tx.hl7` terminology server | `synd.tx.hl7.org.au` (HL7) | Elevated: `needs:hl7-approval` + Brett Esler sign-off |
 | `fhir.hl7.org.au` FHIR reference server | `fhir.hl7.org.au` (HL7) | Elevated: `needs:hl7-approval` + Brett Esler sign-off; not an automation target today |
 
-The `aucore` and `ereq` nodes make up the Sparked Dev FHIR Server. The `hl7au` **node** is
-the Sparked-hosted dev instance of the HL7 AU Reference Server's AU Core node
-(`smile.sparked-fhir.com/hl7au`). It is not the production HL7 AU reference server at
-`fhir.hl7.org.au`, which is a separate system.
+The `aucore` and `ereq` nodes make up the Sparked Dev FHIR Server on `smile.sparked-fhir.com`.
+It is not the production HL7 AU reference server at `fhir.hl7.org.au`, which is a separate
+system.
 
 For any request that changes an HL7-hosted reference environment, a reviewer adds
 `needs:hl7-approval` and must not move the request to `approved` or `ready-for-automation`

@@ -103,7 +103,6 @@ jobs:
               for (const line of lines) {
                 if (line.includes('[x]') || line.includes('[X]')) {
                   if (line.includes('aucore')) selectedNodes.push('aucore');
-                  if (line.includes('hl7au')) selectedNodes.push('hl7au');
                   if (line.includes('ereq')) selectedNodes.push('ereq');
                 }
               }
@@ -939,18 +938,15 @@ jobs:
               else uploadMode = 'individual';
             }
 
-            // Target node: explicit "Target Node" field, then a custom FHIR URL, then body
-            // mentions, then default (aucore).
+            // Target node: explicit "Target Node" field, then a custom FHIR URL, then a
+            // free-text node mention, then default (aucore).
             let targetNode = '';
             const targetNodeField = section('Target Node').toLowerCase();
-            if (targetNodeField.includes('hl7au')) targetNode = 'hl7au';
+            if (targetNodeField.includes('ereq')) targetNode = 'ereq';
             else if (targetNodeField.includes('aucore')) targetNode = 'aucore';
-            if (!targetNode && (bodyLower.includes('hl7au') || bodyLower.includes('hl7 au'))) {
-              targetNode = 'hl7au';
-            }
-            // Legacy free-text "node: hl7au" mention, only if the explicit field was absent.
+            // Legacy free-text "node: <name>" mention, only if the explicit field was absent.
             if (!section('Target Node')) {
-              const nodeMatch = issueBody.match(/(?:target[_ ]?node|node)[:\s]*[`"]?(aucore|hl7au)[`"]?/i);
+              const nodeMatch = issueBody.match(/(?:target[_ ]?node|node)[:\s]*[`"]?(aucore|ereq)[`"]?/i);
               if (nodeMatch) targetNode = nodeMatch[1].toLowerCase();
             }
             // A custom FHIR URL overrides node selection.
@@ -1072,7 +1068,6 @@ jobs:
               for (const line of lines) {
                 if (line.includes('[x]') || line.includes('[X]')) {
                   if (line.includes('aucore')) selectedNodes.push('aucore');
-                  if (line.includes('hl7au')) selectedNodes.push('hl7au');
                   if (line.includes('ereq')) selectedNodes.push('ereq');
                 }
               }
