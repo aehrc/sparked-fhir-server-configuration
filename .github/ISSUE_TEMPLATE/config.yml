@@ -11,7 +11,6 @@ contact_links:
   - name: Request workflow & lifecycle reference
     url: https://github.com/aehrc/sparked-fhir-server-configuration/blob/main/docs/WORKFLOWS.md
     about: How requests are reviewed, automated, deployed, and verified.
-  # Replace the URL below with the team's Zulip stream when available.
-  - name: Chat & announcements (team Zulip)
-    url: https://github.com/aehrc/sparked-fhir-server-configuration/blob/main/README.md#communication-channels
+  - name: Chat & announcements (FHIR Zulip)
+    url: https://chat.fhir.org/
     about: For quick questions, help choosing a request type, or release announcements.
