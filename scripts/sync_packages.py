@@ -106,6 +106,25 @@ class SmileCDRPackageSync:
             # Continue anyway - package might not be installed
             return False
 
+    def is_package_installed(self, node_name: str, package_name: str, package_version: str) -> bool:
+        """Return True if a specific package@version is registered on a node.
+
+        Used to confirm the real post-install state, since SmileCDR can return a
+        500 while re-inserting an already-present dependency even though the
+        target package itself installed correctly.
+        """
+        url = f"{self.base_url}/{node_name}/package/npm/-/v1/search"
+        try:
+            response = requests.get(url, headers=self.headers, timeout=30)
+            response.raise_for_status()
+            for obj in response.json().get('objects', []):
+                pkg = obj.get('package', {})
+                if pkg.get('name') == package_name and pkg.get('version') == package_version:
+                    return True
+        except requests.exceptions.RequestException:
+            pass
+        return False
+
     def install_package(self, node_name: str, package: Dict) -> bool:
         """Install a package on a node"""
         url = f"{self.base_url}/{node_name}/package/write/install/by-spec"
@@ -141,9 +160,20 @@ class SmileCDRPackageSync:
             print(f"      ✅ Installed successfully")
             return True
         except requests.exceptions.RequestException as e:
+            response_text = getattr(getattr(e, 'response', None), 'text', '') or ''
+            # SmileCDR may return a 500 when fetchDependencies re-inserts a
+            # dependency package that already exists (e.g. duplicate key on
+            # hl7.terminology.r4). The target package itself is still installed,
+            # so confirm the real state before treating this as a failure.
+            if self.is_package_installed(node_name, package_name, package_version):
+                print(f"      ⚠️  Install returned an error, but "
+                      f"{package_name}@{package_version} is registered on {node_name}; treating as success")
+                if response_text:
+                    print(f"      (server message: {response_text[:300]})")
+                return True
             print(f"      ❌ Error installing: {e}")
-            if hasattr(e, 'response') and hasattr(e.response, 'text'):
-                print(f"      Response: {e.response.text}")
+            if response_text:
+                print(f"      Response: {response_text}")
             return False
 
     def sync_node(self, node_name: str, desired_packages: List[Dict], force_reinstall: bool = False, skip_uninstall: bool = False) -> bool:
