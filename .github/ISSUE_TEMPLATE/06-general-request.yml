@@ -60,10 +60,10 @@ body:
       required: false
 
   - type: dropdown
-    id: priority
+    id: urgency
     attributes:
-      label: Priority
-      description: How urgent is this? (The team confirms and applies a priority label during triage.)
+      label: Urgency
+      description: How urgent is this? The team confirms and applies a priority label during triage.
       options:
         - Low - can wait
         - Medium

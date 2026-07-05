@@ -14,64 +14,57 @@ This repository manages the deployment and configuration of a multi-node Smile C
 - **Flexible Deployment** - Deploy immediately, schedule for later, or wait for restart
 - **Complete Audit Trail** - All changes tracked in git with issue references
 
-## 🚀 Quick Start
+## Contents
 
-### I want to deploy a FHIR Implementation Guide
+- [Service Catalogue](#service-catalogue) - request any change
+- [Quick Start](#quick-start) - load or clear test data
+- [Documentation](#documentation)
+- [Architecture](#architecture)
+- [Repository Structure](#repository-structure)
+- [How It Works](#how-it-works)
+- [For Developers](#for-developers)
+- [For Repo Admins](#for-repo-admins)
+- [Important Notes](#important-notes)
+- [CI/CD Setup](#cicd-setup)
+- [Troubleshooting](#troubleshooting)
+- [Support](#support)
 
-1. [Create an IG Release Request](../../issues/new/choose)
-2. Fill out the form and select target nodes
-3. Review the automatic validation and dry-run preview
-4. Wait for admin approval (`ready-for-automation` label)
-5. PR is auto-created → reviewed → merged
-6. Choose deployment option or let it deploy automatically
-7. Verify and close the issue
+## Service Catalogue
 
-**Time:** ~20 minutes (mostly automated)
+Every change to the Sparked FHIR Server is requested as a structured issue. Pick the
+offering that matches your need and click **Raise request**. Blank issues are disabled, so
+anything that does not fit a specific offering (a bug, a question, an idea, or a rollback)
+goes through **General / Bug / Question**.
 
-👉 **[Read the Complete Workflow Guide](docs/WORKFLOWS.md)**
+| Offering | What it's for | Automation | Target SLA | Raise request |
+|----------|---------------|------------|------------|---------------|
+| **IG Release** | Add, update, or roll back a FHIR Implementation Guide | Semi-automated | 1 to 2 weeks | [Raise request](https://github.com/aehrc/sparked-fhir-server-configuration/issues/new?template=01-ig-release-request.yml) |
+| **Configuration Change** | Change Smile CDR modules, endpoints, security, or settings | Manual | 1 to 3 weeks | [Raise request](https://github.com/aehrc/sparked-fhir-server-configuration/issues/new?template=02-configuration-change.yml) |
+| **Operational Request** | Load test data, expunge, refresh, restart, backup/restore | Semi-automated | Hours to days | [Raise request](https://github.com/aehrc/sparked-fhir-server-configuration/issues/new?template=03-operational-request.yml) |
+| **Terminology Content Change** | Add/remove/modify IG packages on tx.dev / tx.hl7 | Semi-automated | 1 to 2 weeks | [Raise request](https://github.com/aehrc/sparked-fhir-server-configuration/issues/new?template=04-tx-content-change.yml) |
+| **SMART App / OIDC Registration** | Register a SMART on FHIR or backend OIDC client | Semi-automated | 1 to 3 business days | [Raise request](https://github.com/aehrc/sparked-fhir-server-configuration/issues/new?template=05-smart-app-registration.yml) |
+| **General / Bug / Question** | Anything not covered above, including rollback | Manual (triage) | Best-effort | [Raise request](https://github.com/aehrc/sparked-fhir-server-configuration/issues/new?template=06-general-request.yml) |
 
-### I want to load/clear test data
+For per-offering detail, the request lifecycle, the label legend, and what happens after you
+submit, see **[docs/SERVICE-CATALOGUE.md](docs/SERVICE-CATALOGUE.md)**.
+
+## Quick Start
+
+### Load or clear test data
+
+This is the one common task that does not need an issue. For everything else, pick an
+offering in the [Service Catalogue](#service-catalogue) above.
 
 **Via GitHub Actions (recommended):**
 1. Go to **Actions** -> **Manage Test Data** -> **Run workflow**
 2. Select operation: `clear-and-load-aucore`, `clear-and-load-ereq`, `clear-and-load-aucore-and-ereq`, or `clear-and-expunge`
 3. Optionally enable dry run to preview changes first
 
-**Via issue request:**
-1. [Create an Operational Request](../../issues/new/choose)
-2. Specify the data source and upload mode
-3. Admin approves (`approved` label)
-4. Data loads automatically
-5. Verify and close
-
-**Time:** ~10-30 minutes (depending on data volume)
+**Via issue request:** raise an [Operational Request](https://github.com/aehrc/sparked-fhir-server-configuration/issues/new?template=03-operational-request.yml), then an admin approves it (`approved` label) and the data loads automatically.
 
 Test data management is powered by the [`sparked-test-data-loader`](https://github.com/aehrc/sparked-test-data-loader) Go tool.
 
-### I want to register a SMART App / OIDC client
-
-1. [Create a SMART App Registration Request](../../issues/new/choose)
-2. Select client type (SMART App Launch or Backend Service)
-3. Provide Client ID, name, scopes, and redirect URIs
-4. Admin reviews and approves (`ready-for-automation` label)
-5. Client is automatically registered
-6. Receive your client details and endpoint URLs
-
-**Time:** ~5 minutes (automated after approval)
-
-See **[SMART App Registration Guide](docs/SMART-APP-REGISTRATION.md)**
-
-### I want to change server configuration
-
-1. [Create a Configuration Change Request](../../issues/new/choose)
-2. Describe the desired behavior
-3. Admin reviews and implements manually
-4. Deployment and verification
-5. Close when complete
-
-**Time:** 1-3 weeks (varies by complexity)
-
-## 📚 Documentation
+## Documentation
 
 | Document | Purpose | Audience |
 |----------|---------|----------|
@@ -143,35 +136,14 @@ sparked-fhir-server-configuration/
 │   ├── WORKFLOWS.md                  # Complete workflow guide
 │   ├── SMART-APP-REGISTRATION.md     # SMART/OIDC client registration guide
 │   └── confluence-connectathon-entry.md  # Content for Confluence connectathon pages
-├── scripts/
-│   ├── register_smart_client.py  # Register SMART/OIDC clients
-│   ├── manage_smart_users.py     # Create user accounts for SMART auth
-│   ├── sync_packages.py          # Sync packages across nodes
-│   ├── update_node_packages.py   # Update simplified-multinode.yaml
-│   ├── update_tx_helm_values.py  # Update terminology server config
-│   ├── generate-ig-pr.sh         # Helper for manual IG PR generation
-│   ├── setup-labels.sh           # Set up GitHub issue labels
-│   ├── requirements.txt          # Python dependencies
-│   └── README.md                 # Script usage guide
-├── module-config/
-│   ├── simplified-multinode.yaml      # SmileCDR node configuration
-│   ├── connectathon-clients.json      # Pre-configured SMART clients for connectathons
-│   ├── connectathon-users.json        # Pre-configured user accounts for connectathons
-│   ├── values-common.yaml             # Helm chart values
-│   ├── users.json.tpl                 # User configuration template
-│   └── packages/                      # FHIR IG package specifications
-│       ├── package-aubase.json
-│       ├── package-aucore.json
-│       └── [other packages]
-├── terraform/
-│   ├── main.tf                  # Main Terraform configuration
-│   ├── variables.tf             # Variable definitions
-│   ├── provider.tf              # Provider configuration
-│   └── data.tf                  # Data sources
-└── terminology-servers/
-    ├── tx-dev-helm-values.yaml  # TX dev server config
-    └── tx-hl7-helm-values.yaml  # TX hl7 server config
+├── scripts/                 # Python/shell automation (package sync, SMART clients, labels); see scripts/README.md
+├── module-config/           # SmileCDR node config, Helm values, and packages/ (one JSON per IG version)
+├── terraform/               # Terraform for the EKS/Aurora infrastructure
+└── terminology-servers/     # Helm values for the tx.dev and tx.hl7 terminology servers
 ```
+
+> The `.github/` tree is listed in full because it drives the request automation. The other
+> directories are summarised to avoid drift; browse them directly for the current file list.
 
 ## Key Files Explained
 
@@ -190,99 +162,17 @@ sparked-fhir-server-configuration/
 
 ## How It Works
 
-### Automated IG Release Flow
+At a glance, an IG release flows from issue to deployment like this:
 
 ```
-┌─────────────────┐
-│ User Creates    │
-│ Issue           │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│ Automatic       │
-│ Validation      │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│ Admin Approves  │
-│ (ready-for-     │
-│  automation)    │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│ PR Auto-Created │
-│ with Config     │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│ Admin Reviews & │
-│ Merges PR       │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│ Deployment      │
-│ (Auto or Manual)│
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│ User Verifies & │
-│ Closes Issue    │
-└─────────────────┘
+Issue created → Automatic validation → Admin approves (ready-for-automation)
+→ PR auto-created → Admin reviews & merges → Deployment (auto or manual) → User verifies & closes
 ```
 
-### What Happens Automatically
-
-1. **Issue Created** → Validation runs, dry-run preview posted
-2. **Issue Approved** (`ready-for-automation` label) → PR created with config changes
-3. **PR Merged** → Deployment options posted (or auto-deploys if requested)
-4. **Deployment Complete** → Results posted to issue, user asked to verify
-
-### What Needs Human Review
-
-- **Initial request review** - Admin verifies business justification
-- **PR review** - Admin checks auto-generated configuration
-- **Deployment verification** - User confirms functionality
-- **Issue closure** - Admin closes after verification
-
-## Service Catalogue
-
-Every change to the Sparked FHIR Server is requested as a structured issue. Pick the
-offering that matches your need and click **Raise request**. Blank issues are disabled, so
-anything that does not fit a specific offering (a bug, a question, an idea, or a rollback)
-goes through **General / Bug / Question**.
-
-| Offering | What it's for | Automation | Target SLA | Raise request |
-|----------|---------------|------------|------------|---------------|
-| **IG Release** | Add, update, or roll back a FHIR Implementation Guide | Semi-automated | 1 to 2 weeks | [Raise request](https://github.com/aehrc/sparked-fhir-server-configuration/issues/new?template=01-ig-release-request.yml) |
-| **Configuration Change** | Change Smile CDR modules, endpoints, security, or settings | Manual | 1 to 3 weeks | [Raise request](https://github.com/aehrc/sparked-fhir-server-configuration/issues/new?template=02-configuration-change.yml) |
-| **Operational Request** | Load test data, expunge, refresh, restart, backup/restore | Semi-automated | Hours to days | [Raise request](https://github.com/aehrc/sparked-fhir-server-configuration/issues/new?template=03-operational-request.yml) |
-| **Terminology Content Change** | Add/remove/modify IG packages on tx.dev / tx.hl7 | Semi-automated | 1 to 2 weeks | [Raise request](https://github.com/aehrc/sparked-fhir-server-configuration/issues/new?template=04-tx-content-change.yml) |
-| **SMART App / OIDC Registration** | Register a SMART on FHIR or backend OIDC client | Semi-automated | 1 to 3 business days | [Raise request](https://github.com/aehrc/sparked-fhir-server-configuration/issues/new?template=05-smart-app-registration.yml) |
-| **General / Bug / Question** | Anything not covered above, including rollback | Manual (triage) | Best-effort | [Raise request](https://github.com/aehrc/sparked-fhir-server-configuration/issues/new?template=06-general-request.yml) |
-
-See the full request lifecycle, per-offering detail, and label legend in
-**[docs/SERVICE-CATALOGUE.md](docs/SERVICE-CATALOGUE.md)**.
-
-## Making Requests
-
-### Request Status Labels
-
-Watch your issue for status updates:
-
-- `needs-review` → Awaiting admin review
-- `needs-revision` → Returned to you for changes before review continues
-- `approved` → Approved, ready to implement
-- `ready-for-automation` → Approved for automated PR generation
-- `in-progress` → PR created, being reviewed
-- `deploy-immediately` → (optional flag) Deploy automatically once the PR merges
-- `deployed` → Deployed, please verify
-- `complete` → Verified and closed
+Validation and PR creation are automated; request approval, PR review, and deployment
+verification are the human gates. For the full lifecycle, per-offering behaviour, and the
+label legend, see **[docs/SERVICE-CATALOGUE.md](docs/SERVICE-CATALOGUE.md)** and
+**[docs/WORKFLOWS.md](docs/WORKFLOWS.md)**.
 
 ## For Developers
 
@@ -363,7 +253,7 @@ gh run view <run-id> --log
 **Manually deploy packages:**
 ```bash
 # Via GitHub Actions
-Actions → "Reload IG Packages for SmileCDR Nodes" → Run workflow
+Actions → "Re/load IG Packages" → Run workflow
 
 # Via script locally
 python scripts/sync_packages.py \
@@ -378,7 +268,7 @@ python scripts/sync_packages.py \
 python scripts/update_node_packages.py \
   --action add \
   --nodes aucore,hl7au \
-  --package package-ips-2.0.0.json
+  --package package-international-patient-summary-2.0.1.json
 
 # Remove package from nodes
 python scripts/update_node_packages.py \
@@ -422,6 +312,7 @@ The following GitHub configuration is required for CI/CD workflows:
 | Variable | Description |
 |----------|-------------|
 | `AWS_OIDC_ROLE_ARN` | ARN of the IAM role for GitHub Actions AWS OIDC federation |
+| `CATALOGUE_PROJECT_URL` | (optional) URL of the service-catalogue GitHub Project; set to enable auto-adding new issues to the board |
 
 ### Repository Secrets (Settings > Secrets and variables > Actions > Secrets)
 
@@ -432,6 +323,7 @@ The following GitHub configuration is required for CI/CD workflows:
 | `FHIRFLARE_URL` | FHIRFlare service URL |
 | `FHIR_USERNAME` | FHIR server username |
 | `FHIR_PASSWORD` | FHIR server password |
+| `ADD_TO_PROJECT_PAT` | (optional) PAT with Projects read/write, used with `CATALOGUE_PROJECT_URL` to add issues to the board |
 
 ## Communication Channels
 
@@ -461,9 +353,9 @@ The following GitHub configuration is required for CI/CD workflows:
 
 ## Support
 
-- **Questions:** Ask in team Zulip
-- **Bugs:** [Create an issue](../../issues/new) with label `bug`
-- **Feature Requests:** [Create an issue](../../issues/new) with label `enhancement`
+- **Questions, bugs, feature requests:** raise a [General / Bug / Question](https://github.com/aehrc/sparked-fhir-server-configuration/issues/new?template=06-general-request.yml) and pick the matching category (blank issues are disabled)
+- **Any other change:** use the [Service Catalogue](#service-catalogue)
+- **Questions in chat:** ask in team Zulip
 - **Workflow Help:** Check [WORKFLOWS.md](docs/WORKFLOWS.md)
 - **Script Help:** Check [scripts/README.md](scripts/README.md)
 
