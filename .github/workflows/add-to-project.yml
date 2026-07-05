@@ -1,0 +1,38 @@
+name: Add Issue to Service Catalogue Board
+
+# Adds every newly opened (or reopened) issue to the "Sparked FHIR Server - Service
+# Catalogue" GitHub Project so the team and product owner get an at-a-glance view of
+# every request and its status.
+#
+# SAFETY: this workflow is INERT until it is configured. It only runs when the repo
+# variable CATALOGUE_PROJECT_URL is set AND the ADD_TO_PROJECT_PAT secret is present,
+# so merging it before the board exists (or before a token is provided) is a no-op.
+#
+# To activate:
+#   1. Create the project board (see docs/SERVICE-CATALOGUE.md, "Admin note: project board").
+#   2. Set repo variable CATALOGUE_PROJECT_URL to the project URL.
+#   3. Set repo secret ADD_TO_PROJECT_PAT to a token with Projects read/write
+#      (classic PAT with `project` + `repo`, or a fine-grained token with
+#      Projects: read/write and Issues: read). The default GITHUB_TOKEN cannot
+#      write to org/user Projects (v2), so a PAT is required.
+
+on:
+  issues:
+    types: [opened, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  add-to-project:
+    runs-on: ubuntu-latest
+    if: ${{ vars.CATALOGUE_PROJECT_URL != '' }}
+    steps:
+      - name: Add issue to project
+        env:
+          PAT: ${{ secrets.ADD_TO_PROJECT_PAT }}
+        if: ${{ env.PAT != '' }}
+        uses: actions/add-to-project@v1
+        with:
+          project-url: ${{ vars.CATALOGUE_PROJECT_URL }}
+          github-token: ${{ secrets.ADD_TO_PROJECT_PAT }}

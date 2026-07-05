@@ -370,16 +370,22 @@ The workflow will:
 | **IG Release** | Add IPS 3.0.0, Update AU Core | 1-2 weeks |
 | **Configuration** | Enable subscriptions, Add endpoint | 1-3 weeks |
 | **Operations** | Load test data, Refresh environment | Hours to days |
+| **Terminology Content** | Watch a package on tx.dev / tx.hl7 | 1-2 weeks |
+| **SMART App / OIDC** | Register a SMART on FHIR client | 1-3 business days |
+| **General / Bug / Question** | Report a bug, ask a question, request a rollback | Best-effort |
+
+See the [Service Catalogue](SERVICE-CATALOGUE.md) for the full menu, per-offering detail, and SLAs.
 
 ### Request Status Labels
 
 Track your request through these stages:
 
 - `needs-review` → Awaiting admin review
+- `needs-revision` → Returned to you for changes before review continues
 - `approved` → Approved, ready to implement
 - `ready-for-automation` → Approved for automated PR generation
 - `in-progress` → PR created, being reviewed
-- `deploy-immediately` → (optional) Deploy automatically once the PR merges
+- `deploy-immediately` → (optional flag) Deploy automatically once the PR merges
 - `deployed` → Deployed, awaiting your verification
 - `complete` → Verified and closed
 

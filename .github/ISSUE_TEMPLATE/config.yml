@@ -1,0 +1,17 @@
+# Issue template chooser configuration.
+# Blank issues are disabled so every request enters through a catalogue offering.
+# The "General / Bug / Question" template (06) is the safety net for anything that
+# does not match a specific offering, including bug reports, questions, enhancement
+# ideas, and rollback requests.
+blank_issues_enabled: false
+contact_links:
+  - name: Service Catalogue (browse all request types)
+    url: https://github.com/aehrc/sparked-fhir-server-configuration/blob/main/docs/SERVICE-CATALOGUE.md
+    about: See every request type, what it does, its SLA, and what happens after you submit.
+  - name: Request workflow & lifecycle reference
+    url: https://github.com/aehrc/sparked-fhir-server-configuration/blob/main/docs/WORKFLOWS.md
+    about: How requests are reviewed, automated, deployed, and verified.
+  # Replace the URL below with the team's Zulip stream when available.
+  - name: Chat & announcements (team Zulip)
+    url: https://github.com/aehrc/sparked-fhir-server-configuration/blob/main/README.md#communication-channels
+    about: For quick questions, help choosing a request type, or release announcements.

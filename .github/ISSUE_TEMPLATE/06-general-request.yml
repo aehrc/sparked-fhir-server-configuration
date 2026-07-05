@@ -1,0 +1,82 @@
+name: General / Bug / Question
+description: Report a bug, ask a question, request an enhancement, or anything not covered by a specific request type (including rollback).
+title: "[General]: "
+labels: ["needs-review", "question"]
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## General / Bug / Question
+        Use this form when your request does not match one of the specific catalogue offerings
+        (IG Release, Configuration Change, Operational Request, Terminology Content Change, or
+        SMART App Registration).
+
+        **Not sure which to use?** Browse the [Service Catalogue](https://github.com/aehrc/sparked-fhir-server-configuration/blob/main/docs/SERVICE-CATALOGUE.md).
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Request Category
+      description: What kind of request is this?
+      options:
+        - Bug report
+        - Question / help
+        - Enhancement / feature request
+        - Rollback request
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: summary
+    attributes:
+      label: Summary
+      description: A one-line summary of the request.
+      placeholder: "Short, specific summary of the issue or question"
+    validations:
+      required: true
+
+  - type: textarea
+    id: details
+    attributes:
+      label: Details
+      description: |
+        Full description of the request.
+        For a **bug report**, please include: steps to reproduce, expected vs actual behaviour,
+        and the affected node/environment (e.g. aucore, ereq, hl7au, tx.dev).
+      placeholder: "Describe what you need, or what went wrong and how to reproduce it."
+    validations:
+      required: true
+
+  - type: textarea
+    id: impact
+    attributes:
+      label: Impact
+      description: Who or what is affected, and how badly? (optional)
+      placeholder: "e.g. Blocks connectathon testing on aucore for the whole team."
+    validations:
+      required: false
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      description: How urgent is this? (The team confirms and applies a priority label during triage.)
+      options:
+        - Low - can wait
+        - Medium
+        - High
+        - Critical
+    validations:
+      required: false
+
+  - type: input
+    id: contact
+    attributes:
+      label: Contact
+      description: Email or handle for follow-up (optional).
+      placeholder: "name@example.org"
+    validations:
+      required: false

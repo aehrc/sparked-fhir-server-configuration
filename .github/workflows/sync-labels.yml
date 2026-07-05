@@ -1,0 +1,43 @@
+name: Sync Labels
+
+# Keeps the repository's labels in sync with .github/labels.yml (the source of truth
+# for the service catalogue's request-type, status, priority, and automation labels).
+#
+# This sync is NON-DESTRUCTIVE: skip-delete is true, so labels that are not listed in
+# labels.yml (e.g. GitHub defaults or ad-hoc labels) are never pruned. Renaming a label
+# here would break the label-driven automation, so treat labels.yml as append/update only.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/labels.yml"
+      - ".github/workflows/sync-labels.yml"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Preview changes without applying them"
+        type: boolean
+        default: false
+
+concurrency:
+  group: sync-labels
+  cancel-in-progress: false
+
+permissions:
+  issues: write
+
+jobs:
+  sync-labels:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Sync labels from .github/labels.yml
+        uses: crazy-max/ghaction-github-labeler@v5
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          yaml-file: .github/labels.yml
+          skip-delete: true
+          dry-run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
