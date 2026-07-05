@@ -84,12 +84,14 @@ jobs:
             const extractField = (label) => {
               const regex = new RegExp(`### ${label}\\s*([\\s\\S]*?)(?=###|$)`, 'i');
               const match = body.match(regex);
-              return match ? match[1].trim() : '';
+              const value = match ? match[1].trim() : '';
+              return value === '_No response_' ? '' : value;
             };
 
             const igName = extractField('Implementation Guide Name');
             const igVersion = extractField('IG Version');
             const packageId = extractField('NPM Package ID') || '';
+            const packageUrl = extractField('Custom Package URL') || '';
             const requestType = extractField('Request Type');
 
             // Extract target nodes from checkboxes
@@ -107,19 +109,21 @@ jobs:
               }
             }
 
-            // Extract deployment options from checkboxes
-            const deploymentOptionsSection = extractField('Deployment Options');
-            const deployImmediately = deploymentOptionsSection.includes('[x]') || deploymentOptionsSection.includes('[X]');
+            // Extract deployment preference from checkbox (template header is
+            // "Deployment Preferences" — must match exactly or it never triggers)
+            const deploymentSection = extractField('Deployment Preferences');
+            const deployImmediately = deploymentSection.includes('[x]') || deploymentSection.includes('[X]');
 
-            // Extract package options from checkboxes
+            // Extract package options from checkboxes. Parse per-line so the two
+            // options are read independently: line 0 = installMode,
+            // line 1 = fetchDependencies (matches the validate-ig job).
             const packageOptions = extractField('Package Installation Options');
+            const optionLines = packageOptions.split('\n').filter(l => l.includes('- ['));
 
-            const installModeChecked = packageOptions.includes('[X]') || packageOptions.includes('[x]');
+            const installModeChecked = optionLines.length > 0 && (optionLines[0].includes('[X]') || optionLines[0].includes('[x]'));
             const installMode = installModeChecked ? 'STORE_AND_INSTALL' : 'STORE_ONLY';
 
-            const lines = packageOptions.split('\n');
-            const fetchDepsChecked = lines.length > 1 && (lines[1].includes('[X]') || lines[1].includes('[x]'));
-            const fetchDependencies = fetchDepsChecked;
+            const fetchDependencies = optionLines.length > 1 && (optionLines[1].includes('[X]') || optionLines[1].includes('[x]'));
 
             const safeName = igName.toLowerCase()
               .replace(/[^a-z0-9]+/g, '-')
@@ -132,6 +136,7 @@ jobs:
             core.setOutput('ig_name', igName);
             core.setOutput('ig_version', igVersion);
             core.setOutput('package_id', packageId);
+            core.setOutput('package_url', packageUrl);
             core.setOutput('request_type', requestType);
             core.setOutput('install_mode', installMode);
             core.setOutput('fetch_dependencies', fetchDependencies);
@@ -175,164 +180,55 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git checkout -b "${{ steps.issue.outputs.branch_name }}"
 
-      - name: Generate package JSON file
+      - name: Apply IG release across config files
+        id: apply
         run: |
-          PACKAGE_FILE="module-config/packages/${{ steps.issue.outputs.package_file_name }}"
-
           PACKAGE_ID="${{ steps.issue.outputs.package_id }}"
           if [ -z "$PACKAGE_ID" ]; then
             PACKAGE_ID="hl7.fhir.${{ steps.issue.outputs.safe_name }}"
             echo "No package ID provided, using generated: $PACKAGE_ID"
           fi
 
-          INSTALL_MODE="${{ steps.issue.outputs.install_mode }}"
-          FETCH_DEPS="${{ steps.issue.outputs.fetch_dependencies }}"
+          python scripts/apply_ig_release.py \
+            --package-id "$PACKAGE_ID" \
+            --version "${{ steps.issue.outputs.ig_version }}" \
+            --ig-name "${{ steps.issue.outputs.ig_name }}" \
+            --nodes "${{ steps.issue.outputs.selected_nodes }}" \
+            --install-mode "${{ steps.issue.outputs.install_mode }}" \
+            --fetch-dependencies "${{ steps.issue.outputs.fetch_dependencies }}" \
+            --package-url "${{ steps.issue.outputs.package_url }}" \
+            --github-output "$GITHUB_OUTPUT"
 
-          cat > "$PACKAGE_FILE" <<EOF
-          {
-            "name": "$PACKAGE_ID",
-            "version": "${{ steps.issue.outputs.ig_version }}",
-            "installMode": "$INSTALL_MODE",
-            "fetchDependencies": $FETCH_DEPS
-          }
-          EOF
-
-          echo "Created $PACKAGE_FILE"
-          cat "$PACKAGE_FILE"
-
-          jq empty "$PACKAGE_FILE"
-
-      - name: Update simplified-multinode.yaml for selected nodes
-        run: |
-          SELECTED_NODES="${{ steps.issue.outputs.selected_nodes }}"
-          PACKAGE_FILE_NAME="${{ steps.issue.outputs.package_file_name }}"
-
-          echo "Updating simplified-multinode.yaml for nodes: $SELECTED_NODES"
-
-          python scripts/update_node_packages.py \
-            --action add \
-            --nodes "$SELECTED_NODES" \
-            --package "$PACKAGE_FILE_NAME"
-
-          echo "Updated simplified-multinode.yaml"
-
-      - name: Update values-common.yaml mappedFiles
-        run: |
-          PACKAGE_FILE_NAME="${{ steps.issue.outputs.package_file_name }}"
-
-          echo "Updating values-common.yaml mappedFiles with: $PACKAGE_FILE_NAME"
-
-          python3 <<'PYTHON_SCRIPT'
-          import os
-          import re
-
-          package_file_name = os.environ['PACKAGE_FILE_NAME']
-          values_file = 'module-config/values-common.yaml'
-
-          with open(values_file, 'r') as f:
-              content = f.read()
-
-          if f"  {package_file_name}:" in content:
-              print(f"{package_file_name} already exists in mappedFiles")
-          else:
-              if re.search(r'mappedFiles:', content):
-                  lines = content.split('\n')
-                  new_lines = []
-                  inserted = False
-                  in_mapped_files = False
-                  last_mapped_file_index = -1
-
-                  for i, line in enumerate(lines):
-                      if line.startswith('mappedFiles:'):
-                          in_mapped_files = True
-                      elif in_mapped_files and line and not line.startswith(' '):
-                          in_mapped_files = False
-                      elif in_mapped_files and '    path: /home/smile/smilecdr/classes/config_seeding' in line:
-                          last_mapped_file_index = i
-
-                  if last_mapped_file_index >= 0:
-                      for i, line in enumerate(lines):
-                          new_lines.append(line)
-                          if i == last_mapped_file_index:
-                              new_lines.append(f"  {package_file_name}:")
-                              new_lines.append("    path: /home/smile/smilecdr/classes/config_seeding")
-                              inserted = True
-
-                      if inserted:
-                          content = '\n'.join(new_lines)
-                          print(f"Added {package_file_name} to mappedFiles")
-                      else:
-                          print("Could not find insertion point")
-                  else:
-                      print("Could not find mappedFiles section")
-
-              with open(values_file, 'w') as f:
-                  f.write(content)
-
-          print("Updated values-common.yaml")
-          PYTHON_SCRIPT
-        env:
-          PACKAGE_FILE_NAME: ${{ steps.issue.outputs.package_file_name }}
-
-      - name: Update terraform/main.tf
-        run: |
-          PACKAGE_FILE_NAME="${{ steps.issue.outputs.package_file_name }}"
-
-          if grep -q "module-config/packages/$PACKAGE_FILE_NAME" terraform/main.tf; then
-            echo "Package already referenced in terraform/main.tf (update scenario)"
-          else
-            echo "Adding new package reference to terraform/main.tf"
-
-            PACKAGE_FILE_NAME="$PACKAGE_FILE_NAME" python3 <<'PYTHON_SCRIPT'
-          import re
-          import os
-
-          package_file_name = os.environ['PACKAGE_FILE_NAME']
-
-          with open('terraform/main.tf', 'r') as f:
-              content = f.read()
-
-          pattern = r'(helm_chart_mapped_files\s*=\s*\[)(.*?)(\s+# Users configuration)'
-
-          def replacer(match):
-              before = match.group(1)
-              packages = match.group(2)
-              after = match.group(3)
-
-              new_entry = f"""
-              {{
-                name     = "{package_file_name}"
-                location = "classes/config_seeding"
-                data     = file("../module-config/packages/{package_file_name}")
-              }},"""
-
-              return before + packages + new_entry + after
-
-          new_content = re.sub(pattern, replacer, content, flags=re.DOTALL)
-
-          with open('terraform/main.tf', 'w') as f:
-              f.write(new_content)
-
-          print("Updated terraform/main.tf with new package reference")
-          PYTHON_SCRIPT
-          fi
+          echo "--- generated package file ---"
+          jq empty "module-config/packages/$(grep '^package_file_name=' "$GITHUB_OUTPUT" | tail -1 | cut -d= -f2)"
 
       - name: Commit changes
+        env:
+          PACKAGE_FILE_NAME: ${{ steps.apply.outputs.package_file_name }}
+          ORPHANED_FILES: ${{ steps.apply.outputs.orphaned_files }}
         run: |
-          git add "module-config/packages/${{ steps.issue.outputs.package_file_name }}"
-          git add "module-config/simplified-multinode.yaml"
-          git add "module-config/values-common.yaml"
-          git add terraform/main.tf
+          # -A stages modifications, additions AND deletions (superseded files)
+          git add -A \
+            module-config/packages \
+            module-config/simplified-multinode.yaml \
+            module-config/values-common.yaml \
+            terraform/main.tf
+
+          REMOVED_LINE=""
+          if [ -n "$ORPHANED_FILES" ]; then
+            REMOVED_LINE="- Removed superseded package file(s): $ORPHANED_FILES"
+          fi
 
           git commit -m "Add ${{ steps.issue.outputs.ig_name }} ${{ steps.issue.outputs.ig_version }}
 
           Auto-generated from issue #${{ steps.issue.outputs.issue_number }}
 
           Changes:
-          - Created module-config/packages/${{ steps.issue.outputs.package_file_name }}
-          - Updated simplified-multinode.yaml for nodes: ${{ steps.issue.outputs.selected_nodes }}
+          - Created module-config/packages/$PACKAGE_FILE_NAME
+          - Updated simplified-multinode.yaml for nodes: ${{ steps.issue.outputs.selected_nodes }} (replacing any prior version in place)
           - Updated values-common.yaml mappedFiles section
           - Updated terraform/main.tf to reference new package
+          $REMOVED_LINE
 
           Implements: #${{ steps.issue.outputs.issue_number }}"
 
@@ -348,7 +244,7 @@ jobs:
           ISSUE_NUMBER: ${{ steps.issue.outputs.issue_number }}
           PACKAGE_ID: ${{ steps.issue.outputs.package_id }}
           REQUEST_TYPE: ${{ steps.issue.outputs.request_type }}
-          PACKAGE_FILE_NAME: ${{ steps.issue.outputs.package_file_name }}
+          PACKAGE_FILE_NAME: ${{ steps.apply.outputs.package_file_name }}
           BRANCH_NAME: ${{ steps.issue.outputs.branch_name }}
           SELECTED_NODES: ${{ steps.issue.outputs.selected_nodes }}
         uses: actions/github-script@v7
@@ -427,7 +323,7 @@ jobs:
           ISSUE_NUMBER: ${{ steps.issue.outputs.issue_number }}
           PR_NUMBER: ${{ steps.create_pr.outputs.pr_number }}
           PR_URL: ${{ steps.create_pr.outputs.pr_url }}
-          PACKAGE_FILE_NAME: ${{ steps.issue.outputs.package_file_name }}
+          PACKAGE_FILE_NAME: ${{ steps.apply.outputs.package_file_name }}
           PACKAGE_ID: ${{ steps.issue.outputs.package_id }}
           IG_VERSION: ${{ steps.issue.outputs.ig_version }}
         uses: actions/github-script@v7

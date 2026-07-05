@@ -49,6 +49,20 @@ body:
     validations:
       required: false
 
+  - type: input
+    id: package-url
+    attributes:
+      label: Custom Package URL
+      description: |
+        Optional. A direct URL to the package `.tgz` to load, used instead of the default FHIR package registry.
+
+        Leave blank for normal packages — most IGs (including `-draft`/`-preview` versions) resolve automatically from `packages.fhir.org`.
+
+        Provide a URL only when the package is **not** on the registry, or when you must override a stale/incorrect registry copy with a specific publication build.
+      placeholder: "https://hl7.org/fhir/uv/ips/2.0.1/package.tgz"
+    validations:
+      required: false
+
   - type: dropdown
     id: urgency
     attributes:
