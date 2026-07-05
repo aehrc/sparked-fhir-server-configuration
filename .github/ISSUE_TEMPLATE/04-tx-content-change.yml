@@ -1,8 +1,3 @@
-### add option and workflow to remove all previous versions/wipe for this new content (so no overlaps/conflicts)
-
-## something todo with pinning later on.....tbd
-
-
 name: Terminology Server Content Change
 description: Request changes to the content loaded on a terminology server (tx.dev or tx.hl7)
 title: "[TX Content]: "

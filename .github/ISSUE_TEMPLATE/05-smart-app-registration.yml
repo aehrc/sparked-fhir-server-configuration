@@ -12,8 +12,8 @@ body:
         Use this template to request registration of a SMART on FHIR client on the Sparked FHIR Server.
 
         **Two client types are supported:**
-        - **SMART App Launch** — For interactive apps (EHR launch, standalone launch). Public client with PKCE, no secret required.
-        - **Backend Service** — For system-to-system integration (no user interaction). Confidential client with auto-generated secret.
+        - **SMART App Launch**: For interactive apps (EHR launch, standalone launch). Public client with PKCE, no secret required.
+        - **Backend Service**: For system-to-system integration (no user interaction). Confidential client with auto-generated secret.
 
   - type: input
     id: client-id
@@ -55,9 +55,9 @@ body:
       label: Target Nodes
       description: |
         Select which FHIR server node(s) to register the client on. Each node has its own client registry and auth endpoints.
-        - **aucore** — AU Core / general purpose Sparked FHIR Dev Server
-        - **hl7au** — HL7 AU Reference Server
-        - **ereq** — eRequesting Sparked FHIR Dev Server
+        - **aucore**: AU Core / general purpose Sparked FHIR Dev Server
+        - **hl7au**: HL7 AU Reference Server
+        - **ereq**: eRequesting Sparked FHIR Dev Server
       options:
         - label: "aucore"
           required: false
@@ -131,7 +131,7 @@ body:
       description: |
         FHIR Patient resource ID to pre-select as the default patient launch context.
         Only needed if your app requires a specific patient to be pre-loaded on login.
-        For most apps, leave blank — the user selects the patient during the launch flow.
+        For most apps, leave blank; the user selects the patient during the launch flow.
       placeholder: "smith-john"
     validations:
       required: false

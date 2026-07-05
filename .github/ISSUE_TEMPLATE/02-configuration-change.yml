@@ -114,7 +114,7 @@ body:
         - Verify subscription triggers on matching resources
         - Check subscription logs for proper delivery
     validations:
-      required: true
+      required: false
 
   - type: checkboxes
     id: dependencies
@@ -151,7 +151,7 @@ body:
         - Requires ADR approval: Yes/No
         - Notify: Sparked content team
     validations:
-      required: true
+      required: false
 
   - type: textarea
     id: additional-context
