@@ -87,6 +87,56 @@ body:
     validations:
       required: false
 
+  - type: markdown
+    attributes:
+      value: |
+        ### For "Load test data" requests
+        The four fields below are read directly by the automated test-data loader. They apply
+        only when Operation Type is "Load test data"; leave them blank for other operations.
+
+  - type: input
+    id: test-data-source-url
+    attributes:
+      label: Test Data Source URL
+      description: Git repository or URL to load test data from. Leave blank to use the default AU FHIR test data set.
+      placeholder: "https://github.com/hl7au/au-fhir-test-data"
+    validations:
+      required: false
+
+  - type: dropdown
+    id: target-node
+    attributes:
+      label: Target Node
+      description: Which node should the test data load into? Defaults to aucore if left blank.
+      options:
+        - aucore
+        - hl7au
+    validations:
+      required: false
+
+  - type: dropdown
+    id: upload-mode
+    attributes:
+      label: Upload Mode
+      description: How resources are uploaded. Individual (one at a time), bundle (batch), or transaction. Defaults to individual.
+      options:
+        - individual
+        - bundle
+        - transaction
+    validations:
+      required: false
+
+  - type: dropdown
+    id: upload-method
+    attributes:
+      label: Upload Method
+      description: Upload directly to the FHIR server, or via the FHIRFlare proxy. Defaults to direct.
+      options:
+        - direct
+        - fhirflare
+    validations:
+      required: false
+
   - type: dropdown
     id: frequency
     attributes:
