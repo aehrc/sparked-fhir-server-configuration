@@ -10,19 +10,19 @@ Usage:
     # Add package to nodes
     python update_node_packages.py \
         --action add \
-        --nodes aucore,hl7au \
+        --nodes aucore,ereq \
         --package package-international-patient-summary-2.0.0.json
 
     # Remove package from nodes
     python update_node_packages.py \
         --action remove \
-        --nodes aucore,hl7au \
+        --nodes aucore,ereq \
         --package package-international-patient-summary-2.0.0.json
 
     # Preview changes without applying
     python update_node_packages.py \
         --action add \
-        --nodes aucore,hl7au \
+        --nodes aucore,ereq \
         --package package-international-patient-summary-2.0.0.json \
         --dry-run
 """

@@ -201,7 +201,7 @@ python sync_packages.py --nodes all --source config --dry-run
 python sync_packages.py --nodes aucore --source config
 
 # Update multiple specific nodes
-python sync_packages.py --nodes aucore,hl7au --source config
+python sync_packages.py --nodes aucore,ereq --source config
 
 # Force reinstall all packages
 python sync_packages.py --nodes all --source config --force-reinstall

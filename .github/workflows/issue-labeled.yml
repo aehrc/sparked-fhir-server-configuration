@@ -103,7 +103,6 @@ jobs:
               for (const line of lines) {
                 if (line.includes('[x]') || line.includes('[X]')) {
                   if (line.includes('aucore')) selectedNodes.push('aucore');
-                  if (line.includes('hl7au')) selectedNodes.push('hl7au');
                   if (line.includes('ereq')) selectedNodes.push('ereq');
                 }
               }
@@ -899,44 +898,72 @@ jobs:
               issueTitle = context.payload.issue.title;
             }
 
-            // Extract data source
-            let dataSource = context.payload.inputs?.data_source || 'https://github.com/hl7au/au-fhir-test-data';
-            const dataSourceMatch = issueBody.match(/Data Source.*?```\s*([\s\S]*?)\s*```/i);
-            if (dataSourceMatch && dataSourceMatch[1].trim()) {
-              dataSource = dataSourceMatch[1].trim().split('\n')[0];
+            // Helper: read the value under a "### <label>" section of an issue-form body.
+            // Returns '' if the section is missing or GitHub rendered "_No response_".
+            function section(label) {
+              const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+              const m = issueBody.match(new RegExp('###\\s*' + escaped + '\\s*\\n([\\s\\S]*?)(?=\\n###\\s|$)', 'i'));
+              if (!m) return '';
+              let v = m[1].trim();
+              if (/^_no response_$/i.test(v)) return '';
+              // strip a surrounding code fence if GitHub rendered one
+              v = v.replace(/^```[a-z]*\n?/i, '').replace(/\n?```$/, '').trim();
+              return v;
             }
 
-            // Extract upload mode from issue body keywords
-            let uploadMode = context.payload.inputs?.upload_mode || 'individual';
-            if (issueBody.includes('bundle upload') || issueBody.includes('as bundle')) {
-              uploadMode = 'bundle';
-            } else if (issueBody.includes('transaction')) {
-              uploadMode = 'transaction';
-            }
-
-            // Extract target node from issue body
-            // Look for known node names; default to aucore
-            let targetNode = 'aucore';
             const bodyLower = issueBody.toLowerCase();
-            if (bodyLower.includes('hl7au') || bodyLower.includes('hl7 au')) {
-              targetNode = 'hl7au';
+
+            // Data source: explicit "Test Data Source URL" field, then the legacy fenced
+            // "Data Source" block, then the default test data set.
+            let dataSource = context.payload.inputs?.data_source || 'https://github.com/hl7au/au-fhir-test-data';
+            const dataSourceField = section('Test Data Source URL');
+            if (dataSourceField) {
+              dataSource = dataSourceField.split('\n')[0].trim();
+            } else {
+              const dataSourceMatch = issueBody.match(/Data Source[\s\S]*?```\s*([\s\S]*?)\s*```/i);
+              if (dataSourceMatch && dataSourceMatch[1].trim()) {
+                dataSource = dataSourceMatch[1].trim().split('\n')[0];
+              }
             }
-            // Check if a custom FHIR URL is specified
+
+            // Upload mode: explicit "Upload Mode" field, then body keywords, then default.
+            let uploadMode = context.payload.inputs?.upload_mode || '';
+            const uploadModeField = section('Upload Mode').toLowerCase();
+            if (uploadModeField.includes('transaction')) uploadMode = 'transaction';
+            else if (uploadModeField.includes('bundle')) uploadMode = 'bundle';
+            else if (uploadModeField.includes('individual')) uploadMode = 'individual';
+            if (!uploadMode) {
+              if (issueBody.includes('bundle upload') || issueBody.includes('as bundle')) uploadMode = 'bundle';
+              else if (issueBody.includes('transaction')) uploadMode = 'transaction';
+              else uploadMode = 'individual';
+            }
+
+            // Target node: explicit "Target Node" field, then a custom FHIR URL, then a
+            // free-text node mention, then default (aucore).
+            let targetNode = '';
+            const targetNodeField = section('Target Node').toLowerCase();
+            if (targetNodeField.includes('ereq')) targetNode = 'ereq';
+            else if (targetNodeField.includes('aucore')) targetNode = 'aucore';
+            // Legacy free-text "node: <name>" mention, only if the explicit field was absent.
+            if (!section('Target Node')) {
+              const nodeMatch = issueBody.match(/(?:target[_ ]?node|node)[:\s]*[`"]?(aucore|ereq)[`"]?/i);
+              if (nodeMatch) targetNode = nodeMatch[1].toLowerCase();
+            }
+            // A custom FHIR URL overrides node selection.
             const customUrlMatch = issueBody.match(/(?:fhir[_ ]?(?:server[_ ]?)?url|target[_ ]?url)[:\s]*[`"]?(https?:\/\/[^\s`"]+)/i);
             if (customUrlMatch) {
               targetNode = 'custom';
               core.setOutput('custom_fhir_url', customUrlMatch[1]);
             }
-            // Also check for explicit node mentions like "node: hl7au"
-            const nodeMatch = issueBody.match(/(?:target[_ ]?node|node)[:\s]*[`"]?(aucore|hl7au)[`"]?/i);
-            if (nodeMatch) {
-              targetNode = nodeMatch[1].toLowerCase();
-            }
+            if (!targetNode) targetNode = 'aucore';
 
-            // Extract upload method (direct vs fhirflare)
-            let uploadMethod = 'direct';
-            if (bodyLower.includes('fhirflare') || bodyLower.includes('via fhirflare') || bodyLower.includes('proxy')) {
-              uploadMethod = 'fhirflare';
+            // Upload method: explicit "Upload Method" field, then body keywords, then default.
+            let uploadMethod = '';
+            const uploadMethodField = section('Upload Method').toLowerCase();
+            if (uploadMethodField.includes('fhirflare')) uploadMethod = 'fhirflare';
+            else if (uploadMethodField.includes('direct')) uploadMethod = 'direct';
+            if (!uploadMethod) {
+              uploadMethod = (bodyLower.includes('fhirflare') || bodyLower.includes('via fhirflare') || bodyLower.includes('proxy')) ? 'fhirflare' : 'direct';
             }
 
             core.setOutput('issue_number', issueNumber || '');
@@ -1041,7 +1068,6 @@ jobs:
               for (const line of lines) {
                 if (line.includes('[x]') || line.includes('[X]')) {
                   if (line.includes('aucore')) selectedNodes.push('aucore');
-                  if (line.includes('hl7au')) selectedNodes.push('hl7au');
                   if (line.includes('ereq')) selectedNodes.push('ereq');
                 }
               }
