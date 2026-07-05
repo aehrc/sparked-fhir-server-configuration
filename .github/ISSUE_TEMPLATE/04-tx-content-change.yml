@@ -41,6 +41,14 @@ body:
         - label: tx.hl7 (HL7 AU Reference Server)
           required: false
 
+  - type: markdown
+    attributes:
+      value: |
+        > **Selecting tx.hl7 requires elevated approval.** tx.hl7 is an HL7-hosted reference
+        > environment. A reviewer will add the `needs:hl7-approval` label and the change needs
+        > Brett Esler's sign-off before it is approved or automated. tx.dev (CSIRO) follows the
+        > normal workflow.
+
   - type: input
     id: package-id
     attributes:

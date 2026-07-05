@@ -84,15 +84,20 @@ Test data management is powered by the [`sparked-test-data-loader`](https://gith
 
 ### SmileCDR Nodes
 
-| Node | Purpose | Database Module |
-|------|---------|----------------|
-| `aucore` | AU Core FHIR profiles and validation | aucore |
-| `hl7au` | HL7 AU Base specifications and extensions | hl7au |
-| `ereq` | eRequesting workflows and integrations | ereq |
-| - | Cluster management | clustermgr |
-| - | FHIR persistence layer | persistence |
-| - | Audit logs | audit |
-| - | Transactions | transaction |
+All FHIR nodes below are CSIRO-hosted on `smile.sparked-fhir.com` and share the CSIRO
+credentials used by the automation. They are the Sparked **dev** environment. Do not confuse
+the `hl7au` node here with the external HL7 AU reference server at `fhir.hl7.org.au`, which is
+a separate system (see [Governance](#governance)).
+
+| Node | Purpose | FHIR endpoint | Database Module |
+|------|---------|---------------|----------------|
+| `aucore` | AU Core FHIR profiles and validation | `smile.sparked-fhir.com/aucore/fhir/DEFAULT` | aucore |
+| `hl7au` | HL7 AU Base profiles (Sparked dev, not `fhir.hl7.org.au`) | `smile.sparked-fhir.com/hl7au/fhir/DEFAULT` | hl7au |
+| `ereq` | eRequesting workflows and integrations | `smile.sparked-fhir.com/ereq/fhir/DEFAULT` | ereq |
+| - | Cluster management | - | clustermgr |
+| - | FHIR persistence layer | - | persistence |
+| - | Audit logs | - | audit |
+| - | Transactions | - | transaction |
 
 ### Current Implementation Guides
 
@@ -296,6 +301,22 @@ python scripts/update_node_packages.py \
 - **ADR Required** for significant technical decisions (new modules, major config changes)
 - **Decision Makers**: DTR, Brett Esler
 - **ADR Timeline**: Add 1-2 weeks to implementation timeline
+
+#### HL7-hosted reference environments (elevated approval)
+
+Two environments are HL7-hosted reference systems, separate from the CSIRO-hosted Sparked
+dev nodes on `smile.sparked-fhir.com`, and require higher scrutiny:
+
+| Environment | What it is | Managed here? |
+|-------------|------------|---------------|
+| `fhir.hl7.org.au` | The official HL7 AU FHIR reference server | Not an automation target; changes are out of band |
+| `tx.hl7` (`synd.tx.hl7.org.au`) | The HL7 AU terminology reference server | Yes, via the Terminology Content offering (`tx-hl7-helm-values.yaml`) |
+
+Any request that changes one of these environments must be labelled **`needs:hl7-approval`**
+and receive **Brett Esler's** sign-off before it is `approved` or `ready-for-automation`.
+This is a documented process gate: reviewers must not approve or arm automation on such a
+request until that sign-off is recorded on the issue. The CSIRO Sparked dev nodes (`aucore`,
+`ereq`, `hl7au`) follow the normal workflow.
 
 ### SLA Expectations
 

@@ -117,6 +117,10 @@ tx.hl7) via atomio-ig-feeder.
 - **Automation level:** semi-automated (validate then auto-PR then human merge then feeder
   sync).
 - **SLA:** target 1 to 2 weeks; the live effect depends on the feeder's next sync after merge.
+- **Elevated approval:** `tx.hl7` is an HL7-hosted reference environment. Changes targeting it
+  require the `needs:hl7-approval` label and Brett Esler's sign-off before approval or
+  automation. `tx.dev` (CSIRO) follows the normal workflow. See
+  [Environment scrutiny](#environment-scrutiny).
 - **Example:** "Watch hl7.fhir.au.core trial-use versions on tx.dev."
 
 ### SMART App / OIDC Client Registration
@@ -220,6 +224,9 @@ Colours are reused across meanings, so **disambiguate by name, not colour**.
 **Status / lifecycle:** `needs-review`, `needs-revision`, `approved`, `in-progress`,
 `deployed`, `complete`, `blocked`.
 
+**Governance gates:** `needs:hl7-approval` (change targets an HL7-hosted reference
+environment; requires Brett Esler sign-off, see [Environment scrutiny](#environment-scrutiny)).
+
 **Priority:** `priority:critical`, `priority:high`, `priority:medium`, `priority:low`.
 
 **Automation gates / states:** `ready-for-automation`, `auto-pr-created`, `auto-registered`,
@@ -238,6 +245,29 @@ The labels are version-controlled in [`.github/labels.yml`](../.github/labels.ym
 in sync by [`.github/workflows/sync-labels.yml`](../.github/workflows/sync-labels.yml)
 (non-destructive: labels not listed there are never deleted). Do not rename the trigger
 labels listed at the top of `labels.yml`, or the automation will break.
+
+---
+
+## Environment scrutiny
+
+Not all environments carry the same risk. The catalogue distinguishes CSIRO-hosted Sparked
+dev environments from HL7-hosted reference environments.
+
+| Environment | Host | Scrutiny |
+|-------------|------|----------|
+| `aucore`, `ereq`, `hl7au` nodes | `smile.sparked-fhir.com` (CSIRO) | Normal workflow |
+| `tx.dev` terminology server | `synd.ontoserver.csiro.au` (CSIRO) | Normal workflow |
+| `tx.hl7` terminology server | `synd.tx.hl7.org.au` (HL7) | Elevated: `needs:hl7-approval` + Brett Esler sign-off |
+| `fhir.hl7.org.au` FHIR reference server | `fhir.hl7.org.au` (HL7) | Elevated: `needs:hl7-approval` + Brett Esler sign-off; not an automation target today |
+
+Note that the `hl7au` **node** is the CSIRO Sparked dev instance at
+`smile.sparked-fhir.com/hl7au`. It is not the external HL7 AU reference server at
+`fhir.hl7.org.au`, which is a separate system.
+
+For any request that changes an HL7-hosted reference environment, a reviewer adds
+`needs:hl7-approval` and must not move the request to `approved` or `ready-for-automation`
+until Brett Esler's sign-off is recorded on the issue. This is a documented process gate; it
+is not enforced by automation.
 
 ---
 
