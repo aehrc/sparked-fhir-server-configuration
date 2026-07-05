@@ -46,9 +46,9 @@ module "smile_cdr_dependencies" {
       data     = file("../module-config/smart-post-authorize.js")
     },
     {
-      name     = "package-au-patient-summary-1.0.0-preview.json"
+      name     = "package-au-patient-summary-1.0.0.json"
       location = "classes/config_seeding"
-      data     = file("../module-config/packages/package-au-patient-summary-1.0.0-preview.json")
+      data     = file("../module-config/packages/package-au-patient-summary-1.0.0.json")
     },
     # Users configuration moved to AWS Secrets Manager - see extra_secrets below
   ]

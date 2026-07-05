@@ -1,6 +1,6 @@
 {
   "name": "hl7.fhir.au.ps",
-  "version": "1.0.0-preview",
+  "version": "1.0.0",
   "installMode": "STORE_AND_INSTALL",
   "fetchDependencies": false
 }
