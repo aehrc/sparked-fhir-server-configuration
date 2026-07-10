@@ -1,6 +1,15 @@
 specs:
   hostname: smile.sparked-fhir.com
 
+# Raise the ingress-nginx request body size limit above the 1 MiB nginx default so
+# that larger FHIR transaction Bundles (for example AU eRequesting) are not rejected
+# at the edge with HTTP 413 before reaching Smile CDR. The default ingress fronts
+# smile.sparked-fhir.com via the ingress-nginx controller.
+ingresses:
+  default:
+    annotations:
+      nginx.ingress.kubernetes.io/proxy-body-size: "16m"
+
 volumeConfig:
   cdr:
     amq:
