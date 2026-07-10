@@ -18,6 +18,14 @@
  * Docs: https://smilecdr.com/docs/smart/user_profile.html
  */
 function onTokenGenerating(theUserSession, theAuthorizationRequestDetails) {
+    // Client Credentials (backend service) flows have no user session: there is
+    // no user, launch context, or fhirUser to inject. Skip all user-oriented
+    // logic, otherwise the theUserSession accessors below throw a null TypeError
+    // and token issuance fails with HTTP 500.
+    if (!theUserSession) {
+        return;
+    }
+
     // getAudience() can return null for standalone launch — use fixed base as fallback
     var audience = theAuthorizationRequestDetails.getAudience()
         || "https://smile.sparked-fhir.com/aucore/fhir/DEFAULT";
