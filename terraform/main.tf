@@ -1,5 +1,5 @@
 module "smile_cdr_dependencies" {
-  source                 = "git::https://gitlab.com/smilecdr-public/smile-dh-helm-charts//src/main/terraform/smile-cdr-deps?ref=terraform-module"
+  source                 = "git::https://gitlab.com/smilecdr-public/smile-dh-helm-charts//src/main/terraform/sdh-deps?ref=v9.0.2"
   name                   = var.name
   eks_cluster_name       = var.cluster_name
   cdr_regcred_secret_arn = var.cdr_regcred_secret_arn
@@ -53,13 +53,10 @@ module "smile_cdr_dependencies" {
     # Users configuration moved to AWS Secrets Manager - see extra_secrets below
   ]
 
-  # Mount users.json from AWS Secrets Manager instead of inline data
-  extra_secrets = [
-    {
-      name         = "users-json"
-      existing_arn = data.aws_secretsmanager_secret.smilecdr_users_json.arn
-    }
-  ]
+  # users.json is mounted via the chart's `secrets.usersConfig` block in
+  # module-config/values-common.yaml (secretArn set below), with IRSA read access
+  # granted in iam-users-secret.tf. The module's `extra_secrets` input is not used:
+  # it would surface a second, redundant CSI secret mount of the same secret.
 
   helm_chart_values_set_overrides = {
     "replicaCount" = 1
@@ -99,6 +96,10 @@ module "smile_cdr_dependencies" {
     {
       name   = "SmileCluster"
       engine = "aurora-postgresql-serverless-v2"
+      # Pin to the live cluster's engine version. AWS auto-upgraded the DB to 14.20;
+      # Aurora does not support downgrades, so leaving this unset (module default 14.15)
+      # would produce an invalid destroy/replace. See terraform/REMEDIATION.md.
+      engine_version = "14.20"
       serverless_configuration = {
         min_capacity = 0.5
         max_capacity = 4
@@ -187,6 +188,12 @@ module "smile_cdr_dependencies" {
 
   ingress_config = {
     public = {
+      # The live serving ingress is the chart's default slot (rendered as
+      # smilecdr-scdr, class nginx, host smile.sparked-fhir.com). Claim the default
+      # slot with nginx-ingress so the plan reconciles in place rather than
+      # disabling the default ingress and standing up a gateway-api/ALB one.
+      useDefaultIngress     = true
+      ingressType           = "nginx-ingress"
       route53_create_record = local.route53_create_record
       parent_domain         = var.domain
     }
