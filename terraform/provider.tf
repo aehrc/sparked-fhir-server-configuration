@@ -23,15 +23,15 @@ terraform {
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = ">= 6.8.0, < 7.0.0"  # Module requires >= 6.8.0
+      version = ">= 6.28.0, < 7.0.0"  # Module (v9.0.2) requires >= 6.28.0
     }
     helm = {
       source  = "hashicorp/helm"
-      version = ">= 3.0.0, < 4.0.0"  # Module requires >= 3.0.0
+      version = ">= 3.1.1, < 4.0.0"  # Module (v9.0.2) requires >= 3.1.1
     }
     kubernetes = {
       source  = "hashicorp/kubernetes"
-      version = ">= 2.38.0, < 3.0.0"  # Module requires >= 2.38.0
+      version = ">= 3.0.1, < 4.0.0"  # Module (v9.0.2) requires >= 3.0.1
     }
   }
   backend "s3" {
