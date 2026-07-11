@@ -209,3 +209,18 @@ locals {
     Repository = "github.com/aehrc/sparked-fhir-server-configuration"
   }
 }
+
+# AU Patient Summary generator jar, consumed by the aucore node's
+# ig_support.ips.generation_strategy_class (au.org.hl7.fhir.ps.strategy.AupsGenerationStrategy).
+# Sourced from aehrc/sparked-fhir-operations release v1.0.0. The chart's
+# copyFiles.customerlib block in module-config/values-common.yaml pulls this object
+# from S3 into the smilecdr customerlib classpath at pod startup. Managing the upload
+# here keeps the deployed artifact version codified and reproducible via terraform apply,
+# rather than relying on a manual out-of-band upload.
+resource "aws_s3_object" "aups_generator" {
+  bucket = var.s3_bucket_name
+  key    = "smile/hapi-aups-generator-1.0.0.jar"
+  source = "../module-config/lib/hapi-aups-generator-1.0.0.jar"
+  etag   = filemd5("../module-config/lib/hapi-aups-generator-1.0.0.jar")
+  tags   = local.tags
+}
