@@ -1,5 +1,18 @@
 name: 'Smile Configuration Deployment'
 
+# Plan on PRs, apply on push to main when the plan reports changes.
+#
+# The steps are inlined rather than calling the reusable templates in
+# aehrc/sparked-infrastructure: that repo is private and this repo is public,
+# and GitHub does not allow a public repo to consume a private repo's reusable
+# workflows ("workflow was not found"). The step sequence mirrors
+# template-terraform-plan.yml / template-terraform-apply.yml; keep them roughly
+# in sync when those templates change.
+#
+# backend.hcl and terraform.tfvars are gitignored, so the state bucket and the
+# three no-default variables are injected from repo variables (none are secrets:
+# a bucket name, a Secrets Manager ARN, an IAM role name). AWS auth is OIDC.
+
 on:
   pull_request:
     paths:
@@ -13,48 +26,162 @@ on:
       - 'terraform/**'
   workflow_dispatch: # Manual trigger
 
-# NOTE: the terraform_version input below relies on aehrc/sparked-infrastructure#27
-# (adds terraform_version to the reusable templates). That PR must merge to
-# sparked-infrastructure main before this workflow is enabled in Phase 2; the
-# module (v9.0.2) requires Terraform >= 1.14.3, above the templates' 1.13.4 default.
+permissions:
+  id-token: write      # request the OIDC JWT
+  contents: read       # actions/checkout
+  pull-requests: write # comment the plan on PRs
+
 jobs:
   terraform-plan:
-    # Only run on PRs from the same repo, not forks
+    name: 'Terraform Plan'
+    # Only run on PRs from this repo, not forks (protects OIDC + any self-hosted runner).
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    uses: aehrc/sparked-infrastructure/.github/workflows/template-terraform-plan.yml@main
-    permissions:
-      id-token: write
-      contents: read
-      pull-requests: write
-    with:
-      working_dir: "terraform"
-      stack_name: smile-app-prod
-      aws_oidc_role: ${{ vars.AWS_OIDC_ROLE_ARN }}
-      aws_region: ap-southeast-2
-      # Module v9.0.2 requires Terraform >= 1.14.3; matches the committed lock file and local applies.
-      terraform_version: "1.15.6"
-      # backend.hcl is gitignored; inject the state bucket (region + key live in the backend block).
-      init_args: -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
-      # terraform.tfvars is gitignored; supply the three vars without defaults. None are secrets.
-      additional_args: >-
-        -var="s3_bucket_name=${{ vars.S3_BUCKET }}"
-        -var="cdr_regcred_secret_arn=${{ vars.CDR_REGCRED_SECRET_ARN }}"
-        -var="smilecdr_iam_role_name=${{ vars.SMILECDR_IAM_ROLE_NAME }}"
+    # Defaults to GitHub-hosted; set repo var CI_RUNNER to use a self-hosted runner.
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    outputs:
+      tfplanExitCode: ${{ steps.tf-plan.outputs.exitcode }}
+    defaults:
+      run:
+        working-directory: terraform
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure aws credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_OIDC_ROLE_ARN }}
+          aws-region: ap-southeast-2
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+          # Module v9.0.2 requires Terraform >= 1.14.3; matches the committed lock file and local applies.
+          terraform_version: "1.15.6"
+
+      - name: Terraform Format
+        run: terraform fmt -check -recursive
+
+      # No -upgrade: respect the committed .terraform.lock.hcl. backend.hcl is
+      # gitignored, so inject the state bucket (region + key live in the backend block).
+      - name: Terraform Init
+        run: terraform init -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" -input=false
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      - name: Setup TFLint
+        uses: terraform-linters/setup-tflint@v6
+        with:
+          tflint_version: v0.63.1
+
+      # Error severity only; the stack carries pre-existing warning-level findings.
+      - name: TFLint
+        run: tflint --format compact --minimum-failure-severity=error
+
+      # terraform.tfvars is gitignored, so pass the three no-default vars.
+      - name: Terraform Plan
+        id: tf-plan
+        run: |
+          export exitcode=0
+          terraform plan \
+            -var="s3_bucket_name=${{ vars.S3_BUCKET }}" \
+            -var="cdr_regcred_secret_arn=${{ vars.CDR_REGCRED_SECRET_ARN }}" \
+            -var="smilecdr_iam_role_name=${{ vars.SMILECDR_IAM_ROLE_NAME }}" \
+            -detailed-exitcode -no-color -out main.tfplan || export exitcode=$?
+          echo "exitcode=$exitcode" >> "$GITHUB_OUTPUT"
+          echo "exitcode=$exitcode"
+          if [ "$exitcode" -eq 1 ]; then
+            echo "Terraform Plan Failed!"
+            exit 1
+          fi
+          exit 0
+
+      - name: Publish Terraform Plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan-smile-app-prod
+          path: |
+            terraform/main.tfplan
+            terraform/builds/
+
+      - name: Create String Output
+        id: tf-plan-string
+        run: |
+          TERRAFORM_PLAN=$(terraform show -no-color main.tfplan)
+          delimiter="$(openssl rand -hex 8)"
+          {
+            echo "summary<<${delimiter}"
+            echo "## Terraform Plan Output (smile-app-prod)"
+            echo "<details><summary>Click to expand</summary>"
+            echo ""
+            echo '```terraform'
+            echo "$TERRAFORM_PLAN"
+            echo '```'
+            echo "</details>"
+            echo "${delimiter}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Publish Terraform Plan to Task Summary
+        env:
+          SUMMARY: ${{ steps.tf-plan-string.outputs.summary }}
+        run: echo "$SUMMARY" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Push Terraform Output to PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        env:
+          SUMMARY: "${{ steps.tf-plan-string.outputs.summary }}"
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const body = `${process.env.SUMMARY}`;
+            github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: body
+            })
 
   terraform-apply:
-    uses: aehrc/sparked-infrastructure/.github/workflows/template-terraform-apply.yml@main
-    permissions:
-      id-token: write
-      contents: read
-      pull-requests: write
+    name: 'Terraform Apply'
     needs: [terraform-plan]
-    # Only apply on main branch pushes when there are changes (exitcode == 2)
+    # Only apply on main branch pushes when the plan reported changes (exitcode == 2).
     if: github.ref == 'refs/heads/main' && github.event_name == 'push' && needs.terraform-plan.outputs.tfplanExitCode == '2'
-    with:
-      working_dir: "terraform"
-      stack_name: smile-app-prod
-      aws_oidc_role: ${{ vars.AWS_OIDC_ROLE_ARN }}
-      aws_region: ap-southeast-2
-      # Must match the plan job's version so apply consumes the artifact with a compatible CLI.
-      terraform_version: "1.15.6"
-      init_args: -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    # Gate: the infra-apply environment (required reviewers) must exist before enabling apply.
+    environment: infra-apply
+    defaults:
+      run:
+        working-directory: terraform
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure aws credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_OIDC_ROLE_ARN }}
+          aws-region: ap-southeast-2
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+          # Must match the plan job so the saved plan is applied by a compatible CLI.
+          terraform_version: "1.15.6"
+
+      - name: Terraform Init
+        run: terraform init -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" -input=false
+
+      - name: Download Terraform Plan
+        uses: actions/download-artifact@v4
+        with:
+          name: tfplan-smile-app-prod
+          path: terraform
+
+      # Applies exactly the reviewed plan; if state moved since the plan was
+      # created, terraform aborts rather than applying a stale diff.
+      - name: Terraform Apply
+        run: terraform apply -auto-approve main.tfplan
