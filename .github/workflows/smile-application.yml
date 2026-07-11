@@ -13,16 +13,15 @@ on:
       - 'terraform/**'
   workflow_dispatch: # Manual trigger
 
-# NOTE (temporary): the reusable templates are pinned to the
-# chore/terraform-version-input branch of aehrc/sparked-infrastructure, which
-# adds the terraform_version input this stack needs (module v9.0.2 requires
-# Terraform >= 1.14.3, the templates default to 1.13.4). Switch both refs back
-# to @main once aehrc/sparked-infrastructure#27 merges, before this PR lands.
+# NOTE: the terraform_version input below relies on aehrc/sparked-infrastructure#27
+# (adds terraform_version to the reusable templates). That PR must merge to
+# sparked-infrastructure main before this workflow is enabled in Phase 2; the
+# module (v9.0.2) requires Terraform >= 1.14.3, above the templates' 1.13.4 default.
 jobs:
   terraform-plan:
     # Only run on PRs from the same repo, not forks
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    uses: aehrc/sparked-infrastructure/.github/workflows/template-terraform-plan.yml@chore/terraform-version-input
+    uses: aehrc/sparked-infrastructure/.github/workflows/template-terraform-plan.yml@main
     permissions:
       id-token: write
       contents: read
@@ -43,7 +42,7 @@ jobs:
         -var="smilecdr_iam_role_name=${{ vars.SMILECDR_IAM_ROLE_NAME }}"
 
   terraform-apply:
-    uses: aehrc/sparked-infrastructure/.github/workflows/template-terraform-apply.yml@chore/terraform-version-input
+    uses: aehrc/sparked-infrastructure/.github/workflows/template-terraform-apply.yml@main
     permissions:
       id-token: write
       contents: read
