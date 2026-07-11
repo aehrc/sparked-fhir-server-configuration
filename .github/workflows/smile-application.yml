@@ -13,22 +13,37 @@ on:
       - 'terraform/**'
   workflow_dispatch: # Manual trigger
 
+# NOTE (temporary): the reusable templates are pinned to the
+# chore/terraform-version-input branch of aehrc/sparked-infrastructure, which
+# adds the terraform_version input this stack needs (module v9.0.2 requires
+# Terraform >= 1.14.3, the templates default to 1.13.4). Switch both refs back
+# to @main once aehrc/sparked-infrastructure#27 merges, before this PR lands.
 jobs:
   terraform-plan:
     # Only run on PRs from the same repo, not forks
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    uses: aehrc/sparked-infrastructure/.github/workflows/template-terraform-plan.yml@main
+    uses: aehrc/sparked-infrastructure/.github/workflows/template-terraform-plan.yml@chore/terraform-version-input
     permissions:
       id-token: write
       contents: read
       pull-requests: write
     with:
       working_dir: "terraform"
+      stack_name: smile-app-prod
       aws_oidc_role: ${{ vars.AWS_OIDC_ROLE_ARN }}
       aws_region: ap-southeast-2
+      # Module v9.0.2 requires Terraform >= 1.14.3; matches the committed lock file and local applies.
+      terraform_version: "1.15.6"
+      # backend.hcl is gitignored; inject the state bucket (region + key live in the backend block).
+      init_args: -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
+      # terraform.tfvars is gitignored; supply the three vars without defaults. None are secrets.
+      additional_args: >-
+        -var="s3_bucket_name=${{ vars.S3_BUCKET }}"
+        -var="cdr_regcred_secret_arn=${{ vars.CDR_REGCRED_SECRET_ARN }}"
+        -var="smilecdr_iam_role_name=${{ vars.SMILECDR_IAM_ROLE_NAME }}"
 
   terraform-apply:
-    uses: aehrc/sparked-infrastructure/.github/workflows/template-terraform-apply.yml@main
+    uses: aehrc/sparked-infrastructure/.github/workflows/template-terraform-apply.yml@chore/terraform-version-input
     permissions:
       id-token: write
       contents: read
@@ -38,5 +53,9 @@ jobs:
     if: github.ref == 'refs/heads/main' && github.event_name == 'push' && needs.terraform-plan.outputs.tfplanExitCode == '2'
     with:
       working_dir: "terraform"
+      stack_name: smile-app-prod
       aws_oidc_role: ${{ vars.AWS_OIDC_ROLE_ARN }}
       aws_region: ap-southeast-2
+      # Must match the plan job's version so apply consumes the artifact with a compatible CLI.
+      terraform_version: "1.15.6"
+      init_args: -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
