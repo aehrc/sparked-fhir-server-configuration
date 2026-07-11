@@ -7,7 +7,7 @@ module "smile_cdr_dependencies" {
   helm_chart_version     = "7.1.0"
 
 
-  helm_chart_values = [                                                                        #alpha order
+  helm_chart_values = [                                                                      #alpha order
     templatefile("../module-config/values-common.yaml", { s3_bucket = var.s3_bucket_name }), #core - required
     file("../module-config/simplified-multinode.yaml")
   ]
