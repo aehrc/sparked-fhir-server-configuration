@@ -1,0 +1,39 @@
+# TEMPORARY, remove before merging this PR.
+#
+# The real deployment workflow (smile-application.yml) is disabled_manually and
+# must not be re-enabled until Phase 2 is approved. This throwaway workflow runs
+# ONLY the plan job, with the exact inputs smile-application.yml will use, so we
+# can validate plan-on-PR (OIDC, backend injection, var injection, terraform
+# version, fmt/tflint) and get a posted plan comment without re-enabling the
+# real workflow. It has no apply job and cannot trigger an apply.
+#
+# Delete this file once the plan run is green.
+name: 'CI plan validation (temporary)'
+
+on:
+  pull_request:
+    paths:
+      - 'module-config/**'
+      - 'terraform/**'
+      - '.github/workflows/_ci-plan-validation.yml'
+  workflow_dispatch:
+
+jobs:
+  terraform-plan:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    uses: aehrc/sparked-infrastructure/.github/workflows/template-terraform-plan.yml@chore/terraform-version-input
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: write
+    with:
+      working_dir: "terraform"
+      stack_name: smile-app-prod
+      aws_oidc_role: ${{ vars.AWS_OIDC_ROLE_ARN }}
+      aws_region: ap-southeast-2
+      terraform_version: "1.15.6"
+      init_args: -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
+      additional_args: >-
+        -var="s3_bucket_name=${{ vars.S3_BUCKET }}"
+        -var="cdr_regcred_secret_arn=${{ vars.CDR_REGCRED_SECRET_ARN }}"
+        -var="smilecdr_iam_role_name=${{ vars.SMILECDR_IAM_ROLE_NAME }}"
