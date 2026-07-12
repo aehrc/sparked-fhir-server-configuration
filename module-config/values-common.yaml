@@ -66,13 +66,9 @@ secrets:
           subPath: users-json  # Mount only the users-json key as a file, not a directory
 
 
-copyFiles:
-  customerlib:
-    sources:
-    # Copies files recursively from S3 to the customerlib directory
-    - type: s3
-      bucket: ${s3_bucket}  # Rendered from var.s3_bucket_name via templatefile() in terraform/main.tf
-      path: /smile/hapi-aups-generator-1.0.0.jar
+# copyFiles is set per-node in simplified-multinode.yaml (aucore -> AUPS generator
+# 1.0.0, ereq -> 0.1.0-alpha) rather than globally, so each node gets its own
+# generator jar version on the customerlib classpath.
 
 
 ## @section Resources

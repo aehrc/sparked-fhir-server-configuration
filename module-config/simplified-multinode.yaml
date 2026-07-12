@@ -6,6 +6,14 @@ cdrNodes:
   aucore:
     name: aucore
     enabled: true
+    # AU Patient Summary generator jar (consumed by ig_support.ips.generation_strategy_class
+    # below). aucore runs the current 1.0.0 release; ereq pins the older 0.1.0-alpha.
+    copyFiles:
+      customerlib:
+        sources:
+        - type: s3
+          bucket: ${s3_bucket} # Rendered from var.s3_bucket_name via templatefile() in terraform/main.tf
+          path: /smile/hapi-aups-generator-1.0.0.jar
     config:
       locked: false
       database: true
@@ -89,6 +97,15 @@ cdrNodes:
   hl7au:
     name: hl7au
     enabled: true
+    # hl7au does not run the AUPS generator, but it already carried the 1.0.0 jar
+    # under the previous global copyFiles. Keep it here so moving copyFiles per-node
+    # does not change hl7au's pod spec (avoids an unnecessary restart).
+    copyFiles:
+      customerlib:
+        sources:
+        - type: s3
+          bucket: ${s3_bucket} # Rendered from var.s3_bucket_name via templatefile() in terraform/main.tf
+          path: /smile/hapi-aups-generator-1.0.0.jar
     config:
       database: true
     modules:
@@ -144,6 +161,14 @@ cdrNodes:
   ereq:
     name: ereq
     enabled: true
+    # ereq pins the older 0.1.0-alpha AU Patient Summary generator jar (aucore runs 1.0.0),
+    # consumed by ig_support.ips.generation_strategy_class in the persistence config below.
+    copyFiles:
+      customerlib:
+        sources:
+        - type: s3
+          bucket: ${s3_bucket} # Rendered from var.s3_bucket_name via templatefile() in terraform/main.tf
+          path: /smile/hapi-aups-generator-0.1.0-alpha.jar
     config:
       locked: false
       database: true
@@ -205,6 +230,7 @@ cdrNodes:
            # Practitioner:identifier
            # Organization:identifier
            # Patient:identifier
+          ig_support.ips.generation_strategy_class: "au.org.hl7.fhir.ps.strategy.AupsGenerationStrategy"
           db.driver: POSTGRES_9_4
           db.url: jdbc:postgresql://#{env['EREQ_DB_URL']}:#{env['EREQ_DB_PORT']}/#{env['EREQ_DB_DATABASE']}?sslmode=require
           db.password: "#{env['EREQ_DB_PASS']}"
