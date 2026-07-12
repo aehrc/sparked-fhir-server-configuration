@@ -7,9 +7,9 @@ module "smile_cdr_dependencies" {
   helm_chart_version     = "7.1.0"
 
 
-  helm_chart_values = [                                                                      #alpha order
-    templatefile("../module-config/values-common.yaml", { s3_bucket = var.s3_bucket_name }), #core - required
-    file("../module-config/simplified-multinode.yaml")
+  helm_chart_values = [                                                                            #alpha order
+    templatefile("../module-config/values-common.yaml", { s3_bucket = var.s3_bucket_name }),       #core - required
+    templatefile("../module-config/simplified-multinode.yaml", { s3_bucket = var.s3_bucket_name }) # per-node copyFiles reference the bucket
   ]
 
   helm_chart_mapped_files = [
