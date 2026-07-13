@@ -26,9 +26,24 @@ function onTokenGenerating(theUserSession, theAuthorizationRequestDetails) {
         return;
     }
 
-    // getAudience() can return null for standalone launch — use fixed base as fallback
-    var audience = theAuthorizationRequestDetails.getAudience()
-        || "https://smile.sparked-fhir.com/aucore/fhir/DEFAULT";
+    // The audience is the FHIR base the app is authorizing against and, with
+    // URL-based multitenancy, carries the tenant segment (e.g. .../fhir/VENDOR-A).
+    // fhirUser and launch-context URLs below are built from it so tokens minted
+    // for a tenant endpoint reference resources at that tenant's base.
+    // getAudience() can return null for standalone launch; fall back to the
+    // whitelisted "aud" request parameter, then to the shared DEFAULT base.
+    var audience = theAuthorizationRequestDetails.getAudience();
+    if (!audience) {
+        var audParams = theAuthorizationRequestDetails.getRequestParameters();
+        if (audParams) {
+            audience = audParams.get("aud");
+        }
+    }
+    if (!audience) {
+        audience = "https://smile.sparked-fhir.com/aucore/fhir/DEFAULT";
+    }
+    // Normalise trailing slashes: URLs are built as audience + "/Practitioner/..."
+    audience = ("" + audience).replace(/\/+$/, "");
     var ctx;
 
     // getLaunch() is the dedicated accessor; fall back to the whitelisted request

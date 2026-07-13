@@ -27,7 +27,7 @@ Smile CDR's permission model is partition-aware but coarse: `FHIR_ACCESS_PARTITI
 Adopt partition-per-tenant multitenancy with a read-only shared tenant, enforced through the existing permission model. No new modules, no custom interceptors, and no server restarts are required for tenant lifecycle operations.
 
 1. **Tenants are Smile CDR partitions.** Each vendor or connectathon scenario that needs write access receives its own partition (for example `VENDOR-ACME`, `SCENARIO-EREQ-MEDS`), created with the `$partition-management-create-partition` operation. Tenant URLs follow automatically from the existing URL-based tenant identification (`.../ereq/fhir/VENDOR-ACME`).
-2. **DEFAULT becomes read-only for non-admin principals.** The curated shared dataset stays in `DEFAULT`. Anonymous read access to `DEFAULT` is unchanged. `FHIR_ALL_WRITE` and `FHIR_TRANSACTION` are removed from every non-admin principal that holds `FHIR_ACCESS_PARTITION_NAME: DEFAULT`. Test data loading continues through admin credentials.
+2. **DEFAULT becomes read-only for participant principals.** The curated shared dataset stays in `DEFAULT`. Anonymous read access to `DEFAULT` is unchanged. `FHIR_ALL_WRITE` and `FHIR_TRANSACTION` are removed from participant principals (connectathon users and vendor clients) that hold `FHIR_ACCESS_PARTITION_NAME: DEFAULT`. Team-internal accounts (`ADMIN`, `DevTester`, `placer`, `filler`) retain read/write on the nodes they exist on: they are operated by the Sparked team and are the mechanism for curating the shared dataset (test data loads, IG seeding checks, placer/filler reference flows).
 3. **Vendor principals are scoped to their tenant.** A vendor's users and OIDC clients receive `FHIR_ALL_READ`, `FHIR_ALL_WRITE`, `FHIR_TRANSACTION`, and `FHIR_ACCESS_PARTITION_NAME: <TENANT>` without `DEFAULT` in the argument list. Write isolation then follows from partition access: the session cannot write to `DEFAULT` because it cannot access `DEFAULT` at all while authenticated. Shared data remains available to the same application through anonymous reads of `DEFAULT`, and conformance and terminology resources (StructureDefinition, ValueSet, CodeSystem, SearchParameter, IG packages) are non-partitionable in HAPI FHIR, always live in the default partition, and are served to every tenant automatically.
 4. **Rollout is staged one node at a time**: rehearsal and first real tenants on `ereq`, then `aucore`. See `docs/multitenancy-rollout-plan.md`.
 5. **Partition definitions move to a git-tracked seed file** (`partitioning.seed.file`) once the tenant list stabilises. Initial tenants are created through the admin API to avoid pod restarts during events.
@@ -44,7 +44,7 @@ Adopt partition-per-tenant multitenancy with a read-only shared tenant, enforced
 
 Positive:
 
-- Vendors and scenarios get genuine read/write sandboxes; the shared dataset becomes tamper-proof for non-admins.
+- Vendors and scenarios get genuine read/write sandboxes; the shared dataset becomes tamper-proof for participants (only team-operated accounts can modify it).
 - Tenant lifecycle (create, clear, delete) is a runtime admin operation with no restarts and no effect on other tenants.
 - Per-tenant data clearing replaces all-or-nothing expunges between events.
 

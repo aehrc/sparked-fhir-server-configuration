@@ -58,12 +58,14 @@ Consequences folded into this plan: tenant loads must use server-assigned or ten
 4. **Test data**: tenant loads use server-assigned IDs or tenant-prefixed IDs (single global ID pool). Publish a self-contained starter bundle (patients, practitioners, organizations) that vendors can POST into their tenant, since local references to DEFAULT data are blocked by design.
 5. Onboard pilot vendors; their feedback gates Phase 2.
 
-## Phase 2: make DEFAULT read-only on ereq
+## Phase 2: make DEFAULT read-only for participants on ereq
 
-1. Inventory principals holding `FHIR_ACCESS_PARTITION_NAME: DEFAULT` together with any write permission (`FHIR_ALL_WRITE`, `FHIR_WRITE_ALL_OF_TYPE`, `FHIR_TRANSACTION`). Current known set: `DevTester`, `placer`, `filler` (users.json), read-write connectathon users, and read-write OIDC clients.
-2. Remove write authorities from those principals, or re-scope them to a tenant. `ADMIN` (`ROLE_SUPERUSER`) keeps write for curated data loads.
-3. Update the seeded `users.json` secret so the read-only shape survives reseeding.
-4. Verify: authenticated `POST /DEFAULT/...` returns 403 for every non-admin principal; anonymous and authenticated reads unchanged; test-data loader (admin) still works.
+Scope decision (2026-07-13): team-internal accounts (`ADMIN`, `DevTester`, `placer`, `filler`) stay read/write on the nodes they exist on; they are the curation mechanism for the shared dataset. Phase 2 applies only to participant principals.
+
+1. Inventory participant principals holding `FHIR_ACCESS_PARTITION_NAME: DEFAULT` together with any write permission (`FHIR_ALL_WRITE`, `FHIR_WRITE_ALL_OF_TYPE`, `FHIR_TRANSACTION`): read-write connectathon users (`connectathon-user-*`) and read-write OIDC clients (`connectathon-app-*`, `connectathon-backend-*`, vendor-registered clients).
+2. Remove write authorities from those principals, or re-scope them to a tenant. Record the before state for rollback.
+3. The seeded `users.json` secret is unchanged in this phase (it contains only team-internal accounts, which keep their permissions).
+4. Verify: authenticated `POST /DEFAULT/...` returns 403 for every participant principal; anonymous and authenticated reads unchanged; team accounts (`ADMIN`, `DevTester`, `placer`, `filler`) and the test-data loader still write.
 5. Update participant docs (`connectathon-participant-handout.md`, `SMART-APP-REGISTRATION.md`, Confluence entry): DEFAULT is read-only, writes happen in your tenant.
 
 ## Phase 3: aucore, then hardening
