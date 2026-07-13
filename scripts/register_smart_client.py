@@ -111,9 +111,9 @@ DEFAULT_BACKEND_SCOPES = ["system/*.read"]
 DEFAULT_PARTITION = "DEFAULT"
 
 
-def fhir_base_suffix(node: str = DEFAULT_NODE) -> str:
-    """Return the FHIR base URL path for a given node."""
-    return f"{node}/fhir/{DEFAULT_PARTITION}"
+def fhir_base_suffix(node: str = DEFAULT_NODE, tenant: str = DEFAULT_PARTITION) -> str:
+    """Return the FHIR base URL path for a given node and tenant."""
+    return f"{node}/fhir/{tenant}"
 
 
 # =============================================================================
@@ -152,7 +152,7 @@ class RegistrationSummary:
 # Permission Mapping
 # =============================================================================
 
-def scopes_to_authorities(scopes: List[str]) -> List[Dict]:
+def scopes_to_authorities(scopes: List[str], tenant: str = DEFAULT_PARTITION) -> List[Dict]:
     """Map SMART scopes to SmileCDR permissions for backend service clients.
 
     Backend Service clients need explicit permissions because there is no user
@@ -168,7 +168,7 @@ def scopes_to_authorities(scopes: List[str]) -> List[Dict]:
     authorities = [
         {"permission": "ROLE_FHIR_CLIENT"},
         {"permission": "FHIR_CAPABILITIES"},
-        {"permission": "FHIR_ACCESS_PARTITION_NAME", "argument": DEFAULT_PARTITION},
+        {"permission": "FHIR_ACCESS_PARTITION_NAME", "argument": tenant},
     ]
 
     has_read = False
@@ -244,6 +244,7 @@ def build_backend_service_payload(
     node_id: str = DEFAULT_NODE,
     client_secret: Optional[str] = None,
     access_token_timeout: int = 3600,
+    tenant: str = DEFAULT_PARTITION,
 ) -> Dict:
     """Build payload for a Backend Service (confidential) client.
 
@@ -272,7 +273,7 @@ def build_backend_service_payload(
         "canIntrospectAnyTokens": False,
         "canReissueTokens": False,
         "attestationAccepted": True,
-        "permissions": scopes_to_authorities(scopes),
+        "permissions": scopes_to_authorities(scopes, tenant=tenant),
         "_generated_secret": client_secret,
     }
 
@@ -313,9 +314,10 @@ class SmartClientRegistrar:
 
     def __init__(self, base_url: str, auth_header: str, node_id: str = DEFAULT_NODE,
                  dry_run: bool = False, skip_existing: bool = True,
-                 update_existing: bool = False):
+                 update_existing: bool = False, tenant: str = DEFAULT_PARTITION):
         self.base_url = base_url.rstrip("/")
         self.node_id = node_id
+        self.tenant = tenant
         self.admin_url = f"{self.base_url}/{admin_json_path(node_id)}"
         self.dry_run = dry_run
         self.skip_existing = skip_existing
@@ -443,11 +445,11 @@ class SmartClientRegistrar:
 
         # Compute authorities from scopes (only for backend service clients)
         if is_backend:
-            new_authorities = scopes_to_authorities(scopes)
+            new_authorities = scopes_to_authorities(scopes, tenant=self.tenant)
         else:
             # For SMART App Launch clients, just ensure partition access is set
             new_authorities = [
-                {"permission": "FHIR_ACCESS_PARTITION_NAME", "argument": DEFAULT_PARTITION},
+                {"permission": "FHIR_ACCESS_PARTITION_NAME", "argument": self.tenant},
             ]
 
         # Merge: keep existing permissions, add missing ones
@@ -538,12 +540,18 @@ class SmartClientRegistrar:
             )
 
     def register_single(self, client_type: str, client_id: str, client_name: str,
-                         redirect_uris: List[str], scopes: List[str]) -> RegistrationResult:
-        """Register a single client by type."""
+                         redirect_uris: List[str], scopes: List[str],
+                         tenant: Optional[str] = None) -> RegistrationResult:
+        """Register a single client by type.
+
+        tenant overrides the registrar-level tenant for this one client
+        (used by bulk files with a per-client "tenant" key).
+        """
+        effective_tenant = tenant or self.tenant
         if client_type == "smart-app-launch":
             payload = build_smart_app_launch_payload(client_id, client_name, redirect_uris, scopes, node_id=self.node_id)
         elif client_type == "backend-service":
-            payload = build_backend_service_payload(client_id, client_name, scopes, node_id=self.node_id)
+            payload = build_backend_service_payload(client_id, client_name, scopes, node_id=self.node_id, tenant=effective_tenant)
         else:
             return RegistrationResult(
                 client_id=client_id,
@@ -578,8 +586,9 @@ class SmartClientRegistrar:
             client_name = client_def.get("clientName", client_id)
             scopes = client_def.get("scopes", DEFAULT_SMART_APP_SCOPES)
             redirect_uris = client_def.get("redirectUris", [])
+            tenant = client_def.get("tenant")
 
-            result = self.register_single(client_type, client_id, client_name, redirect_uris, scopes)
+            result = self.register_single(client_type, client_id, client_name, redirect_uris, scopes, tenant=tenant)
             summary.results.append(result)
 
             if result.updated and result.success:
@@ -760,6 +769,12 @@ def main():
                         choices=SUPPORTED_NODES,
                         help=f"Target SmileCDR node (default: {DEFAULT_NODE}). "
                              "Registers client on this node's smart_auth module and shows matching endpoints.")
+    parser.add_argument("--tenant", default=DEFAULT_PARTITION,
+                        help=f"Partition name(s) the client may access, comma-separated "
+                             f"(default: {DEFAULT_PARTITION}). Vendor/scenario clients should "
+                             "be scoped to their tenant only; partition access gates both "
+                             "reads and writes. In bulk mode a per-client \"tenant\" key "
+                             "in the clients file overrides this.")
 
     # Bulk options
     parser.add_argument("--bulk", action="store_true",
@@ -797,6 +812,7 @@ def main():
         dry_run=args.dry_run,
         skip_existing=args.skip_existing,
         update_existing=args.update_existing,
+        tenant=args.tenant,
     )
 
     if args.bulk:

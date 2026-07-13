@@ -58,13 +58,26 @@ Consequences folded into this plan: tenant loads must use server-assigned or ten
 4. **Test data**: tenant loads use server-assigned IDs or tenant-prefixed IDs (single global ID pool). Publish a self-contained starter bundle (patients, practitioners, organizations) that vendors can POST into their tenant, since local references to DEFAULT data are blocked by design.
 5. Onboard pilot vendors; their feedback gates Phase 2.
 
-## Phase 2: make DEFAULT read-only on ereq
+## Phase 2: make DEFAULT read-only for participants on ereq
 
-1. Inventory principals holding `FHIR_ACCESS_PARTITION_NAME: DEFAULT` together with any write permission (`FHIR_ALL_WRITE`, `FHIR_WRITE_ALL_OF_TYPE`, `FHIR_TRANSACTION`). Current known set: `DevTester`, `placer`, `filler` (users.json), read-write connectathon users, and read-write OIDC clients.
-2. Remove write authorities from those principals, or re-scope them to a tenant. `ADMIN` (`ROLE_SUPERUSER`) keeps write for curated data loads.
-3. Update the seeded `users.json` secret so the read-only shape survives reseeding.
-4. Verify: authenticated `POST /DEFAULT/...` returns 403 for every non-admin principal; anonymous and authenticated reads unchanged; test-data loader (admin) still works.
+Scope decision (2026-07-13): team-internal accounts (`ADMIN`, `DevTester`, `placer`, `filler`) stay read/write on the nodes they exist on; they are the curation mechanism for the shared dataset. Phase 2 applies only to participant principals.
+
+1. Inventory participant principals holding `FHIR_ACCESS_PARTITION_NAME: DEFAULT` together with any write permission (`FHIR_ALL_WRITE`, `FHIR_WRITE_ALL_OF_TYPE`, `FHIR_TRANSACTION`): read-write connectathon users (`connectathon-user-*`) and read-write OIDC clients (`connectathon-app-*`, `connectathon-backend-*`, vendor-registered clients).
+2. Remove write authorities from those principals, or re-scope them to a tenant. Record the before state for rollback.
+3. The seeded `users.json` secret is unchanged in this phase (it contains only team-internal accounts, which keep their permissions).
+4. Verify: authenticated `POST /DEFAULT/...` returns 403 for every participant principal; anonymous and authenticated reads unchanged; team accounts (`ADMIN`, `DevTester`, `placer`, `filler`) and the test-data loader still write.
 5. Update participant docs (`connectathon-participant-handout.md`, `SMART-APP-REGISTRATION.md`, Confluence entry): DEFAULT is read-only, writes happen in your tenant.
+
+## Execution log
+
+- **2026-07-13**: Phase 0 executed on ereq, all go/no-go tests passed (results table above).
+- **2026-07-13/14**: Phases 1 and 2 executed on ereq with zero pod restarts:
+  - Tenants created: `SCENARIO-EREQ-MEDS` (id 100), `VENDOR-DEMO` (id 101).
+  - Demo principals created with the new tenant-scoped tooling: `demo-placer`, `demo-filler` (SCENARIO-EREQ-MEDS), `demo-vendor` (VENDOR-DEMO).
+  - A validated, self-contained medications scenario (Patient, Practitioner, Organization, MedicationRequest with AMT 23551011000036108, fulfil Task) was loaded by demo-placer and driven to completion by demo-filler, demonstrating the full placer/filler write flow inside a tenant.
+  - Participant write removal on ereq DEFAULT: `FHIR_ALL_WRITE` and `FHIR_TRANSACTION` stripped from users `ILYA`, `MICHAEL.OSBORNE`, `PATIENT-DASHBOARD` (before-state snapshots retained). No OIDC client on the ereq node carried write permissions, so no client changes were needed.
+  - Deferred: `connectathon-backend-02` holds `FHIR_ALL_WRITE` on DEFAULT but is registered on the **aucore** node; it is handled in Phase 3 with the rest of aucore.
+  - See `docs/multitenancy-demo.md` for the verified demo walkthrough.
 
 ## Phase 3: aucore, then hardening
 

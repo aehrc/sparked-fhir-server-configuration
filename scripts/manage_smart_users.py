@@ -96,7 +96,8 @@ DEFAULT_PARTITION = "DEFAULT"
 # Permission Presets
 # =============================================================================
 
-def build_authorities(permission_level: str = "read-only") -> List[Dict]:
+def build_authorities(permission_level: str = "read-only",
+                      tenant: str = DEFAULT_PARTITION) -> List[Dict]:
     """Build SmileCDR authorities for a user based on a permission level preset.
 
     These authorities determine what the user can do when they log in and
@@ -105,11 +106,15 @@ def build_authorities(permission_level: str = "read-only") -> List[Dict]:
 
     Args:
         permission_level: One of "read-only", "read-write", or "superuser".
+        tenant: Partition name(s) the user may access (comma-separated for
+                multiple). Partition access gates both reads and writes, so a
+                read-write user scoped to a vendor tenant cannot touch DEFAULT
+                at all (see docs/adr/0001-partition-based-multitenancy.md).
     """
     authorities = [
         {"permission": "ROLE_FHIR_CLIENT"},
         {"permission": "FHIR_CAPABILITIES"},
-        {"permission": "FHIR_ACCESS_PARTITION_NAME", "argument": DEFAULT_PARTITION},
+        {"permission": "FHIR_ACCESS_PARTITION_NAME", "argument": tenant},
         {"permission": "FHIR_ALL_READ"},
     ]
 
@@ -137,6 +142,7 @@ def build_user_payload(
     permission_level: str = "read-only",
     practitioner_id: Optional[str] = None,
     patient_id: Optional[str] = None,
+    tenant: str = DEFAULT_PARTITION,
 ) -> Dict:
     """Build the JSON payload for creating a SmileCDR user.
 
@@ -150,6 +156,7 @@ def build_user_payload(
         practitioner_id: FHIR Practitioner resource ID for launch context
                          (e.g., "guthrie-aaron"). Used for EHR launch.
         patient_id: FHIR Patient resource ID for default patient launch context.
+        tenant: Partition name(s) the user may access (comma-separated).
     """
     payload = {
         "username": username,
@@ -161,7 +168,7 @@ def build_user_payload(
         "systemUser": False,
         "serviceAccount": False,
         "external": False,
-        "authorities": build_authorities(permission_level),
+        "authorities": build_authorities(permission_level, tenant=tenant),
     }
 
     if email:
@@ -358,7 +365,8 @@ class SmartUserManager:
                       family_name: str = "", email: str = "",
                       permission_level: str = "read-only",
                       practitioner_id: Optional[str] = None,
-                      patient_id: Optional[str] = None) -> UserResult:
+                      patient_id: Optional[str] = None,
+                      tenant: str = DEFAULT_PARTITION) -> UserResult:
         """Create a single user by arguments."""
         payload = build_user_payload(
             username=username,
@@ -369,6 +377,7 @@ class SmartUserManager:
             permission_level=permission_level,
             practitioner_id=practitioner_id,
             patient_id=patient_id,
+            tenant=tenant,
         )
         return self.create_user(payload)
 
@@ -407,6 +416,7 @@ class SmartUserManager:
                 permission_level=user_def.get("permissionLevel", "read-only"),
                 practitioner_id=user_def.get("practitionerId"),
                 patient_id=user_def.get("patientId"),
+                tenant=user_def.get("tenant", DEFAULT_PARTITION),
             )
             summary.results.append(result)
 
@@ -515,6 +525,12 @@ def main():
                         choices=["read-only", "read-write", "superuser"],
                         default="read-only",
                         help="Permission level (default: read-only)")
+    parser.add_argument("--tenant", default=DEFAULT_PARTITION,
+                        help="Partition name(s) the user may access, comma-separated "
+                             f"(default: {DEFAULT_PARTITION}). Vendor/scenario users "
+                             "should be scoped to their tenant only; partition access "
+                             "gates both reads and writes. In bulk mode set a per-user "
+                             "\"tenant\" key in the users file instead.")
     parser.add_argument("--practitioner-id",
                         help="Practitioner resource ID for EHR launch context (e.g., guthrie-aaron)")
     parser.add_argument("--patient-id",
@@ -615,6 +631,7 @@ def main():
             permission_level=args.permissions,
             practitioner_id=args.practitioner_id,
             patient_id=args.patient_id,
+            tenant=args.tenant,
         )
         duration = round(time.time() - start_time, 2)
 

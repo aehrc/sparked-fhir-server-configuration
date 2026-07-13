@@ -19,7 +19,7 @@ We have been splitting the difference with per-user read-only and read-write per
 
 ## The proposal in one paragraph
 
-Give each vendor (or connectathon scenario) its own **tenant**: a private slice of the same server, with its own URL. The shared curated dataset stays where it is and becomes **read-only for everyone except admins**. A vendor gets full read/write inside their tenant and cannot touch anyone else's. Nothing else changes: same server, same IGs, same validation, same SMART auth, same terminology, zero new infrastructure.
+Give each vendor (or connectathon scenario) its own **tenant**: a private slice of the same server, with its own URL. The shared curated dataset stays where it is and becomes **read-only for participants** (only team-operated accounts can modify it). A vendor gets full read/write inside their tenant and cannot touch anyone else's. Nothing else changes: same server, same IGs, same validation, same SMART auth, same terminology, zero new infrastructure.
 
 ```
 https://smile.sparked-fhir.com/ereq/fhir/DEFAULT            shared curated data (read-only)
