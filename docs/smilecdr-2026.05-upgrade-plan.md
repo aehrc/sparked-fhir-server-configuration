@@ -1,8 +1,19 @@
 # Smile CDR 2026.05 upgrade plan
 
 Upgrade the Sparked FHIR server from Smile CDR `2025.11.R02` (Helm chart `7.1.0`) to
-`2026.05.R01` (Helm chart `9.2.0`), with a verifiable, two-phase rollout and rollback
+`2026.05.R01` (Helm chart `9.0.2`), with a verifiable, two-phase rollout and rollback
 paths at each step.
+
+Three version levers are involved, and they are deliberately decoupled:
+
+1. Terraform module ref (`?ref=` in `terraform/main.tf`): the `sdh-deps` module code
+   that creates AWS resources and drives the helm release. Already at `v9.0.2` and
+   staying there (see below).
+2. `helm_chart_version` (`terraform/main.tf`): the smilecdr chart the module installs.
+   This is what the upgrade bumps to `9.0.2`.
+3. `cdrVersion` (`module-config/values-common.yaml`): the Smile CDR application/image
+   version. Pinned so a chart bump cannot silently change the running release; bumped
+   separately to `2026.05.R01`.
 
 Reference docs:
 
@@ -16,8 +27,8 @@ Reference docs:
 | Component | Current | Target |
 |---|---|---|
 | Smile CDR | 2025.11.R02 (`cdrVersion` in `module-config/values-common.yaml`) | 2026.05.R01 |
-| Helm chart | smilecdr 7.1.0 (`helm_chart_version` in `terraform/main.tf`) | smilecdr 9.2.0 |
-| Terraform module | `sdh-deps` at `ref=v9.0.2` | `ref=v9.2.0` |
+| Helm chart | smilecdr 7.1.0 (`helm_chart_version` in `terraform/main.tf`) | smilecdr 9.0.2 |
+| Terraform module | `sdh-deps` at `ref=v9.0.2` | unchanged (v9.1.x/v9.2.0 are broken for us, see below) |
 | Message broker | Embedded ActiveMQ (chart default, no Kafka) | unchanged |
 | Ingress | nginx-ingress, explicitly pinned via `ingress_config` | unchanged |
 | Database | Aurora Postgres Serverless v2, engine 14.20 | unchanged |
@@ -26,10 +37,19 @@ Reference docs:
 
 ### Version compatibility
 
-- Chart v9 supports Smile CDR `2025.05.R01` through `2026.05.R01`. Chart `9.2.0`
+- Chart v9 supports Smile CDR `2025.05.R01` through `2026.05.R01`. Chart `9.0.2`
   defaults to (`appVersion`) `2026.05.R01`. This means the chart can be upgraded first
   while `cdrVersion` stays pinned at `2025.11.R02`, isolating the chart hop from the
   application hop.
+- Chart target is `9.0.2`, not the newest `9.2.0`: the terraform module was pinned to
+  `v9.0.2` (commit `348bbf5`) because module `v9.1.x`/`v9.2.0` carry an upstream
+  `_copy_files_node_overlay` type error that breaks `terraform plan` for any
+  multi-node deployment, which this is. The bug is still present at `v9.2.0` (checked
+  2026-07-14; no newer tag exists). Keeping the module and chart on the same tag is
+  the combination upstream actually tests. Chart-side, `9.0.2` vs `9.2.0` was render
+  diffed with the live values: the only difference is additive
+  `SMILECDR_BASE_URL`/`SMILECDR_NODE_ID` env vars in `9.1+`, so nothing of value is
+  lost by staying on `9.0.2`.
 - Smile CDR upgrade policy: "Smile CDR can only be upgraded by two quarterly generally
   available releases at a time, e.g. 2023.11 to 2024.05" (online mode). Our jump
   2025.11 to 2026.05 is exactly two GA releases, so it is within the supported window
@@ -39,8 +59,9 @@ Reference docs:
 - PostgreSQL: 2026.05 supports v12 and above (v16 recommended). Aurora 14.20 remains
   supported. A later Aurora 14 to 16 upgrade is worth considering but is out of scope
   here.
-- Chart 9.1.x and 9.2.0 minor releases only add features (mostly Azure/AKS and DNS
-  passthrough); nothing that affects this deployment.
+- Chart 9.1.x and 9.2.0 minor releases only add features chart-side (mostly Azure/AKS
+  and DNS passthrough), but their terraform module releases are unusable here per the
+  `_copy_files_node_overlay` bug above. Revisit once upstream ships a fixed tag.
 
 ### Chart migration guides: what applies to us
 
@@ -58,12 +79,13 @@ Reference docs:
   disabled in v9. We never set it, so the only effect is the Ingress resource rename
   described below.
 
-### Render diff evidence (chart 7.1.0 vs 9.2.0, live values)
+### Render diff evidence (chart 7.1.0 vs 9.0.2, live values)
 
 Both chart versions were rendered offline with `helm template` using the exact values
 of the live release (`helm get values smilecdr -n smile`), for both
-`cdrVersion: 2025.11.R02` and `2026.05.R01`. All four renders succeed (no deprecated
-values failures). Diffing the 7.1.0 and 9.2.0 manifests:
+`cdrVersion: 2025.11.R02` and `2026.05.R01` (chart 9.2.0 was also rendered and
+matches 9.0.2 apart from the additive env vars noted above). All renders succeed (no
+deprecated values failures). Diffing the 7.1.0 and 9.0.2 manifests:
 
 - The only resource added, removed, or renamed across the whole release:
   `Ingress smilecdr-scdr` becomes `Ingress smilecdr-scdr-default`. The spec is
@@ -124,19 +146,17 @@ manually confirmed `workflow_dispatch` (type `APPLY`) after merge.
    output. It records per-node/per-tenant software versions, resource counts, and
    endpoint health to compare after each phase.
 
-### Phase 1: chart 7.1.0 to 9.2.0, Smile CDR unchanged
+### Phase 1: chart 7.1.0 to 9.0.2, Smile CDR unchanged
 
-One PR changing `terraform/main.tf` only:
+One PR changing a single line in `terraform/main.tf` (the module ref stays `v9.0.2`):
 
 ```hcl
-source             = "git::https://gitlab.com/smilecdr-public/smile-dh-helm-charts//src/main/terraform/sdh-deps?ref=v9.2.0"
-helm_chart_version = "9.2.0"
+helm_chart_version = "9.0.2"
 ```
 
 `cdrVersion` stays `2025.11.R02` in `values-common.yaml`, so this phase changes
 Kubernetes packaging only, with the application config proven identical by the render
-diff. The module bump v9.0.2 to v9.2.0 is additive for our inputs (the one changed
-variable, `extra_secrets`, is deliberately unused here).
+diff.
 
 Expected plan/apply surface: Ingress rename, Deployment env/init-container changes,
 ConfigMap hash roll. Expected NOT to appear: any change to RDS, IAM, Route53, or the
@@ -179,6 +199,14 @@ clinical data accumulates on the upgraded schema.
 
 ### Automated: scripts/upgrade_smoke_tests.sh
 
+Baseline run 2026-07-14 against 2025.11.R02: 30 passed, 1 failed. The single failure
+is pre-existing and unrelated to the upgrade: `hl7au` returns 404 for its whole
+`smartauth` context path (OIDC discovery included), i.e. the SMART outbound security
+module is not actually live on that node despite being configured in
+`simplified-multinode.yaml`. Expect the same single failure after each phase; treat
+any NEW failure as an upgrade regression. The hl7au smartauth gap is tracked as a
+follow-up.
+
 Run before phase 1 (baseline), after phase 1, and after phase 2. Read-only by default;
 admin credentials come from AWS Secrets Manager at runtime (same pattern as the phase 0
 multitenancy tests). Checks per node (aucore, hl7au, ereq) and per ereq tenant
@@ -219,3 +247,7 @@ multitenancy tests). Checks per node (aucore, hl7au, ereq) and per ereq tenant
   deprecated). Plan separately.
 - Aurora Postgres 14 to 16 upgrade (16 is the recommended version for 2026.05).
 - Rebuild of the AUPS generator jars against 2026.05 HAPI: only if `$summary` breaks.
+- Move module and chart to 9.1+/9.2+ once upstream fixes the
+  `_copy_files_node_overlay` plan error for multi-node deployments.
+- hl7au smartauth context path returns 404 (SMART outbound module not live on that
+  node); pre-existing, investigate separately.
