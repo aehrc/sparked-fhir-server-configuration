@@ -4,7 +4,12 @@ module "smile_cdr_dependencies" {
   eks_cluster_name       = var.cluster_name
   cdr_regcred_secret_arn = var.cdr_regcred_secret_arn
   prod_mode              = false
-  helm_chart_version     = "7.1.0"
+  # Chart 9.0.2 pairs with the module tag above (the module stays on v9.0.2:
+  # the v9.1.x/v9.2.0 module releases break plan for multi-node copyFiles, see
+  # docs/smilecdr-2026.05-upgrade-plan.md). Chart v9 supports Smile CDR
+  # 2025.05.R01 through 2026.05.R01; cdrVersion stays pinned independently in
+  # module-config/values-common.yaml.
+  helm_chart_version = "9.0.2"
 
 
   helm_chart_values = [                                                                            #alpha order
