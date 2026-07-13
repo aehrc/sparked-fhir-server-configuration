@@ -68,6 +68,17 @@ Scope decision (2026-07-13): team-internal accounts (`ADMIN`, `DevTester`, `plac
 4. Verify: authenticated `POST /DEFAULT/...` returns 403 for every participant principal; anonymous and authenticated reads unchanged; team accounts (`ADMIN`, `DevTester`, `placer`, `filler`) and the test-data loader still write.
 5. Update participant docs (`connectathon-participant-handout.md`, `SMART-APP-REGISTRATION.md`, Confluence entry): DEFAULT is read-only, writes happen in your tenant.
 
+## Execution log
+
+- **2026-07-13**: Phase 0 executed on ereq, all go/no-go tests passed (results table above).
+- **2026-07-13/14**: Phases 1 and 2 executed on ereq with zero pod restarts:
+  - Tenants created: `SCENARIO-EREQ-MEDS` (id 100), `VENDOR-DEMO` (id 101).
+  - Demo principals created with the new tenant-scoped tooling: `demo-placer`, `demo-filler` (SCENARIO-EREQ-MEDS), `demo-vendor` (VENDOR-DEMO).
+  - A validated, self-contained medications scenario (Patient, Practitioner, Organization, MedicationRequest with AMT 23551011000036108, fulfil Task) was loaded by demo-placer and driven to completion by demo-filler, demonstrating the full placer/filler write flow inside a tenant.
+  - Participant write removal on ereq DEFAULT: `FHIR_ALL_WRITE` and `FHIR_TRANSACTION` stripped from users `ILYA`, `MICHAEL.OSBORNE`, `PATIENT-DASHBOARD` (before-state snapshots retained). No OIDC client on the ereq node carried write permissions, so no client changes were needed.
+  - Deferred: `connectathon-backend-02` holds `FHIR_ALL_WRITE` on DEFAULT but is registered on the **aucore** node; it is handled in Phase 3 with the rest of aucore.
+  - See `docs/multitenancy-demo.md` for the verified demo walkthrough.
+
 ## Phase 3: aucore, then hardening
 
 1. Repeat phases 1 and 2 on `aucore` (aucore also serves AU Core read-only traffic, so DEFAULT read-only is a smaller behavioural change there).
