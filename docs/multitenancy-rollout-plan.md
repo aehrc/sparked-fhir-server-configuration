@@ -29,7 +29,22 @@ Create a temporary partition `MTTEST` (id 9001) on `ereq`, run the test matrix b
 
 ### Phase 0 results
 
-_To be filled in when the matrix is executed against ereq._
+Executed 2026-07-13 against `ereq` (Smile CDR 2025.11.R02) using `scripts/multitenancy_phase0_tests.sh`. **All go/no-go tests passed.** Full cleanup verified: tenant URL returns 404 after partition deletion and anonymous DEFAULT reads are unchanged.
+
+| # | Result | Observed |
+|---|--------|----------|
+| T1 | Note | `$partition-management-list-partitions` returned HTTP 400 on this build; create/delete operations work, so tenant inventory uses the admin console or repo records instead |
+| T2 | Pass | Partition created at runtime, HTTP 200, tenant URL live immediately |
+| T3 | Pass | Anonymous request to the new tenant rejected with HTTP 403 |
+| T4 | Pass | Admin write via tenant URL, HTTP 201 |
+| T5 | Pass | Anonymous DEFAULT read unchanged (200); tenant resource invisible via DEFAULT (404) |
+| T6 | Pass | Same client-assigned ID in a second partition rejected with HTTP 409 (HAPI-0550/HAPI-0825 client-assigned ID constraint); the first partition's resource untouched at v1. Confirms the global ID pool constraint and confirms the hapi-fhir #3396 cross-partition overwrite defect does not reproduce on 2025.11.R02: the write is safely rejected, nothing is overwritten |
+| T7 | Pass | Cross-partition local reference rejected with HTTP 400 (HAPI-1094 target not found in partition) |
+| T8 | Pass | Conditional PUT in DEFAULT with an identifier existing only in MTTEST performed a create (201, new resource) rather than a cross-partition update; the MTTEST resource remained readable afterwards. The hapi-fhir #6767 match-URL-cache defect does not reproduce |
+| T9 | Pass | Scoped user (write authorities + `FHIR_ACCESS_PARTITION_NAME: MTTEST` only): read and write in MTTEST succeeded (200/201); read and write against DEFAULT both rejected with 403. This is the entire ADR 0001 access model working with zero custom code |
+| T10 | Pass | All test resources deleted (200s); partition deleted (200); tenant URL 404 afterwards. One caveat: the user-management API does not support DELETE (405), so the throwaway user was disabled and locked with authorities stripped instead. Vendor offboarding should plan for disable rather than delete |
+
+Consequences folded into this plan: tenant loads must use server-assigned or tenant-prefixed IDs (T6 makes collisions a hard 409, not a corruption risk), and the runbook's "list tenants" row uses the admin console.
 
 ## Phase 1: first real tenants on ereq
 
@@ -72,7 +87,8 @@ _To be filled in when the matrix is executed against ereq._
 | Grant a client/user a tenant | `FHIR_ACCESS_PARTITION_NAME: <TENANT>` via registration scripts |
 | Clear a tenant | Delete/expunge scoped to the tenant URL |
 | Delete tenant | Clear it, then `$partition-management-delete-partition` |
-| List tenants | `$partition-management-list-partitions` |
+| List tenants | Admin console (Partition Management); the list operation returned 400 on 2025.11.R02 |
+| Offboard a principal | Disable and lock the account, strip authorities (user DELETE is unsupported, returns 405) |
 
 ## Governance
 

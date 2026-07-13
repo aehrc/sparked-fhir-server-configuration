@@ -57,11 +57,15 @@ Constraints accepted (verified against Smile CDR and HAPI FHIR documentation):
 - **Existing scripts hardcode DEFAULT** (`scripts/register_smart_client.py`, `scripts/manage_smart_users.py`, `module-config/smart-post-authorize.js`). They gain a tenant parameter as part of the rollout.
 - Users granted only a vendor tenant lose authenticated access to `DEFAULT`; they read shared data anonymously instead. This is a deliberate simplification.
 
-Risks:
+Risks (both historical defects were tested empirically in Phase 0 on 2026-07-13 and neither reproduces on 2025.11.R02; see the rollout plan's results table):
 
-- A historical HAPI FHIR defect (hapifhir/hapi-fhir#3396) allowed a write in one partition to overwrite a same-ID resource in another; a fix was merged but the exact fixed release is unconfirmed. The Phase 0 matrix tests this exact case on our version before any tenant is handed to a vendor.
-- The conditional-operation match-URL cache historically ignored partition ID (hapifhir/hapi-fhir#6767, fixed in HAPI FHIR 8.0/2025 timeframe). `match_url_cache.enabled: true` is set on `aucore`. The Phase 0 matrix tests conditional isolation; if it fails, the cache is disabled on partitioned nodes.
-- Smile CDR has no formal statement on some edge behaviours (for example anonymous users holding partition permissions). Phase 0 verifies empirically; a Smile support ticket is the escalation path for surprises.
+- A historical HAPI FHIR defect (hapifhir/hapi-fhir#3396) allowed a write in one partition to overwrite a same-ID resource in another. **Verified fixed on our version**: the colliding write is rejected with HTTP 409 and the original resource is untouched.
+- The conditional-operation match-URL cache historically ignored partition ID (hapifhir/hapi-fhir#6767). `match_url_cache.enabled: true` is set on `aucore`. **Verified isolated on our version**: a conditional update in one partition does not match an identifier that exists only in another.
+- Smile CDR has no formal statement on some edge behaviours (for example anonymous users holding partition permissions). Phase 0 verified the core access model empirically; a Smile support ticket is the escalation path for future surprises.
+
+## Verification
+
+The full access model was demonstrated live on the `ereq` node on 2026-07-13 with `scripts/multitenancy_phase0_tests.sh`: runtime tenant creation, anonymous denial on the new tenant, tenant-scoped read/write for a scoped user with hard 403s against DEFAULT, cross-partition reference blocking, ID-collision rejection without overwrite, conditional-update isolation, and clean teardown. Results are recorded in `docs/multitenancy-rollout-plan.md`.
 
 ## References
 
