@@ -103,6 +103,21 @@ body:
     validations:
       required: true
 
+  - type: input
+    id: tenant
+    attributes:
+      label: Tenant (optional)
+      description: |
+        The tenant (data partition) your client should be scoped to.
+        Leave blank for the shared `DEFAULT` tenant, which is **read-only** for participant clients.
+        If you need write access (loading your own test data, eRequesting placer/filler flows),
+        request a vendor or scenario tenant here, e.g. `VENDOR-ACME` or `SCENARIO-EREQ-MEDS`.
+        Your FHIR base URL becomes `https://smile.sparked-fhir.com/<node>/fhir/<TENANT>`.
+        If the tenant does not exist yet, we create it as part of this request.
+      placeholder: "VENDOR-ACME"
+    validations:
+      required: false
+
   - type: markdown
     attributes:
       value: |
