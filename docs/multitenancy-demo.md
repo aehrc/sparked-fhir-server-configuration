@@ -11,6 +11,7 @@ Every command below was executed and verified on 2026-07-13/14 against the live 
 | Scenario tenant | `SCENARIO-EREQ-MEDS` (partition id 100) at `https://smile.sparked-fhir.com/ereq/fhir/SCENARIO-EREQ-MEDS` |
 | Vendor tenant | `VENDOR-DEMO` (partition id 101) at `https://smile.sparked-fhir.com/ereq/fhir/VENDOR-DEMO` |
 | Demo users | `demo-placer`, `demo-filler` (scoped to SCENARIO-EREQ-MEDS), `demo-vendor` (scoped to VENDOR-DEMO); all read-write inside their tenant, no DEFAULT access |
+| Observer user | `demo-observer`: read-only across both pilot tenants (`FHIR_ALL_READ`, no write permissions, partition list `SCENARIO-EREQ-MEDS,VENDOR-DEMO`). Demonstrates opt-in cross-tenant read sharing; per-tenant public (anonymous) read is also verified, see the workshop pre-paper |
 | Scenario data | Self-contained medications flow: Patient, Practitioner, Organization, MedicationRequest (AMT 23551011000036108, Amoxicillin 500 mg capsule), and a fulfil Task that demo-filler has driven requested to in-progress to completed |
 | DEFAULT tenant | Read-only for participants; team accounts (ADMIN, DevTester, placer, filler) unchanged |
 
