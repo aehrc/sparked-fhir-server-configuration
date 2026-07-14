@@ -4,10 +4,9 @@ specs:
 # Pin the Smile CDR application version explicitly rather than inheriting the
 # Helm chart's appVersion default. This decouples the Smile CDR version from the
 # chart version so a future helm_chart_version bump does not silently change the
-# running Smile CDR release. Set to the version currently deployed (chart 7.1.0
-# default), so pinning is a no-op for the running image. Bump this deliberately
-# when upgrading Smile CDR.
-cdrVersion: "2025.11.R02"
+# running Smile CDR release. Bump this deliberately when upgrading Smile CDR
+# (see docs/smilecdr-2026.05-upgrade-plan.md).
+cdrVersion: "2026.05.R01"
 
 # Raise the ingress-nginx request body size limit above the 1 MiB nginx default so
 # that larger FHIR transaction Bundles (for example AU eRequesting) are not rejected
