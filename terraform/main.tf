@@ -199,10 +199,15 @@ module "smile_cdr_dependencies" {
 
   ingress_config = {
     public = {
-      # The live serving ingress is the chart's default slot (rendered as
-      # smilecdr-scdr, class nginx, host smile.sparked-fhir.com). Claim the default
-      # slot with nginx-ingress so the plan reconciles in place rather than
-      # disabling the default ingress and standing up a gateway-api/ALB one.
+      # The chart still renders the nginx Ingress (class nginx, host
+      # smile.sparked-fhir.com) so specs.hostname and the nginx path stay intact and
+      # harmless until ingress-nginx is decommissioned in the infra repo. Traffic is
+      # cut over to the Envoy Gateway purely at the DNS layer.
+      #
+      # route53_create_record is now false: the smile.sparked-fhir.com record is no
+      # longer aliased to the nginx NLB by this module. It is instead managed by
+      # aws_route53_record.smile_public (terraform/gateway-dns.tf), aliased to the
+      # Envoy Gateway NLB. See docs/gateway-api-migration-plan.md (Gateway API migration).
       useDefaultIngress     = true
       ingressType           = "nginx-ingress"
       route53_create_record = local.route53_create_record
@@ -213,7 +218,9 @@ module "smile_cdr_dependencies" {
 }
 
 locals {
-  route53_create_record = true
+  # Gateway API migration: the smile.sparked-fhir.com record is managed outside this
+  # module (aws_route53_record.smile_public) so it can alias the Envoy Gateway NLB.
+  route53_create_record = false
 
   tags = {
     Name       = var.name
