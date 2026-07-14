@@ -121,43 +121,48 @@ jobs:
             terraform/main.tfplan
             terraform/builds/
 
-      - name: Create String Output
-        id: tf-plan-string
-        run: |
-          TERRAFORM_PLAN=$(terraform show -no-color main.tfplan)
-          delimiter="$(openssl rand -hex 8)"
-          {
-            echo "summary<<${delimiter}"
-            echo "## Terraform Plan Output (smile-app-prod)"
-            echo "<details><summary>Click to expand</summary>"
-            echo ""
-            echo '```terraform'
-            echo "$TERRAFORM_PLAN"
-            echo '```'
-            echo "</details>"
-            echo "${delimiter}"
-          } >> "$GITHUB_OUTPUT"
-
+      # Render the saved plan for humans. Both consumers read it straight from the
+      # plan file and are size-capped: a large plan (e.g. a major RDS engine
+      # upgrade, which cascades to many dependent resources) otherwise passes the
+      # whole plan as an env var and overflows the runner's arg/env limit (E2BIG,
+      # "Argument list too long"), and would also blow the 65 KB PR-comment and
+      # 1 MB step-summary caps. These steps are cosmetic, so continue-on-error keeps
+      # a rendering failure from failing the gate, which is driven by the plan exit
+      # code and the uploaded tfplan artifact, not by the summary text.
       - name: Publish Terraform Plan to Task Summary
-        env:
-          SUMMARY: ${{ steps.tf-plan-string.outputs.summary }}
-        run: echo "$SUMMARY" >> "$GITHUB_STEP_SUMMARY"
+        continue-on-error: true
+        run: |
+          {
+            echo "## Terraform Plan Output (smile-app-prod)"
+            echo '```terraform'
+            terraform show -no-color main.tfplan | head -c 900000
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Push Terraform Output to PR
         if: github.event_name == 'pull_request'
+        continue-on-error: true
         uses: actions/github-script@v7
-        env:
-          SUMMARY: "${{ steps.tf-plan-string.outputs.summary }}"
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const body = `${process.env.SUMMARY}`;
-            github.rest.issues.createComment({
-                issue_number: context.issue.number,
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                body: body
-            })
+            const { execSync } = require('child_process');
+            const full = execSync('terraform show -no-color main.tfplan', {
+              cwd: 'terraform', maxBuffer: 64 * 1024 * 1024,
+            }).toString();
+            const LIMIT = 60000;
+            const truncated = full.length > LIMIT;
+            const plan = truncated ? full.slice(0, LIMIT) : full;
+            const note = truncated
+              ? '\n\n_Plan truncated for this comment; see the job summary or the `tfplan-smile-app-prod` artifact for the full output._'
+              : '';
+            const body = `## Terraform Plan Output (smile-app-prod)\n<details><summary>Click to expand</summary>\n\n\`\`\`terraform\n${plan}\n\`\`\`\n</details>${note}`;
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body,
+            });
 
   terraform-apply:
     name: 'Terraform Apply'
