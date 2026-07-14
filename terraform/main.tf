@@ -101,10 +101,16 @@ module "smile_cdr_dependencies" {
     {
       name   = "SmileCluster"
       engine = "aurora-postgresql-serverless-v2"
-      # Pin to the live cluster's engine version. AWS auto-upgraded the DB to 14.20;
-      # Aurora does not support downgrades, so leaving this unset (module default 14.15)
-      # would produce an invalid destroy/replace. See terraform/REMEDIATION.md.
-      engine_version = "14.20"
+      # In-place major upgrade to PostgreSQL 16 (Smile CDR 2026.05 recommends 16;
+      # PG14 community EOL is 2026-11). The pin must match the live version before
+      # the change; Aurora does not support downgrades, so a mismatch produces an
+      # invalid destroy/replace. See terraform/REMEDIATION.md and
+      # docs/aurora-pg16-upgrade-plan.md. allow_major_version_upgrade and
+      # apply_immediately are required for the engine change to run at apply time
+      # rather than the maintenance window; both are safe to leave set.
+      engine_version              = "16.13"
+      allow_major_version_upgrade = true
+      apply_immediately           = true
       serverless_configuration = {
         min_capacity = 0.5
         max_capacity = 4
