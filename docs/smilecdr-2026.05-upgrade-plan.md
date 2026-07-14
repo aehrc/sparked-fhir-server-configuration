@@ -226,9 +226,34 @@ persistence at first boot, with no ERROR/FATAL lines (the WARN about
 post-phase smoke run was identical to the baseline modulo the version string: 30
 passed, 1 known hl7au failure, and both `$summary` checks passed, so the AUPS
 generator jars are compatible with the 2026.05 HAPI internals and no rebuild is
-needed. Outstanding manual check: one SMART authorization-code login (demo flow) to
-exercise `smart-post-authorize.js` fhirUser injection under the 2026.05 GraalVM
-sandbox; the script's audited API surface suggests no issue.
+needed.
+
+#### Post-upgrade functional checks (2026-07-14)
+
+All three remaining risk areas were exercised on the live 2026.05.R01 deployment:
+
+- SMART authorization-code flow (ereq): full login as DevTester via
+  `ereq/smartauth` using the public `ereq-connectathon` client (signin, CSRF form,
+  consent approval, code issuance, token exchange). The token endpoint returned 200
+  with `fhirUser` populated in the id_token (RelatedPerson fallback, expected for a
+  user with no practitioner launch context), the pod log shows the script executor
+  loading `smart-post-authorize.js` without error, and the issued bearer token
+  performed a live FHIR read. The 2026.05 GraalVM sandbox risk is closed.
+- Package registry round-trip (ereq): `hl7.fhir.au.ereq@1.0.0` was uninstalled and
+  reinstalled via `scripts/sync_packages.py --force-reinstall` (DELETE then PUT on
+  the package write API). Package search, reindexing, and the DEFAULT-partition
+  StructureDefinition count (142) all returned to their pre-operation state.
+- Test data delete/reload (ereq DEFAULT, targeted): the 50 au-erequesting resources
+  from `hl7au/au-fhir-test-data` were deleted and reloaded with the
+  sparked-test-data-loader (run locally). All resource counts returned exactly to
+  pre-operation values. Note: each 50-request bulk run had exactly one transient
+  HTTP 401 (a delete in one run, a create in the other), both succeeded on retry;
+  worth watching whether 2026.05 introduced an intermittent basic-auth hiccup under
+  burst load.
+- CI gap found: the Manage Test Data / Clear Test Data workflows fail on
+  `arc-runner-set` before doing any work; the runner cannot pull
+  `sparked-test-data-loader` from ECR ("no basic auth credentials"). Runner-side ECR
+  credential regression, tracked as a follow-up.
 
 ## Verification
 
@@ -285,4 +310,9 @@ multitenancy tests). Checks per node (aucore, hl7au, ereq) and per ereq tenant
 - Move module and chart to 9.1+/9.2+ once upstream fixes the
   `_copy_files_node_overlay` plan error for multi-node deployments.
 - hl7au smartauth context path returns 404 (SMART outbound module not live on that
-  node); pre-existing, investigate separately.
+  node); pre-existing, expected (hl7au is not fully set up).
+- Fix ECR image pull on `arc-runner-set` so the Manage/Clear/Load Test Data
+  workflows work again (currently "no basic auth credentials" pulling
+  sparked-test-data-loader).
+- Watch for intermittent single HTTP 401s during bulk FHIR operations on 2026.05
+  (one per 50-request burst observed twice on 2026-07-14; retries succeeded).
