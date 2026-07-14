@@ -217,6 +217,19 @@ The full path (if the migrated schema itself misbehaves) is restoring the phase 
 Aurora snapshot and reverting the PR. Either way, take the decision before new
 clinical data accumulates on the upgraded schema.
 
+#### Phase 2 outcome (applied 2026-07-14)
+
+Completed cleanly (PR #70, helm revision 13). All three nodes rolled onto
+`2026.05.R01`; each logged `migrated successfully: ... 5 succeeded, 0 failed` for
+persistence at first boot, with no ERROR/FATAL lines (the WARN about
+`schema_update_mode: UPDATE` in production is expected and pre-existing). The
+post-phase smoke run was identical to the baseline modulo the version string: 30
+passed, 1 known hl7au failure, and both `$summary` checks passed, so the AUPS
+generator jars are compatible with the 2026.05 HAPI internals and no rebuild is
+needed. Outstanding manual check: one SMART authorization-code login (demo flow) to
+exercise `smart-post-authorize.js` fhirUser injection under the 2026.05 GraalVM
+sandbox; the script's audited API surface suggests no issue.
+
 ## Verification
 
 ### Automated: scripts/upgrade_smoke_tests.sh
