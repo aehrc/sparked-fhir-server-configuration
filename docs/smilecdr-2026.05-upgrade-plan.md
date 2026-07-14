@@ -167,6 +167,28 @@ confirm the new Ingress `smilecdr-scdr-default` serves all paths.
 
 Rollback: revert the PR and re-apply. No data or schema involvement.
 
+#### Phase 1 outcome (applied 2026-07-14)
+
+Completed, with one gotcha the render diff could not predict: helm creates the renamed
+Ingress before deleting the old one, and the ingress-nginx validating admission
+webhook rejects the new Ingress because the old one still defines the same host+paths.
+The first apply therefore failed at the Ingress step (PR #68, helm revision 11
+`failed`). The partial upgrade was safe: ConfigMaps and Deployments had already
+updated (pods rolled onto the new spec, image still 2025.11.R02, new `filecopy.sh`
+init containers worked), and the old Ingress kept serving throughout.
+
+Resolution: manually swapped the Ingress (delete `smilecdr-scdr`, immediately apply
+the rendered `smilecdr-scdr-default` carrying `meta.helm.sh/release-name` /
+`meta.helm.sh/release-namespace` annotations and the `app.kubernetes.io/managed-by:
+Helm` label so helm adopts it), observed a routing gap of a few seconds, then
+re-dispatched APPLY. Helm adopted the Ingress and reconciled to `deployed` (revision
+12). Post-phase smoke run: identical to baseline (30 passed, 1 known hl7au failure).
+
+Lesson for future ingress renames behind ingress-nginx: the webhook makes
+create-before-delete renames impossible in one apply; plan the manual swap (or a
+temporary second hostname) up front. Phase 2 renames nothing, so no recurrence is
+expected.
+
 ### Phase 2: Smile CDR 2025.11.R02 to 2026.05.R01
 
 One PR changing `module-config/values-common.yaml` only:
