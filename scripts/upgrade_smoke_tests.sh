@@ -11,6 +11,11 @@
 #   --expect-version V  fail if any node does not report Smile CDR version V
 #   --write             also do a create/read/delete round-trip with a tagged test
 #                       Patient on ereq DEFAULT (off by default)
+#   --connect-to HOST   send every request to load balancer HOST (e.g. the Envoy
+#                       Gateway NLB) while keeping SNI and the Host header as
+#                       smile.sparked-fhir.com. Lets a new load balancer be verified
+#                       on its own DNS name before the smile.sparked-fhir.com record is
+#                       flipped to it (Gateway API migration, side-by-side testing).
 #
 # Requires: curl, jq, aws CLI with access to the smilecdr-user-passwords secret.
 set -u
@@ -21,12 +26,18 @@ EREQ_TENANTS=(DEFAULT SCENARIO-EREQ-MEDS VENDOR-DEMO)
 RESULTS="upgrade-smoke-results.md"
 EXPECT_VERSION=""
 DO_WRITE=0
+CONNECT_TO=()
 
 while [ $# -gt 0 ]; do
   case "$1" in
     -o) RESULTS="$2"; shift 2 ;;
     --expect-version) EXPECT_VERSION="$2"; shift 2 ;;
     --write) DO_WRITE=1; shift ;;
+    --connect-to)
+      # Reroute smile.sparked-fhir.com:{443,80} to the target LB host, preserving SNI/Host.
+      CONNECT_TO=(--connect-to "smile.sparked-fhir.com:443:$2:443" \
+                  --connect-to "smile.sparked-fhir.com:80:$2:80")
+      shift 2 ;;
     *) echo "Unknown argument: $1"; exit 2 ;;
   esac
 done
@@ -48,9 +59,10 @@ ok()    { PASS=$((PASS+1)); note "- PASS: $1"; }
 bad()   { FAIL=$((FAIL+1)); note "- FAIL: $1"; }
 skip()  { SKIP=$((SKIP+1)); note "- SKIP: $1"; }
 
-# curl helpers: capture status code, body goes to a temp file, never echo credentials
-acurl() { curl -s --max-time 60 -u "ADMIN:$ADMIN_PASS" -H "Content-Type: application/fhir+json" "$@"; }
-anoncurl() { curl -s --max-time 60 -H "Content-Type: application/fhir+json" "$@"; }
+# curl helpers: capture status code, body goes to a temp file, never echo credentials.
+# ${CONNECT_TO[@]+...} guards the empty-array case under `set -u` (bash 3.2 safe).
+acurl() { curl -s --max-time 60 ${CONNECT_TO[@]+"${CONNECT_TO[@]}"} -u "ADMIN:$ADMIN_PASS" -H "Content-Type: application/fhir+json" "$@"; }
+anoncurl() { curl -s --max-time 60 ${CONNECT_TO[@]+"${CONNECT_TO[@]}"} -H "Content-Type: application/fhir+json" "$@"; }
 
 # ---------------------------------------------------------------------------
 # Per-node checks
