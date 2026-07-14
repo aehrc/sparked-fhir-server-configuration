@@ -33,6 +33,7 @@ on:
 permissions:
   contents: read
   issues: write
+  id-token: write # required by the called clear/load workflows for ECR OIDC login
 
 # ============================================================================
 # Clear and Load AU Core

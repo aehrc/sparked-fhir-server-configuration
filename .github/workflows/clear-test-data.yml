@@ -122,15 +122,32 @@ on:
 permissions:
   contents: read
   issues: write
+  id-token: write # OIDC for ECR login
 
 jobs:
   clear-data:
     name: Clear FHIR Test Data
     runs-on: arc-runner-set
-    container:
-      image: 471112546300.dkr.ecr.ap-southeast-2.amazonaws.com/sparked-test-data-loader:latest
+    # The loader image lives in a private ECR repo. A job-level `container:` is
+    # pulled before any step can authenticate, which fails on arc-runner-set
+    # ("no basic auth credentials"). Authenticate with OIDC first and run the
+    # loader with `docker run` instead.
+    env:
+      LOADER_IMAGE: 471112546300.dkr.ecr.ap-southeast-2.amazonaws.com/sparked-test-data-loader:latest
 
     steps:
+      - name: Configure aws credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_OIDC_ROLE_ARN }}
+          aws-region: ap-southeast-2
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Pull loader image
+        run: docker pull -q "$LOADER_IMAGE"
+
       - name: Resolve inputs
         id: inputs
         run: |
@@ -205,8 +222,10 @@ jobs:
         if: steps.inputs.outputs.delete_mode == 'targeted'
         id: clone
         run: |
-          WORK_DIR="/tmp/fhir-data"
-          mkdir -p "$WORK_DIR"
+          # RUNNER_TEMP lives on the runner's work volume, which the dind
+          # daemon shares, so it can be bind-mounted into the loader container.
+          WORK_DIR="$RUNNER_TEMP/fhir-data"
+          rm -rf "$WORK_DIR" && mkdir -p "$WORK_DIR"
           git clone "${{ steps.inputs.outputs.data_source }}" "$WORK_DIR"
 
           DATA_DIR="$WORK_DIR/${{ steps.inputs.outputs.data_folder }}"
@@ -226,15 +245,16 @@ jobs:
         env:
           FHIR_AUTH_HEADER: ${{ secrets.CSIRO_FHIR_AUTH_64 }}
         run: |
+          # Paths are as seen inside the loader container ($RUNNER_TEMP -> /work)
           ARGS="--mode ${{ steps.inputs.outputs.delete_mode }}"
           ARGS="$ARGS --fhir-url ${{ steps.inputs.outputs.fhir_url }}"
           ARGS="$ARGS --batch-size ${{ steps.inputs.outputs.batch_size }}"
-          ARGS="$ARGS --summary-file /tmp/clear-summary.json"
-          ARGS="$ARGS --github-step-summary $GITHUB_STEP_SUMMARY"
+          ARGS="$ARGS --summary-file /work/clear-summary.json"
+          ARGS="$ARGS --github-step-summary /work/step-summary.md"
 
           # Add data-dir for targeted mode
           if [ "${{ steps.inputs.outputs.delete_mode }}" = "targeted" ]; then
-            ARGS="$ARGS --data-dir ${{ steps.clone.outputs.data_dir }}"
+            ARGS="$ARGS --data-dir /work/fhir-data/${{ steps.inputs.outputs.data_folder }}"
             ARGS="$ARGS --exclude-patterns ${{ steps.inputs.outputs.exclude_patterns }}"
           fi
 
@@ -256,9 +276,14 @@ jobs:
           fi
 
           set +e
-          sparked-test-data-loader clear $ARGS
+          docker run --rm -e FHIR_AUTH_HEADER -v "$RUNNER_TEMP:/work" "$LOADER_IMAGE" clear $ARGS
           EXIT_CODE=$?
           set -e
+
+          # Surface the loader's markdown summary written inside the mount
+          if [ -f "$RUNNER_TEMP/step-summary.md" ]; then
+            cat "$RUNNER_TEMP/step-summary.md" >> "$GITHUB_STEP_SUMMARY"
+          fi
 
           if [ $EXIT_CODE -eq 0 ]; then
             echo "status=success" >> $GITHUB_OUTPUT
@@ -267,10 +292,10 @@ jobs:
           fi
 
           # Read summary as single-line JSON for output
-          if [ -f /tmp/clear-summary.json ]; then
+          if [ -f "$RUNNER_TEMP/clear-summary.json" ]; then
             DELIMITER="SUMMARY_$(date +%s%N)"
             echo "summary<<${DELIMITER}" >> $GITHUB_OUTPUT
-            cat /tmp/clear-summary.json | tr -d '\n' >> $GITHUB_OUTPUT
+            cat "$RUNNER_TEMP/clear-summary.json" | tr -d '\n' >> $GITHUB_OUTPUT
             echo "" >> $GITHUB_OUTPUT
             echo "${DELIMITER}" >> $GITHUB_OUTPUT
           fi
