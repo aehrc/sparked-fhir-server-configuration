@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
-# Phase 0 multitenancy rehearsal against the ereq node (Sparked Dev FHIR Server).
+# Phase 0 multitenancy rehearsal against a Sparked Dev FHIR Server node.
+# Target node comes from PHASE0_NODE (default ereq); results path from PHASE0_RESULTS.
 # Creates a temporary MTTEST partition, verifies isolation properties, then cleans up.
 # Admin credentials are fetched from AWS Secrets Manager at runtime and kept in memory only.
 set -u
 
-BASE="https://smile.sparked-fhir.com/ereq/fhir"
-ADMINJSON="https://smile.sparked-fhir.com/ereq/admin-json"
+NODE="${PHASE0_NODE:-ereq}"
+BASE="https://smile.sparked-fhir.com/$NODE/fhir"
+ADMINJSON="https://smile.sparked-fhir.com/$NODE/admin-json"
 PART_ID=9001
 PART_NAME="MTTEST"
 TESTUSER="mt-phase0-vendor"
@@ -86,7 +88,7 @@ note "- created-in-DEFAULT id: ${T8id:-unknown}"
 
 note ""
 note "## T9: scoped vendor-style user (write $PART_NAME, no DEFAULT access)"
-T9a=$(curl -s --max-time 30 -u "ADMIN:$ADMIN_PASS" -H "Content-Type: application/json" -o /tmp/t9a.json -w "%{http_code}" -X POST "$ADMINJSON/user-management/ereq/local_security" -d "{\"username\":\"$TESTUSER\",\"password\":\"$TESTUSER_PASS\",\"givenName\":\"MTTest\",\"familyName\":\"Phase0\",\"authorities\":[{\"permission\":\"ROLE_FHIR_CLIENT\"},{\"permission\":\"FHIR_CAPABILITIES\"},{\"permission\":\"FHIR_ALL_READ\"},{\"permission\":\"FHIR_ALL_WRITE\"},{\"permission\":\"FHIR_TRANSACTION\"},{\"permission\":\"FHIR_ACCESS_PARTITION_NAME\",\"argument\":\"$PART_NAME\"}]}")
+T9a=$(curl -s --max-time 30 -u "ADMIN:$ADMIN_PASS" -H "Content-Type: application/json" -o /tmp/t9a.json -w "%{http_code}" -X POST "$ADMINJSON/user-management/$NODE/local_security" -d "{\"username\":\"$TESTUSER\",\"password\":\"$TESTUSER_PASS\",\"givenName\":\"MTTest\",\"familyName\":\"Phase0\",\"authorities\":[{\"permission\":\"ROLE_FHIR_CLIENT\"},{\"permission\":\"FHIR_CAPABILITIES\"},{\"permission\":\"FHIR_ALL_READ\"},{\"permission\":\"FHIR_ALL_WRITE\"},{\"permission\":\"FHIR_TRANSACTION\"},{\"permission\":\"FHIR_ACCESS_PARTITION_NAME\",\"argument\":\"$PART_NAME\"}]}")
 T9pid=$(jq -r '.pid // empty' /tmp/t9a.json 2>/dev/null)
 note "- create user: HTTP $T9a (pid: ${T9pid:-unknown})"
 if [ "$T9a" = "200" ] || [ "$T9a" = "201" ]; then
@@ -109,10 +111,10 @@ done
 if [ -n "${T8id:-}" ]; then C=$(acurl -o /dev/null -w "%{http_code}" -X DELETE "$BASE/DEFAULT/Patient/$T8id"); note "- DELETE DEFAULT/Patient/$T8id (conditional-create artifact): HTTP $C"; fi
 if [ -n "${T9cid:-}" ]; then C=$(acurl -o /dev/null -w "%{http_code}" -X DELETE "$BASE/$PART_NAME/Patient/$T9cid"); note "- DELETE $PART_NAME/Patient/$T9cid (vendor write artifact): HTTP $C"; fi
 if [ -n "${T9pid:-}" ]; then
-  C=$(curl -s --max-time 30 -u "ADMIN:$ADMIN_PASS" -o /tmp/t9del.json -w "%{http_code}" -X DELETE "$ADMINJSON/user-management/ereq/local_security/$T9pid")
+  C=$(curl -s --max-time 30 -u "ADMIN:$ADMIN_PASS" -o /tmp/t9del.json -w "%{http_code}" -X DELETE "$ADMINJSON/user-management/$NODE/local_security/$T9pid")
   note "- DELETE test user pid $T9pid: HTTP $C"
   if [ "$C" != "200" ] && [ "$C" != "204" ]; then
-    C2=$(curl -s --max-time 30 -u "ADMIN:$ADMIN_PASS" -H "Content-Type: application/json" -o /dev/null -w "%{http_code}" -X PUT "$ADMINJSON/user-management/ereq/local_security/$T9pid" -d "{\"username\":\"$TESTUSER\",\"accountDisabled\":true,\"accountLocked\":true,\"authorities\":[]}")
+    C2=$(curl -s --max-time 30 -u "ADMIN:$ADMIN_PASS" -H "Content-Type: application/json" -o /dev/null -w "%{http_code}" -X PUT "$ADMINJSON/user-management/$NODE/local_security/$T9pid" -d "{\"username\":\"$TESTUSER\",\"accountDisabled\":true,\"accountLocked\":true,\"authorities\":[]}")
     note "- user delete unsupported; disabled+locked instead: HTTP $C2"
   fi
 fi

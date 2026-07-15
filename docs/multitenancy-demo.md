@@ -126,4 +126,5 @@ with this information.
   (ids 100, 101). Demo users: disable and lock via the admin console or API.
 - Participant write removal: before-state snapshots of every changed principal are
   retained by the team; each is a single PUT to restore.
-- The DEFAULT tenant, team accounts, aucore, and hl7au were not modified.
+- The DEFAULT tenant data, team accounts, and the hl7au node were not modified.
+  (aucore was subsequently rolled out on 2026-07-15; see the rollout plan execution log.)

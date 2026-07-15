@@ -78,6 +78,12 @@ Scope decision (2026-07-13): team-internal accounts (`ADMIN`, `DevTester`, `plac
   - Participant write removal on ereq DEFAULT: `FHIR_ALL_WRITE` and `FHIR_TRANSACTION` stripped from users `ILYA`, `MICHAEL.OSBORNE`, `PATIENT-DASHBOARD` (before-state snapshots retained). No OIDC client on the ereq node carried write permissions, so no client changes were needed.
   - Deferred: `connectathon-backend-02` holds `FHIR_ALL_WRITE` on DEFAULT but is registered on the **aucore** node; it is handled in Phase 3 with the rest of aucore.
   - See `docs/multitenancy-demo.md` for the verified demo walkthrough.
+- **2026-07-15**: aucore rollout executed per the playbook, zero rollout-caused restarts:
+  - The Phase 0 go/no-go matrix was re-run against aucore using the now node-parameterized `scripts/multitenancy_phase0_tests.sh` (`PHASE0_NODE=aucore`); all critical tests passed, including conditional-update isolation with aucore's `match_url_cache` enabled. Note: on aucore the cross-partition reference test is rejected via the client-assigned ID constraint (409) rather than target-not-found (400), a side effect of `client_id_mode: ANY`; the isolation property holds either way.
+  - Tenant `VENDOR-DEMO` (id 101) created on aucore; tenant-scoped `demo-vendor` user created and verified (read/write in tenant, 403 on DEFAULT read and write, anonymous 403 on the tenant).
+  - Participant write removal on aucore DEFAULT (per named confirmation): users `CONNECTATHON-USER-05`, `CONNECTATHON-USER-06`, `ILYA`, `PATIENT-DASHBOARD`, and the deferred OIDC client `connectathon-backend-02` (now `FHIR_ALL_READ` only). `WRITERTEST` kept as a team test account, to be revisited at the workshop. Before-state snapshots retained.
+  - The tenant-aware `smart-post-authorize.js` was confirmed deployed (shipped with the 2026-07-14 helm chart 9.0.2 apply), so SMART tokens on aucore now derive fhirUser URLs from the request audience.
+  - Operational note: OIDC client updates PUT by clientId in the URL path (PUT by pid returns 400).
 
 ## Phase 3: aucore, then hardening
 
