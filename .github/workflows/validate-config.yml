@@ -72,7 +72,8 @@ jobs:
       - name: Install Terraform
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends curl unzip ca-certificates
+          # git is required by terraform to fetch the git:: sourced module
+          apt-get install -y --no-install-recommends curl unzip ca-certificates git
           curl -fsSL "https://releases.hashicorp.com/terraform/1.13.4/terraform_1.13.4_linux_amd64.zip" -o /tmp/terraform.zip
           unzip -o /tmp/terraform.zip -d /usr/local/bin
           terraform version
