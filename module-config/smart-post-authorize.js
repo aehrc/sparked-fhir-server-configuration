@@ -17,6 +17,13 @@
  * Config key: post_authorize_script.file (SMART Outbound Security module)
  * Docs: https://smilecdr.com/docs/smart/user_profile.html
  */
+
+// Fallback audience when neither getAudience() nor the whitelisted "aud"
+// request parameter yields a value (some standalone launches). This base is
+// node-specific: scripts/sync_smart_auth.py rewrites the node segment when
+// pushing this script to each node, so keep the URL on a single line.
+var DEFAULT_AUDIENCE_BASE = "https://smile.sparked-fhir.com/aucore/fhir/DEFAULT";
+
 function onTokenGenerating(theUserSession, theAuthorizationRequestDetails) {
     // Client Credentials (backend service) flows have no user session: there is
     // no user, launch context, or fhirUser to inject. Skip all user-oriented
@@ -40,7 +47,7 @@ function onTokenGenerating(theUserSession, theAuthorizationRequestDetails) {
         }
     }
     if (!audience) {
-        audience = "https://smile.sparked-fhir.com/aucore/fhir/DEFAULT";
+        audience = DEFAULT_AUDIENCE_BASE;
     }
     // Normalise trailing slashes: URLs are built as audience + "/Practitioner/..."
     audience = ("" + audience).replace(/\/+$/, "");
