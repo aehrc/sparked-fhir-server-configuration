@@ -179,7 +179,7 @@ cdrNodes:
           package_registry.resource_status_validation_filter.enabled: false
           package_registry.load_specs_asynchronously: false
           package_registry.startup_installation_specs: "classpath:/config_seeding/package-au-base-6.1.1-draft.json classpath:/config_seeding/package-au-erequesting-1.0.0.json classpath:/config_seeding/package-aucore-2.1.0-draft.json classpath:/config_seeding/package-international-patient-summary-2.0.0.json"
-          resource_types.supported.whitelist: "Medication,AllergyIntolerance,MedicationRequest,Immunization,HealthcareService, Specimen,MedicationStatement,CommunicationRequest,Task,Consent,ServiceRequest,Device,Composition,StructureDefinition,SearchParameter,CodeSystem,ValueSet,ServiceRequest,Task,Organization,Location,Patient,Practitioner,PractitionerRole,Encounter,Coverage,Condition,DocumentReference,Observation,Procedure,RelatedPerson"
+          resource_types.supported.whitelist: "Medication,AllergyIntolerance,MedicationRequest,Immunization,HealthcareService, Specimen,MedicationStatement,CommunicationRequest,Task,Consent,ServiceRequest,Device,Composition,StructureDefinition,SearchParameter,CodeSystem,ValueSet,ServiceRequest,Task,Organization,Location,Patient,Practitioner,PractitionerRole,Encounter,Coverage,Condition,DocumentReference,Observation,Procedure,RelatedPerson,Communication,Provenance,Questionnaire,QuestionnaireResponse"
           metadata.resource_counts.enabled: false
           validator.local_reference_policy: "NOT_VALIDATED"
           validator.unknown_codesystem_validation_policy: "GENERATE_WARNING"
