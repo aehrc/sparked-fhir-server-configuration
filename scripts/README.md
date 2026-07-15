@@ -169,6 +169,35 @@ See [SMART App Registration Guide](../docs/SMART-APP-REGISTRATION.md) for the fu
 
 ---
 
+## SMART Auth Config Reconciliation
+
+Node module config is database-backed, so console edits drift from the repo.
+`sync_smart_auth.py` diffs the canonical `smart_auth` config (including
+`module-config/smart-post-authorize.js`) against the live Admin JSON API and
+applies the differences. See [SMART Auth Configuration](../docs/smart-auth-config.md)
+for the full drift model.
+
+```bash
+export CSIRO_FHIR_AUTH_64="your_base64_credentials"
+
+# Show drift on all supported nodes (dry-run is the default)
+python scripts/sync_smart_auth.py
+
+# Apply to all supported nodes (restarts the smart_auth module)
+python scripts/sync_smart_auth.py --apply
+
+# Single node
+python scripts/sync_smart_auth.py --apply --node ereq
+
+# Also archive the unused appSphere (app_gallery) module
+python scripts/sync_smart_auth.py --archive-app-gallery --apply
+```
+
+Applying restarts `smart_auth` on the target node, briefly interrupting token
+issuance and OAuth logins there. Run it outside connectathon hours.
+
+---
+
 ## Package Synchronization
 
 ### Files

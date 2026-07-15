@@ -79,21 +79,19 @@ cdrNodes:
         enabled: true
         config:
           context_path: "aucore/fhirweb"
+      # NOTE: node config is database-backed (config.database: true), so this
+      # block only seeds a first boot. The live smart_auth config is reconciled
+      # from the repo with scripts/sync_smart_auth.py; run its --dry-run to see
+      # drift. smart_capabilities_list is multi-line and is managed solely by
+      # the sync script (properties rendering of multi-line values is unsafe).
       smart_auth:
         name: security_out_smart
         config:
           context_path: "aucore/smartauth"
           auth_request_detail.whitelist: "aud,grant_type,scope,launch"
-          # openid.signing.keystore_id: default-keystore # do later
+          openid.signing.keystore_id: smilecdr-token-signing
           post_authorize_script.file: "classpath:config_seeding/smart-post-authorize.js"
-          cors.enabled: true
-      security_in_smart:
-        name: security_in_smart
-        type: SECURITY_IN_SMART
-        enabled: true
-        config:
-          seed.users.file: "classpath:/config_seeding/smart-users.json"
-          max_failed_logins_until_lock: 20 # Increased from 5 to 20
+          cors.enable: true
   hl7au:
     name: hl7au
     enabled: true
@@ -150,10 +148,15 @@ cdrNodes:
       admin_json:
         config:
           context_path: "hl7au/admin-json"
+      # Live hl7au drift (2026-07-15): the running module sits at bare
+      # /smartauth with issuer https://smile.sparked-fhir.com/smartauth and the
+      # default-keystore, predating the per-node layout. This block records the
+      # intended state; hl7au is deliberately excluded from sync_smart_auth.py
+      # until the context-path/ingress move is planned.
       smart_auth:
         config:
           context_path: "hl7au/smartauth"
-          cors.enabled: true
+          cors.enable: true
       fhirweb_endpoint:
         enabled: true
         config:
@@ -252,10 +255,16 @@ cdrNodes:
       admin_json:
         config:
           context_path: "ereq/admin-json"
+      # See the aucore smart_auth note: database-backed config, reconciled by
+      # scripts/sync_smart_auth.py. The sync script rewrites the fallback
+      # audience in smart-post-authorize.js to this node's FHIR base.
       smart_auth:
         config:
           context_path: "ereq/smartauth"
-          cors.enabled: true
+          auth_request_detail.whitelist: "aud,grant_type,scope,launch"
+          openid.signing.keystore_id: smilecdr-token-signing
+          post_authorize_script.file: "classpath:config_seeding/smart-post-authorize.js"
+          cors.enable: true
       fhirweb_endpoint:
         enabled: true
         config:
