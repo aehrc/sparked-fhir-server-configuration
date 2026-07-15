@@ -66,6 +66,9 @@ jobs:
       run:
         working-directory: terraform
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
       - name: Install Terraform
         run: |
           apt-get update
@@ -73,9 +76,6 @@ jobs:
           curl -fsSL "https://releases.hashicorp.com/terraform/1.13.4/terraform_1.13.4_linux_amd64.zip" -o /tmp/terraform.zip
           unzip -o /tmp/terraform.zip -d /usr/local/bin
           terraform version
-
-      - name: Checkout code
-        uses: actions/checkout@v4
 
       - name: Terraform Format Check
         run: terraform fmt -check -recursive
