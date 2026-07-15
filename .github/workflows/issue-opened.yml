@@ -28,10 +28,11 @@ jobs:
   welcome:
     name: Welcome & Auto-label
     # Runs for every opened issue, including from the public. It uses only the
-    # default GITHUB_TOKEN (no secrets) and touches only the GitHub API, so it runs
-    # on a GitHub-hosted runner rather than the self-hosted arc-runner-set: never
-    # let arbitrary public issue activity schedule work on self-hosted runners.
-    runs-on: ubuntu-latest
+    # default GITHUB_TOKEN (no secrets) and executes no untrusted code, just GitHub
+    # API calls via github-script, so the self-hosted runner is acceptable here.
+    # Falls back to a GitHub-hosted runner (free on public repos) when CI_RUNNER
+    # is unset.
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     if: github.event_name == 'issues' && github.event.action == 'opened'
     steps:
       - name: Auto-label priority and post welcome
