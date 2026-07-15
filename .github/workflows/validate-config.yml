@@ -57,17 +57,25 @@ jobs:
     # Fork-safe: no backend, no credentials, no PR comment (fork tokens are
     # read-only). Contributors see the result via the check status.
     runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || vars.CI_RUNNER || 'ubuntu-latest' }}
+    # Run in a Debian container that we install Terraform into, rather than the
+    # setup-terraform action: this works identically on GitHub-hosted runners and
+    # on the self-hosted arc-runner-set (whose base image has no Terraform binary).
+    container:
+      image: debian:bookworm-slim
     defaults:
       run:
         working-directory: terraform
     steps:
+      - name: Install Terraform
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends curl unzip ca-certificates
+          curl -fsSL "https://releases.hashicorp.com/terraform/1.13.4/terraform_1.13.4_linux_amd64.zip" -o /tmp/terraform.zip
+          unzip -o /tmp/terraform.zip -d /usr/local/bin
+          terraform version
+
       - name: Checkout code
         uses: actions/checkout@v4
-
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: "1.13.4"
 
       - name: Terraform Format Check
         run: terraform fmt -check -recursive
