@@ -12,10 +12,10 @@ Install or run via Docker:
 
 ```bash
 # Pull the Docker image
-docker pull 471112546300.dkr.ecr.ap-southeast-2.amazonaws.com/sparked-test-data-loader:latest
+docker pull <AWS_ACCOUNT_ID>.dkr.ecr.ap-southeast-2.amazonaws.com/sparked-test-data-loader:latest
 
 # Or alias for convenience
-alias fhir-data='docker run --rm -v "$(pwd):/data" 471112546300.dkr.ecr.ap-southeast-2.amazonaws.com/sparked-test-data-loader:latest'
+alias fhir-data='docker run --rm -v "$(pwd):/data" <AWS_ACCOUNT_ID>.dkr.ecr.ap-southeast-2.amazonaws.com/sparked-test-data-loader:latest'
 ```
 
 ### Common Use Cases

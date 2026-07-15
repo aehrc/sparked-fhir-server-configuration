@@ -1,5 +1,20 @@
-name: 'Smile Configuration Deployment'
+name: 'Smile Configuration Deployment (DEPRECATED)'
 
+# DEPRECATED / DISABLED (2026-07-16): terraform plan/apply no longer runs in CI.
+#
+# This repository is public. Running `terraform plan`/`apply` against the live
+# prod infrastructure in CI publishes plan output (secret ARNs, resource IDs,
+# account/topology detail) to PR comments, job summaries, artifacts, and run
+# logs, all world-readable on a public repo. Terraform is therefore applied
+# LOCALLY only, using the gitignored terraform/backend.hcl and
+# terraform/terraform.tfvars. See terraform/REMEDIATION.md for the procedure.
+#
+# This file is kept (not deleted) as a reference for anyone reproducing the
+# setup in their own account, and so it can be re-enabled later behind a
+# private repo or a sanitized, non-leaking plan step. All triggers below are
+# neutralized and both jobs are guarded with `if: ${{ false }}` so nothing runs.
+#
+# ---- original design notes (retained for reference) ----
 # Plan on PRs and on push to main; apply only on a manual, confirmed dispatch.
 #
 # Apply gate: this repo lives in a free-plan org, which does not support branch
@@ -22,21 +37,23 @@ name: 'Smile Configuration Deployment'
 # three no-default variables are injected from repo variables (none are secrets:
 # a bucket name, a Secrets Manager ARN, an IAM role name). AWS auth is OIDC.
 
+# Auto-triggers are disabled: terraform is applied locally, not in CI (see banner
+# above). Only manual dispatch remains, and the jobs themselves are inert.
+#  pull_request:
+#    paths:
+#      - 'module-config/**'
+#      - 'terraform/**'
+#  push:
+#    branches:
+#      - main
+#    paths:
+#      - 'module-config/**'
+#      - 'terraform/**'
 on:
-  pull_request:
-    paths:
-      - 'module-config/**'
-      - 'terraform/**'
-  push:
-    branches:
-      - main
-    paths:
-      - 'module-config/**'
-      - 'terraform/**'
   workflow_dispatch:
     inputs:
       confirm_apply:
-        description: 'Type APPLY to run terraform apply after the plan. Leave blank for a plan-only dry run.'
+        description: 'DEPRECATED: this workflow is disabled; terraform is applied locally. See terraform/REMEDIATION.md.'
         required: false
         default: ''
         type: string
@@ -49,8 +66,10 @@ permissions:
 jobs:
   terraform-plan:
     name: 'Terraform Plan'
-    # Only run on PRs from this repo, not forks (protects OIDC + any self-hosted runner).
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    # DISABLED: terraform runs locally, not in CI. This guard makes the job inert
+    # even if manually dispatched. Remove it (and restore the triggers above) only
+    # if plan output is moved off public surfaces.
+    if: ${{ false }}
     # Defaults to GitHub-hosted; set repo var CI_RUNNER to use a self-hosted runner.
     runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     outputs:
@@ -172,7 +191,9 @@ jobs:
     # A plain dispatch (blank confirm_apply) or a push/PR is plan-only. There is
     # no environment reviewer gate: the free org plan rejects environment
     # protection rules on private repos (see the header comment).
-    if: github.event_name == 'workflow_dispatch' && inputs.confirm_apply == 'APPLY' && needs.terraform-plan.outputs.tfplanExitCode == '2'
+    # DISABLED: terraform runs locally, not in CI. `needs: terraform-plan` (itself
+    # inert) plus this always-false guard keeps apply from ever running.
+    if: ${{ false }}
     runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     defaults:
       run:

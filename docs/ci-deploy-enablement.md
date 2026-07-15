@@ -18,7 +18,7 @@ here changes the pipeline yet.
 
 Good properties already in place:
 
-- AWS auth is OIDC (`vars.AWS_OIDC_ROLE_ARN = arn:aws:iam::471112546300:role/github-actions-eks-role`),
+- AWS auth is OIDC (`vars.AWS_OIDC_ROLE_ARN = arn:aws:iam::<AWS_ACCOUNT_ID>:role/github-actions-eks-role`),
   no static credentials.
 - Apply consumes the plan job's `main.tfplan` artifact, so there is no plan/apply drift.
 - Apply is intended to be gated by a GitHub Environment (`infra-apply`, "required reviewers").

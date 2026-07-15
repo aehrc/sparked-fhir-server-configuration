@@ -34,7 +34,7 @@ After bumping k8s to v3 to init, `plan` = **17 add / 9 change / 16 destroy**, pl
 
 ## Environment / prerequisites
 
-- terraform 1.15.6; AWS SSO admin creds, account `471112546300`, region `ap-southeast-2`.
+- terraform 1.15.6; AWS SSO admin creds, account `<AWS_ACCOUNT_ID>`, region `ap-southeast-2`.
 - `terraform/backend.hcl` and `terraform/terraform.tfvars` are present (real, gitignored). Backend state key: `infra/smile-app/prod.tfstate`.
 - Providers target the EKS cluster via module data sources (`module.smile_cdr_dependencies.eks_cluster.*`), so terraform ignores the local kubectl context. For direct `kubectl`, use `--context sparked-smile` (the repo hook's context warning is a false alarm for terraform).
 - The live serving ingress is `smile/smilecdr-scdr` (class `nginx`, host `smile.sparked-fhir.com`). The 16 MiB fix is currently a manual out-of-band annotation on it; it is also merged into `module-config/values-common.yaml` (PR #59).
