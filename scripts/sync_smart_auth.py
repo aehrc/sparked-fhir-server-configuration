@@ -63,6 +63,7 @@ import argparse
 import difflib
 import os
 import sys
+import time
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -189,9 +190,41 @@ class ModuleConfigClient:
         resp = self.session.post(self._module_url(module_id, "/stop"), timeout=60)
         resp.raise_for_status()
 
-    def archive_module(self, module_id: str) -> None:
-        resp = self.session.delete(self._module_url(module_id, "/archive"), timeout=60)
+    def archive_module(self, module_id: str, attempts: int = 12, delay_seconds: int = 10) -> None:
+        """Archive a module, waiting out the asynchronous stop.
+
+        Stopping a module only requests the stop (processes report
+        STOP_REQUESTED), and archiving a module whose processes have not
+        finished stopping fails with HTTP 412. Poll until the archive is
+        accepted, then confirm the module has actually left the node's module
+        list; a 2xx from the archive endpoint alone is not proof.
+        """
+        for attempt in range(1, attempts + 1):
+            resp = self.session.delete(self._module_url(module_id, "/archive"), timeout=60)
+            if resp.status_code == 412:
+                if attempt == attempts:
+                    raise RuntimeError(
+                        f"module {module_id} still running after "
+                        f"{attempts * delay_seconds}s; archive refused (HTTP 412)")
+                time.sleep(delay_seconds)
+                continue
+            resp.raise_for_status()
+            break
+
+        if self.module_in_node_list(module_id):
+            raise RuntimeError(
+                f"archive of {module_id} returned success but the module is "
+                f"still in the node's module list")
+
+    def module_in_node_list(self, module_id: str) -> bool:
+        """Check the node's module list (GET on the single module can return
+        residual metadata for archived modules, so it is not authoritative)."""
+        resp = self.session.get(f"{self.admin_url}/module-config", timeout=30)
         resp.raise_for_status()
+        for node in resp.json().get("nodes", []):
+            if node.get("nodeId") == self.node:
+                return any(m.get("moduleId") == module_id for m in node.get("modules", []))
+        return False
 
 
 # =============================================================================
@@ -251,8 +284,7 @@ def reconcile_node(client: ModuleConfigClient, node: str, apply: bool, restart: 
 def archive_app_gallery(client: ModuleConfigClient, node: str, apply: bool) -> bool:
     """Stop and archive the appSphere module if present. Returns True on success/no-op."""
     print(f"\n=== {node}/{APP_GALLERY_MODULE_ID} ===")
-    module = client.get_module(APP_GALLERY_MODULE_ID)
-    if module is None:
+    if not client.module_in_node_list(APP_GALLERY_MODULE_ID):
         print("  Not present, nothing to do.")
         return True
 
@@ -262,7 +294,7 @@ def archive_app_gallery(client: ModuleConfigClient, node: str, apply: bool) -> b
 
     client.stop_module(APP_GALLERY_MODULE_ID)
     client.archive_module(APP_GALLERY_MODULE_ID)
-    print("  [OK] Stopped and archived.")
+    print("  [OK] Stopped and archived (confirmed gone from the module list).")
     return True
 
 
