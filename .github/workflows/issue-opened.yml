@@ -27,7 +27,11 @@ jobs:
   # ============================================================================
   welcome:
     name: Welcome & Auto-label
-    runs-on: arc-runner-set
+    # Runs for every opened issue, including from the public. It uses only the
+    # default GITHUB_TOKEN (no secrets) and touches only the GitHub API, so it runs
+    # on a GitHub-hosted runner rather than the self-hosted arc-runner-set: never
+    # let arbitrary public issue activity schedule work on self-hosted runners.
+    runs-on: ubuntu-latest
     if: github.event_name == 'issues' && github.event.action == 'opened'
     steps:
       - name: Auto-label priority and post welcome
@@ -121,6 +125,11 @@ jobs:
     runs-on: arc-runner-set
     container:
       image: python:3.12-slim
+    # TRUST BOUNDARY (public repo): this job uses the CSIRO_FHIR_AUTH_64 secret to
+    # run a live dry-run against the server, so it must never be triggerable by an
+    # arbitrary member of the public. The label gate below is that boundary: the
+    # 'ig-release' label can only be applied by a user with write access (a
+    # maintainer triaging the issue). An unlabeled community issue skips this job.
     if: |
       (github.event_name == 'issues' && contains(github.event.issue.labels.*.name, 'ig-release')) ||
       (github.event_name == 'workflow_dispatch' && inputs.job_type == 'validate-ig')
@@ -400,6 +409,9 @@ jobs:
     runs-on: arc-runner-set
     container:
       image: python:3.12-slim
+    # TRUST BOUNDARY (public repo): uses CSIRO_FHIR_AUTH_64. Same as validate-ig,
+    # the 'tx-content' label (settable only with write access) is the gate that
+    # keeps arbitrary public issues from triggering a credentialed dry-run.
     if: |
       (github.event_name == 'issues' && contains(github.event.issue.labels.*.name, 'tx-content')) ||
       (github.event_name == 'workflow_dispatch' && inputs.job_type == 'validate-tx')
