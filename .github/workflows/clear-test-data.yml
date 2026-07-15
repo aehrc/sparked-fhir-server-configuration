@@ -133,7 +133,7 @@ jobs:
     # ("no basic auth credentials"). Authenticate with OIDC first and run the
     # loader with `docker run` instead.
     env:
-      LOADER_IMAGE: 471112546300.dkr.ecr.ap-southeast-2.amazonaws.com/sparked-test-data-loader:latest
+      LOADER_IMAGE: ${{ vars.AWS_ACCOUNT_ID }}.dkr.ecr.ap-southeast-2.amazonaws.com/sparked-test-data-loader:latest
 
     steps:
       - name: Configure aws credentials

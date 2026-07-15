@@ -4,20 +4,25 @@ on:
   pull_request:
     paths:
       - 'module-config/**'
-      # - 'terraform/**'
+      - 'terraform/**'
   push:
     branches:
       - main
     paths:
       - 'module-config/**'
-      # - 'terraform/**'
+      - 'terraform/**'
 
+# These jobs use NO secrets, so they are safe to run on PRs from forks (community
+# contributions). Runner selection enforces one invariant: untrusted fork code
+# must never execute on the self-hosted arc-runner-set. So a fork PR always runs
+# on a GitHub-hosted runner (free for public repos), while same-repo PRs and
+# pushes use vars.CI_RUNNER (the self-hosted runner) if set. Anything needing
+# secrets or live-server/AWS access is gated elsewhere behind maintainer-triggered
+# workflows, never on fork PR events.
 jobs:
   validate-yaml:
-    # Only run on PRs from the same repo, not forks
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     name: Validate YAML Configuration
-    runs-on: arc-runner-set
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || vars.CI_RUNNER || 'ubuntu-latest' }}
     container:
       image: python:3.12-slim
     steps:
@@ -47,43 +52,45 @@ jobs:
             fi
           done
 
-  # validate-terraform:
-  #   name: Validate Terraform
-  #   runs-on: arc-runner-set
-  #   steps:
-  #     - name: Checkout code
-  #       uses: actions/checkout@v4
+  validate-terraform:
+    name: Validate Terraform
+    # Fork-safe: no backend, no credentials, no PR comment (fork tokens are
+    # read-only). Contributors see the result via the check status.
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || vars.CI_RUNNER || 'ubuntu-latest' }}
+    # Run in a Debian container that we install Terraform into, rather than the
+    # setup-terraform action: this works identically on GitHub-hosted runners and
+    # on the self-hosted arc-runner-set (whose base image has no Terraform binary).
+    container:
+      image: debian:bookworm-slim
+    defaults:
+      run:
+        working-directory: terraform
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-  #     - name: Setup Terraform
-  #       uses: hashicorp/setup-terraform@v3
-  #       with:
-  #         terraform_version: "1.13.4"
+      - name: Install Terraform
+        run: |
+          apt-get update
+          # git is required by terraform to fetch the git:: sourced module
+          apt-get install -y --no-install-recommends curl unzip ca-certificates git
+          curl -fsSL "https://releases.hashicorp.com/terraform/1.15.6/terraform_1.15.6_linux_amd64.zip" -o /tmp/terraform.zip
+          unzip -o /tmp/terraform.zip -d /usr/local/bin
+          terraform version
 
-  #     - name: Terraform Format Check
-  #       run: terraform fmt -check -recursive
-  #       continue-on-error: true
+      - name: Terraform Format Check
+        run: terraform fmt -check -recursive
+        continue-on-error: true
 
-  #     - name: Terraform Init
-  #       run: terraform init -backend=false
+      - name: Terraform Init (no backend)
+        run: terraform init -backend=false
 
-  #     - name: Terraform Validate
-  #       run: terraform validate
-
-  #     - name: Comment on PR
-  #       if: github.event_name == 'pull_request'
-  #       uses: actions/github-script@v7
-  #       with:
-  #         script: |
-  #           github.rest.issues.createComment({
-  #             issue_number: context.issue.number,
-  #             owner: context.repo.owner,
-  #             repo: context.repo.repo,
-  #             body: '✅ Terraform validation passed! Configuration syntax is valid.'
-  #           })
+      - name: Terraform Validate
+        run: terraform validate
 
   validate-packages:
     name: Validate FHIR Packages
-    runs-on: arc-runner-set
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || vars.CI_RUNNER || 'ubuntu-latest' }}
     container:
       image: python:3.12-slim
     steps:
@@ -124,7 +131,7 @@ jobs:
 
   security-scan:
     name: Security Scan
-    runs-on: arc-runner-set
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || vars.CI_RUNNER || 'ubuntu-latest' }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4

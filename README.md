@@ -223,6 +223,27 @@ yamllint module-config/*.yaml
 find module-config/packages -name "*.json" -exec jq empty {} \;
 ```
 
+### Reproducing this setup in your own AWS account
+
+This repository is intended to be a reusable pattern for running SmileCDR on
+AWS (EKS + Aurora) with issue-driven configuration automation. Everything that
+ties it to the Sparked program's infrastructure is externalized, so you can
+stand up your own instance:
+
+- All AWS-specific values are variables: `s3_bucket_name`, `cdr_regcred_secret_arn`,
+  `smilecdr_iam_role_name` (see `terraform/terraform.tfvars.example`), the state
+  backend bucket (`terraform/backend.hcl.example`), and `AWS_ACCOUNT_ID` /
+  `AWS_OIDC_ROLE_ARN` as GitHub repository variables. None are committed.
+- Fork the repo, supply your own values, point the Terraform backend at your own
+  state bucket, and `terraform apply` from your workstation against your own account.
+- Credentials live in AWS Secrets Manager and GitHub Actions secrets in your own
+  org, not in this repository.
+
+You cannot deploy to the Sparked-hosted infrastructure from a fork: the OIDC role
+trust policy is scoped to the upstream repository, the state bucket is private, and
+no credentials are published here. Treat the concrete hostnames, ARNs, and account
+references in the docs as examples to replace with your own.
+
 ### Testing Workflows Locally
 
 ```bash
@@ -331,8 +352,17 @@ The following GitHub configuration is required for CI/CD workflows:
 
 | Variable | Description |
 |----------|-------------|
-| `AWS_OIDC_ROLE_ARN` | ARN of the IAM role for GitHub Actions AWS OIDC federation |
+| `AWS_OIDC_ROLE_ARN` | ARN of the IAM role for GitHub Actions AWS OIDC federation. Its trust policy must be scoped to this repository (and a specific ref/environment) so no fork or pull request can assume it. |
+| `AWS_ACCOUNT_ID` | AWS account ID, used to build the test-data loader ECR image reference. Parameterized so the account ID is not hardcoded in the public repo. |
 | `CATALOGUE_PROJECT_URL` | (optional) URL of the service-catalogue GitHub Project; set to enable auto-adding new issues to the board |
+
+> **Terraform is applied locally, not in CI.** The `Smile Configuration Deployment`
+> workflow (`smile-application.yml`) is intentionally disabled: running
+> `terraform plan`/`apply` against live infrastructure in a public repo would publish
+> plan output (secret ARNs, resource IDs, topology) to PR comments, job summaries,
+> artifacts, and run logs. Apply from a workstation with the gitignored
+> `terraform/backend.hcl` and `terraform/terraform.tfvars`. See
+> [`terraform/REMEDIATION.md`](terraform/REMEDIATION.md).
 
 ### Repository Secrets (Settings > Secrets and variables > Actions > Secrets)
 
