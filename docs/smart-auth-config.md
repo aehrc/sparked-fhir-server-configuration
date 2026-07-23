@@ -100,6 +100,48 @@ per node in `simplified-multinode.yaml` (so the chart creates the Service and
 ingress route), point each instance at its own node's URLs, and fill in the
 notification and helpdesk fields.
 
+## Authenticated DEFAULT reads
+
+Under [ADR 0001](adr/0001-partition-based-multitenancy.md), the shared `DEFAULT`
+partition is readable by everyone (anonymous **and** authenticated tenant
+sessions) and writable only by team curator accounts. Two pieces together
+deliver that, because Smile CDR's `FHIR_ACCESS_PARTITION_NAME` gates read and
+write as one and has no partition-scoped read-only variant:
+
+1. **Grant tenant principals `DEFAULT` alongside their own tenant.** Seed SMART
+   users and clients with `FHIR_ACCESS_PARTITION_NAME: <TENANT>,DEFAULT` rather
+   than `<TENANT>` alone. With `manage_smart_users.py` pass a comma-separated
+   `--tenant`:
+
+   ```bash
+   python scripts/manage_smart_users.py create \
+     --node ereq --tenant "PLATYPUS,DEFAULT" \
+     --username platypus-demo-patient --permissions read-write \
+     --patient-id platypus-pat-taylor
+   ```
+
+   This is what lets an authenticated session read the curated shared data and
+   the non-partitionable conformance/terminology resources (`StructureDefinition`,
+   `ValueSet`, `CodeSystem`, `SearchParameter`, `Questionnaire`, IG packages) that
+   HAPI FHIR always stores in `DEFAULT`. Without it, an authenticated
+   tenant-scoped session gets a hard `403 "User does not have access to
+   <Type> resources on the requested partition"` for those types — which breaks
+   any authenticated write that references one (e.g. posting a
+   `QuestionnaireResponse` whose `questionnaire` the server resolves against
+   `Questionnaire`).
+
+2. **Reject `DEFAULT` writes with the consent service.** Granting `DEFAULT`
+   partition access also permits writes to it, which ADR 0001 forbids for
+   participants. The consent service
+   [`module-config/consent-default-readonly.js`](../module-config/consent-default-readonly.js)
+   rejects write verbs (and transaction write entries) whose request partition is
+   `DEFAULT`, exempting curator accounts. Wire it per node via
+   `consent_service.script.file` on the persistence module, and add a
+   DEFAULT-write-rejection + curator-exemption case to the Phase 0 matrix before
+   deploying. Until it is deployed, treat a `<TENANT>,DEFAULT` grant as also
+   conferring `DEFAULT` write (the current interim state for `platypus-demo-patient`
+   on `ereq`).
+
 ## Known follow-ups
 
 - **Asymmetric client authentication** (`private_key_jwt`, SMART capability

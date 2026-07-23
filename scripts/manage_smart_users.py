@@ -110,6 +110,13 @@ def build_authorities(permission_level: str = "read-only",
                 multiple). Partition access gates both reads and writes, so a
                 read-write user scoped to a vendor tenant cannot touch DEFAULT
                 at all (see docs/adr/0001-partition-based-multitenancy.md).
+                A user whose authenticated app must read the shared curated data
+                or conformance resources (StructureDefinition/ValueSet/CodeSystem/
+                SearchParameter/Questionnaire, all non-partitionable and resident
+                in DEFAULT) needs DEFAULT in the list, e.g. "PLATYPUS,DEFAULT";
+                the read-only-DEFAULT guarantee is then upheld by the consent
+                service (docs/smart-auth-config.md#authenticated-default-reads),
+                not by withholding partition access.
     """
     authorities = [
         {"permission": "ROLE_FHIR_CLIENT"},
