@@ -1,5 +1,11 @@
 # CI deploy enablement, scope of work
 
+> **SUPERSEDED (2026-07-16).** This document analysed moving terraform apply into CI. That
+> direction was reversed when the repository went public: running terraform against live
+> infrastructure in a public repo leaks plan output. Terraform is now applied locally only,
+> and `smile-application.yml` is disabled. This file is retained for historical context.
+> For the current deploy process see [`terraform-local-deploy.md`](terraform-local-deploy.md).
+
 Goal: get the `Smile Configuration Deployment` workflow (`.github/workflows/smile-application.yml`)
 to reliably plan on PRs and apply on merge to `main`, replacing local `terraform apply`.
 

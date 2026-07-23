@@ -72,6 +72,7 @@ Test data management is powered by the [`sparked-test-data-loader`](https://gith
 | **[Workflow Guide](docs/WORKFLOWS.md)** | Complete guide to all automated workflows | Everyone |
 | **[SMART App Registration](docs/SMART-APP-REGISTRATION.md)** | Register SMART on FHIR / OIDC clients | Developers/Participants |
 | **[Scripts README](scripts/README.md)** | How to use Python scripts locally | Developers/Admins |
+| **[Terraform Local Deploy](docs/terraform-local-deploy.md)** | Plan/apply the infrastructure from a workstation (terraform is local-only) | Admins |
 
 ## Architecture
 
@@ -207,7 +208,7 @@ python scripts/update_node_packages.py \
   --package package-example.json \
   --dry-run
 
-# Set up Terraform
+# Set up Terraform (see docs/terraform-local-deploy.md for the full deploy runbook)
 cd terraform
 cp terraform.tfvars.example terraform.tfvars   # Edit with your values
 cp backend.hcl.example backend.hcl             # Edit with your S3 bucket
@@ -222,6 +223,11 @@ cd ..
 yamllint module-config/*.yaml
 find module-config/packages -name "*.json" -exec jq empty {} \;
 ```
+
+> Terraform is applied **locally, not in CI**. For the full deploy procedure
+> (prerequisites, safety snapshot, plan review, apply, verification, rollback) see
+> [`docs/terraform-local-deploy.md`](docs/terraform-local-deploy.md). For recovering from
+> module/provider drift, see [`terraform/REMEDIATION.md`](terraform/REMEDIATION.md).
 
 ### Reproducing this setup in your own AWS account
 
@@ -361,8 +367,8 @@ The following GitHub configuration is required for CI/CD workflows:
 > `terraform plan`/`apply` against live infrastructure in a public repo would publish
 > plan output (secret ARNs, resource IDs, topology) to PR comments, job summaries,
 > artifacts, and run logs. Apply from a workstation with the gitignored
-> `terraform/backend.hcl` and `terraform/terraform.tfvars`. See
-> [`terraform/REMEDIATION.md`](terraform/REMEDIATION.md).
+> `terraform/backend.hcl` and `terraform/terraform.tfvars`, following the deploy runbook
+> [`docs/terraform-local-deploy.md`](docs/terraform-local-deploy.md).
 
 ### Repository Secrets (Settings > Secrets and variables > Actions > Secrets)
 
