@@ -93,3 +93,34 @@ tolerations:
     operator: Equal
     value: prod
     effect: NoSchedule
+
+# ---------------------------------------------------------------------------
+# Startup probe budget, raised for cold starts.
+# ---------------------------------------------------------------------------
+# The chart default is failureThreshold 30 x periodSeconds 10 = 300s, and the
+# probe is an exec grepping smile.log for "Smile, we're up and running! :)".
+# Five minutes is ample for a warm start and NOT enough for a cold one.
+#
+# Observed on this deployment's first boot: the container ran 11:44:40 to
+# 11:50:33 (~6 minutes) and was SIGKILLed (exit 137) by the startup probe, then
+# restarted. A cold start against an empty database has to do the full schema
+# migration AND install the seeded packages (AU Base, AU Core, IPS, AUPS) with
+# their ValueSet expansion, none of which the live server pays because that work
+# is already in its database.
+#
+# The chart anticipates this. From _scdr-misc-helpers.tpl:
+#   "Startup Probe may need to be configurable in cases where a Smile CDR
+#    configuration takes longer than the default settings of 5 mins."
+#
+# 120 x 10s = 1200s (20 min), comfortably inside the 1800s helm_chart_timeout in
+# terraform/main.tf. Raising this cannot slow a healthy boot: it only changes how
+# long kubelet waits before giving up.
+#
+# NOTE this is a latent problem on the dedicated-cluster deployment too, which
+# carries the same 300s budget and would hit it on any cold start (a restore, or
+# a rebuild). It is set here rather than in values-common.yaml only to keep the
+# live deployment's pod spec untouched during the migration. Promote it to
+# values-common.yaml once the migration is done.
+startupProbe:
+  failureThreshold: 120
+  periodSeconds: 10
