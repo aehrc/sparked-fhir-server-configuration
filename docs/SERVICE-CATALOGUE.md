@@ -255,14 +255,18 @@ dev environments from HL7-hosted reference environments.
 
 | Environment | Host | Scrutiny |
 |-------------|------|----------|
-| `aucore`, `ereq` nodes | `smile.sparked-fhir.com` (CSIRO) | Normal workflow |
+| `aucore` node | `smile.sparked-fhir.com` (CSIRO) | Normal workflow |
 | `tx.dev` terminology server | `synd.ontoserver.csiro.au` (CSIRO) | Normal workflow |
 | `tx.hl7` terminology server | `synd.tx.hl7.org.au` (HL7) | Elevated: `needs:hl7-approval` + Brett Esler sign-off |
 | `fhir.hl7.org.au` FHIR reference server | `fhir.hl7.org.au` (HL7) | Elevated: `needs:hl7-approval` + Brett Esler sign-off; not an automation target today |
 
-The `aucore` and `ereq` nodes make up the Sparked Dev FHIR Server on `smile.sparked-fhir.com`.
-It is not the production HL7 AU reference server at `fhir.hl7.org.au`, which is a separate
-system.
+The `aucore` node is the Sparked Dev FHIR Server on `smile.sparked-fhir.com`. It is not the
+production HL7 AU reference server at `fhir.hl7.org.au`, which is a separate system.
+
+The `ereq` and `hl7au` nodes were decommissioned on 2026-08-02 (issue #85): AU eRequesting is
+no longer run under Sparked and the agreed hosting period ran to end July 2026. Requests
+naming those nodes can no longer be actioned. The AU eRequesting IG package
+(`hl7.fhir.au.ereq`) is unaffected and is still published by the terminology servers.
 
 For any request that changes an HL7-hosted reference environment, a reviewer adds
 `needs:hl7-approval` and must not move the request to `approved` or `ready-for-automation`

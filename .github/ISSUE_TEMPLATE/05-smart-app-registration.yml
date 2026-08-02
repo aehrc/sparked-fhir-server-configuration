@@ -54,14 +54,13 @@ body:
     attributes:
       label: Target Nodes
       description: |
-        Select which FHIR server node(s) to register the client on. Each node has its own client registry and auth endpoints.
-        The `aucore` and `ereq` nodes are the Sparked Dev FHIR Server (`smile.sparked-fhir.com`), not the HL7 AU reference server at `fhir.hl7.org.au`.
+        Select which FHIR server node to register the client on.
+        The `aucore` node is the Sparked Dev FHIR Server (`smile.sparked-fhir.com`), not the HL7 AU reference server at `fhir.hl7.org.au`.
         - **aucore**: AU Core node of the Sparked Dev FHIR Server (`smile.sparked-fhir.com/aucore`)
-        - **ereq**: eRequesting node of the Sparked Dev FHIR Server (`smile.sparked-fhir.com/ereq`)
+
+        The `ereq` and `hl7au` nodes were decommissioned on 2026-08-02.
       options:
         - label: "aucore"
-          required: false
-        - label: "ereq"
           required: false
 
   - type: textarea
@@ -110,8 +109,8 @@ body:
       description: |
         The tenant (data partition) your client should be scoped to.
         Leave blank for the shared `DEFAULT` tenant, which is **read-only** for participant clients.
-        If you need write access (loading your own test data, eRequesting placer/filler flows),
-        request a vendor or scenario tenant here, e.g. `VENDOR-ACME` or `SCENARIO-EREQ-MEDS`.
+        If you need write access (loading your own test data), request a vendor or scenario
+        tenant here, e.g. `VENDOR-ACME`.
         Your FHIR base URL becomes `https://smile.sparked-fhir.com/<node>/fhir/<TENANT>`.
         If the tenant does not exist yet, we create it as part of this request.
       placeholder: "VENDOR-ACME"

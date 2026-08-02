@@ -12,18 +12,18 @@ Usage:
     # Targeted: delete only resources found in a test data directory
     python clear_test_data.py \\
         --mode targeted \\
-        --fhir-url https://smile.sparked-fhir.com/ereq/fhir/DEFAULT \\
+        --fhir-url https://smile.sparked-fhir.com/aucore/fhir/DEFAULT \\
         --data-dir /path/to/test-data
 
     # Wipe all resources on a node
     python clear_test_data.py \\
         --mode wipe-all \\
-        --fhir-url https://smile.sparked-fhir.com/ereq/fhir/DEFAULT
+        --fhir-url https://smile.sparked-fhir.com/aucore/fhir/DEFAULT
 
     # Dry run (show what would be deleted)
     python clear_test_data.py \\
         --mode targeted \\
-        --fhir-url https://smile.sparked-fhir.com/ereq/fhir/DEFAULT \\
+        --fhir-url https://smile.sparked-fhir.com/aucore/fhir/DEFAULT \\
         --data-dir /path/to/test-data \\
         --dry-run
 

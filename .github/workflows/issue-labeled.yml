@@ -102,8 +102,10 @@ jobs:
               const lines = targetNodesSection.split('\n');
               for (const line of lines) {
                 if (line.includes('[x]') || line.includes('[X]')) {
+                  // aucore is the only node since the ereq/hl7au decommission
+                  // (2026-08-02). Issues opened before then may still tick ereq;
+                  // it is ignored rather than dispatched at a node that is gone.
                   if (line.includes('aucore')) selectedNodes.push('aucore');
-                  if (line.includes('ereq')) selectedNodes.push('ereq');
                 }
               }
             }
@@ -942,11 +944,11 @@ jobs:
             // free-text node mention, then default (aucore).
             let targetNode = '';
             const targetNodeField = section('Target Node').toLowerCase();
-            if (targetNodeField.includes('ereq')) targetNode = 'ereq';
-            else if (targetNodeField.includes('aucore')) targetNode = 'aucore';
+            // aucore only since the ereq/hl7au decommission (2026-08-02).
+            if (targetNodeField.includes('aucore')) targetNode = 'aucore';
             // Legacy free-text "node: <name>" mention, only if the explicit field was absent.
             if (!section('Target Node')) {
-              const nodeMatch = issueBody.match(/(?:target[_ ]?node|node)[:\s]*[`"]?(aucore|ereq)[`"]?/i);
+              const nodeMatch = issueBody.match(/(?:target[_ ]?node|node)[:\s]*[`"]?(aucore)[`"]?/i);
               if (nodeMatch) targetNode = nodeMatch[1].toLowerCase();
             }
             // A custom FHIR URL overrides node selection.
@@ -1067,8 +1069,10 @@ jobs:
               const lines = targetNodesSection.split('\n');
               for (const line of lines) {
                 if (line.includes('[x]') || line.includes('[X]')) {
+                  // aucore is the only node since the ereq/hl7au decommission
+                  // (2026-08-02). Issues opened before then may still tick ereq;
+                  // it is ignored rather than dispatched at a node that is gone.
                   if (line.includes('aucore')) selectedNodes.push('aucore');
-                  if (line.includes('ereq')) selectedNodes.push('ereq');
                 }
               }
             }
