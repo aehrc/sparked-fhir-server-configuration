@@ -4,6 +4,13 @@
 
 data "aws_caller_identity" "current" {}
 
+# The keystores.json seed secret, only when this deployment supplies one. See
+# scripts/generate_token_signing_keystore.py for why it exists.
+data "aws_secretsmanager_secret" "token_signing" {
+  count = var.token_signing_secret_name == null ? 0 : 1
+  name  = var.token_signing_secret_name
+}
+
 data "aws_iam_policy_document" "users_secret_access" {
   statement {
     effect = "Allow"
@@ -11,9 +18,12 @@ data "aws_iam_policy_document" "users_secret_access" {
       "secretsmanager:GetSecretValue",
       "secretsmanager:DescribeSecret"
     ]
-    resources = [
-      data.aws_secretsmanager_secret.smilecdr_users_json.arn
-    ]
+    # The CSI driver reads these as the pod's IRSA identity, so both secrets have
+    # to be listed here or the mount fails and the pod never starts.
+    resources = concat(
+      [data.aws_secretsmanager_secret.smilecdr_users_json.arn],
+      data.aws_secretsmanager_secret.token_signing[*].arn
+    )
   }
 
   # Also need KMS decrypt permission for the secret

@@ -124,3 +124,47 @@ tolerations:
 startupProbe:
   failureThreshold: 120
   periodSeconds: 10
+
+# ---------------------------------------------------------------------------
+# OIDC token-signing keystore.
+# ---------------------------------------------------------------------------
+# smart_auth is configured with openid.signing.keystore_id =
+# smilecdr-token-signing, but nothing in this repo ever created that keystore. On
+# the live server it exists only because it was made by hand in the admin
+# console, i.e. runtime state in the database that git cannot reproduce. A server
+# built from this repo alone dies on boot:
+#
+#   ConfigurationException: No keystore with id smilecdr-token-signing
+#     -> tokenEnhancer fails -> smart_auth FAILED_TO_START
+#     -> fhir_endpoint gets no OIDC provider -> fails
+#     -> fhirweb_endpoint depends on fhir_endpoint -> fails
+#
+# Smile CDR seeds keystores from the file named by the clustermgr property
+# seed_keystores.file, which the chart already defaults to
+# classpath:/config_seeding/keystores.json. The container ships a sample there
+# holding only the demo keystore, so this mounts a real one over it.
+#
+# The document (private JWK inline) lives in AWS Secrets Manager, created by
+# scripts/generate_token_signing_keystore.py, so the key is never in git and
+# never in terraform state. Same Secrets Store CSI mechanism as users.json above.
+#
+# DELIBERATELY NOT IN values-common.yaml. The live server already has a working
+# keystore under this id, and it is NOT established whether seed_keystores
+# overwrites an existing keystore or skips it. If it overwrites, sharing this
+# would silently replace the live signing key and invalidate every token it has
+# issued. Confirm that behaviour before promoting this, and see the same open
+# question for partition seeding in docs/multitenancy-rollout-plan.md.
+secrets:
+  tokenSigningKeystore:
+    name: smilecdr-token-signing-jwks
+    type: sscsi
+    provider: aws
+    secretName: smilecdr-token-signing-jwks
+    secretArn: "PLACEHOLDER_SET_VIA_TERRAFORM"
+    secretKeyMap:
+      keystores-json:
+        secretKeyName: content
+        k8sSecretKeyName: keystores-json
+        mountSpec:
+          mountPath: /home/smile/smilecdr/classes/config_seeding/keystores.json
+          subPath: keystores-json

@@ -80,6 +80,25 @@ variable "db_subnet_group_name" {
   default     = null
 }
 
+variable "token_signing_secret_name" {
+  type        = string
+  description = <<-EOT
+    Name of the AWS Secrets Manager secret holding the Smile CDR keystores.json
+    seed document, created by scripts/generate_token_signing_keystore.py.
+
+    Null (the default) leaves the deployment relying on whatever keystore already
+    exists in its database, which is the situation on the original
+    dedicated-cluster deployment.
+
+    Set it for a deployment built from an empty database, which otherwise cannot
+    start smart_auth at all: openid.signing.keystore_id names a keystore that
+    nothing in this repository creates. Setting it also requires the matching
+    secrets.tokenSigningKeystore mount in an overlay (see
+    module-config/values-sparkey.yaml).
+  EOT
+  default     = null
+}
+
 variable "namespace" {
   type        = string
   description = <<-EOT

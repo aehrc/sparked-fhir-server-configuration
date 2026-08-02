@@ -101,11 +101,19 @@ module "smile_cdr_dependencies" {
   # granted in iam-users-secret.tf. The module's `extra_secrets` input is not used:
   # it would surface a second, redundant CSI secret mount of the same secret.
 
-  helm_chart_values_set_overrides = {
-    "replicaCount" = 1
-    # Set the secret ARN for users.json
-    "secrets.usersConfig.secretArn" = data.aws_secretsmanager_secret.smilecdr_users_json.arn
-  }
+  # Secret ARNs are injected here rather than committed to the values files.
+  # The tokenSigningKeystore entry is only meaningful when an overlay declares
+  # the matching mount; merging a stray key is harmless when it does not.
+  helm_chart_values_set_overrides = merge(
+    {
+      "replicaCount" = 1
+      # Set the secret ARN for users.json
+      "secrets.usersConfig.secretArn" = data.aws_secretsmanager_secret.smilecdr_users_json.arn
+    },
+    var.token_signing_secret_name == null ? {} : {
+      "secrets.tokenSigningKeystore.secretArn" = data.aws_secretsmanager_secret.token_signing[0].arn
+    }
+  )
 
   s3_read_buckets = [var.s3_bucket_name]
 
