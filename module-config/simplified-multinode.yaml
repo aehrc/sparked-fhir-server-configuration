@@ -89,6 +89,25 @@ cdrNodes:
           db.password: "#{env['AUCORE_DB_PASS']}"
           db.username: "#{env['AUCORE_DB_USER']}"
       fhir_endpoint:
+        # SECURITY_IN_OIC is the one module dependency that is neither a chart
+        # default nor was previously declared here, and without it
+        # security.oic.enabled below is set with nothing providing OIDC.
+        #
+        # The chart's default-modules.yaml wires PERSISTENCE_ALL and
+        # SECURITY_IN_UP for this module but not SECURITY_IN_OIC, and the live
+        # server only has it because it was added out of band at some point. A
+        # server built from this repo alone therefore fails to boot the endpoint:
+        #
+        #   Error creating bean with name 'webSecurityFilterChain' ...
+        #   No dependency of type 'OpenID Connect Authentication' has been specified
+        #
+        # Found 2026-08-02 on the first cold boot of the sparkey deployment, which
+        # is the first time this config has ever been applied to an empty
+        # database. No-op against the live server, whose module records already
+        # carry the dependency (config.database: true means seeded properties
+        # apply on first boot only).
+        requires:
+          SECURITY_IN_OIC: smart_auth
         config:
           request_validating.enabled: true
           partitioning.tenant_identification_strategy: "URL_BASED"
