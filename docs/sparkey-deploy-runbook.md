@@ -169,6 +169,32 @@ release. Everything else is deliberate.
   prerequisite here; see
   [multitenancy-rollout-plan.md](multitenancy-rollout-plan.md).
 
+## Required post-deploy step: reconcile smart_auth
+
+```bash
+export CSIRO_FHIR_AUTH_64=$(printf 'ADMIN:%s' "$(aws secretsmanager get-secret-value \
+  --secret-id smilecdr-user-passwords --query SecretString --output text \
+  | jq -r '."smilecdr-admin-password"')" | base64)
+export SMILECDR_BASE_URL=https://smile-next.sparked-fhir.com
+python scripts/sync_smart_auth.py --node aucore            # dry run first
+python scripts/sync_smart_auth.py --node aucore --apply
+```
+
+This is not optional and not covered by the Helm config. `smart_capabilities_list`
+is deliberately managed by that script rather than the chart values, because it
+is a multi-line property and the script's own comment records that "properties
+rendering of multi-line values is unsafe".
+
+The consequence is visible on a fresh build: the chart's default capability list
+omits `context-ehr-encounter`, which `smart-post-authorize.js` depends on because
+it injects encounter launch context. Until the script runs, the server
+under-advertises its SMART capabilities.
+
+Note the script talks to the admin API over TLS with `requests`, so it needs a CA
+bundle that trusts any corporate TLS-inspection proxy in the path. It fails with
+`CERTIFICATE_VERIFY_FAILED` otherwise, which is a local environment problem
+rather than a server one.
+
 ## Verify
 
 Two paths, and the second is the one that counts.
