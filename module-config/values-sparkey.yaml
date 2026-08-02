@@ -168,3 +168,55 @@ secrets:
         mountSpec:
           mountPath: /home/smile/smilecdr/classes/config_seeding/keystores.json
           subPath: keystores-json
+
+# ---------------------------------------------------------------------------
+# Module config source: PROPERTIES_UNLOCKED, not DATABASE.
+# ---------------------------------------------------------------------------
+# simplified-multinode.yaml sets `config.database: true` on every node, which
+# renders node.propertysource = DATABASE. The chart documents what that means:
+#
+#   "in DATABASE mode, the module definitions below this line are only used to
+#    seed the database upon the very first startup of the system, and will be
+#    ignored after that. In PROPERTIES mode, the module definitions below are
+#    read every time the system starts, and existing definitions and config are
+#    overwritten by what is in this file."
+#
+# That single behaviour is the root cause of every configuration gap found while
+# standing this deployment up: the missing SECURITY_IN_OIC dependency, the
+# missing token-signing keystore, and the console-only smart_auth settings the
+# sync script exists to reconcile. All of them were added to a running server
+# after its first boot, so git never saw them and could not reproduce them.
+#
+# It also makes iteration brutally expensive. The SECURITY_IN_OIC fix was
+# correctly rendered into the configmap and the server still ignored it, because
+# the module record already existed in the database from the first (broken) boot.
+# The only remedy was destroying the whole stack.
+#
+# The chart itself warns against this mode:
+#
+#   "WARNING: `config.database` is enabled ... This mode is unsupported and not
+#    recommended for use when deploying using Helm ... If modules are added or
+#    altered in the console, the environment will be in a state of drift compared
+#    to the Helm Chart values."
+#
+# PROPERTIES_UNLOCKED (troubleshooting) rather than plain PROPERTIES: properties
+# are still authoritative and overwrite on every boot, so drift cannot accumulate,
+# but the admin console stays usable for live troubleshooting during an event.
+# Console changes are lost on the next restart, which turns silent permanent
+# drift into loud temporary drift and pushes the fix back into git.
+#
+# `database: false` is required, not just omitted: the chart checks
+# `config.database` first, and helm deep-merges this overlay onto
+# simplified-multinode.yaml, so the inherited `true` would otherwise win.
+#
+# NOT promoted to values-common.yaml. In this mode the properties file OVERWRITES
+# existing module config, and the live server's configuration is known to be
+# incomplete in git. Flipping it there today would strip whatever else was added
+# by console over the years. Prove the repo is complete here first. The chart's
+# warning is explicit that reverting the mode on a drifted database can cause
+# "modules being incorrectly configured, resulting to critical system faults".
+cdrNodes:
+  aucore:
+    config:
+      database: false
+      troubleshooting: true

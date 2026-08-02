@@ -3,3 +3,5 @@ pyyaml>=6.0
 requests>=2.31.0
 ruamel.yaml>=0.18.0
 yamllint>=1.35.0
+boto3>=1.34.0
+cryptography>=42.0.0
