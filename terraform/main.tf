@@ -30,6 +30,16 @@ module "smile_cdr_dependencies" {
   # module-config/values-common.yaml.
   helm_chart_version = "9.0.2"
 
+  # The module default is 600s, which is shorter than Smile CDR's own startup
+  # probe allows (30 minutes) and too short for a FIRST boot against an empty
+  # database, where the pod also runs the full schema migration before it reports
+  # ready. A helm timeout there leaves the release in `pending-install` and needs
+  # manual cleanup before a retry, which is a worse failure than simply waiting.
+  #
+  # 1800s matches the startup probe. It changes nothing for an established
+  # deployment, where readiness is reached in a couple of minutes.
+  helm_chart_timeout = 1800
+
 
   # ORDER MATTERS: helm merges these left to right, so a later file overrides an
   # earlier one. Overlays must come last.
@@ -143,6 +153,28 @@ module "smile_cdr_dependencies" {
         min_capacity = 0.5
         max_capacity = 4
       }
+
+      # Name for this deployment's RDS DB subnet group.
+      #
+      # Required for a second deployment, not a preference. The module's
+      # generated name does NOT carry resourcenames_suffix: it is built as
+      # "<name>-<db instance name>", i.e. "smile-smilecluster" for BOTH
+      # deployments. The first sparkey apply failed on exactly that:
+      #
+      #   Error: creating RDS DB Subnet Group (smile-smilecluster):
+      #   DBSubnetGroupAlreadyExists
+      #
+      # Note this input names a group the module CREATES; it is not a reference to
+      # an existing one. Pointing it at sparkey's own `sparkey-vpc` group just
+      # moves the collision. A per-deployment group is also the established
+      # pattern on this cluster: ontoserver and logimomo each have their own
+      # (sparkey-ontoserver-master-*, sparkey-logimomo-master-*) over the same
+      # three Tier=Database subnets. Several groups over the same subnets is
+      # normal in RDS.
+      #
+      # Null (the default) on the original deployment, which keeps its existing
+      # smile-smilecluster group untouched.
+      db_subnet_group_name = var.db_subnet_group_name
 
       ## Use alternate subnet discovery tags like so:
       # db_subnet_discovery_tags = {

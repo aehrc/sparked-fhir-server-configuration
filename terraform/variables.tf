@@ -62,6 +62,24 @@ variable "resourcenames_suffix" {
   default     = null
 }
 
+variable "db_subnet_group_name" {
+  type        = string
+  description = <<-EOT
+    Name for the RDS DB subnet group this deployment creates. This names a group
+    the module CREATES; it is not a reference to an existing one.
+
+    Null (the default) uses the module's generated name. Leave it null on the
+    original dedicated-cluster deployment.
+
+    A second deployment in the same account MUST set it. The generated name does
+    not carry resourcenames_suffix (it is "<name>-<db instance name>"), so two
+    deployments both called "smile" collide on "smile-smilecluster" with
+    DBSubnetGroupAlreadyExists. Use a name carrying the same suffix as everything
+    else, e.g. "smile-smilecluster-<deployment>".
+  EOT
+  default     = null
+}
+
 variable "namespace" {
   type        = string
   description = <<-EOT

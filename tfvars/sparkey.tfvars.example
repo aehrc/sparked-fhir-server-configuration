@@ -60,3 +60,14 @@ extra_values_files = ["../module-config/values-sparkey.yaml"]
 # Null makes iam-users-secret.tf reconstruct the name from var.name and
 # resourcenames_suffix above, which is exactly what the module builds.
 smilecdr_iam_role_name = null
+
+# REQUIRED for a second deployment. The module's generated DB subnet group name
+# does not carry resourcenames_suffix (it is "<name>-<db instance name>"), so
+# leaving this unset collides with the live deployment's "smile-smilecluster"
+# and the apply fails with DBSubnetGroupAlreadyExists.
+#
+# This names a group the module CREATES, so it must be a NEW name, not sparkey's
+# existing "sparkey-vpc" group. A group per RDS stack is the established pattern
+# on this cluster anyway: ontoserver and logimomo each have their own over the
+# same three Tier=Database subnets.
+db_subnet_group_name = "smile-smilecluster-<deployment>"

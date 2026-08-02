@@ -34,8 +34,16 @@ __pycache__/
 # Binary files
 terminology-servers/atomio-ig-feeder
 
-# Terraform backend config
+# Terraform backend config. One per deployment; the key lives in these files
+# (not provider.tf) so an init cannot silently attach to the wrong state.
 terraform/backend.hcl
+terraform/backend-*.hcl
+
+# Saved plan files. These embed resolved variable values and data-source reads,
+# including secret ARNs and generated database credentials, so they must never
+# be committed.
+*.plan
+*.tfplan
 
 # Python virtual environment
 .venv/
