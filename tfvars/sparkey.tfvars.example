@@ -43,7 +43,20 @@ manage_ingress = false
 
 extra_values_files = ["../module-config/values-sparkey.yaml"]
 
-# smilecdr_iam_role_name is deliberately NOT set. Left null, iam-users-secret.tf
-# reconstructs the role name from var.name and resourcenames_suffix above, which
-# is exactly what the module builds. Pin it only to attach to a pre-existing role,
-# as the original deployment does.
+# MUST be set explicitly to null, not merely omitted.
+#
+# terraform/terraform.tfvars is auto-loaded by terraform on every run, and the
+# copy used for the original deployment pins
+# smilecdr_iam_role_name = "smile-smilecdr-dff66d5832d6f1c8". A -var-file only
+# overrides the variables it actually mentions, so omitting this one here does
+# NOT fall back to the default: the auto-loaded production value wins, and this
+# deployment attaches its users-secret policy to the LIVE deployment's IAM role.
+#
+# Verified 2026-08-02: with terraform.tfvars present and this line absent, the
+# plan reads `role = "smile-smilecdr-dff66d5832d6f1c8"`. With this line, it reads
+# `role = "smile-smilecdr-<deployment>"`, which is correct. A terraform destroy of
+# this stack in the former state would have detached a policy from the live role.
+#
+# Null makes iam-users-secret.tf reconstruct the name from var.name and
+# resourcenames_suffix above, which is exactly what the module builds.
+smilecdr_iam_role_name = null

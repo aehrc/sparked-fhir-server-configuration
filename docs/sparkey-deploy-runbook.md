@@ -42,6 +42,15 @@ cp ../tfvars/sparkey.tfvars.example ../tfvars/sparkey.tfvars
 existing deployment uses; the secret and the bucket are shared and read-only
 from the server's point of view.
 
+> **Do not delete the `smilecdr_iam_role_name = null` line** from the example.
+> `terraform/terraform.tfvars` is auto-loaded on every run and pins that variable
+> to the live deployment's role. A `-var-file` only overrides variables it
+> actually mentions, so omitting it here does not fall back to the default: the
+> production value wins and this deployment attaches its users-secret policy to
+> the live IAM role. Verified 2026-08-02 by planning both ways. A later
+> `terraform destroy` of this stack in that state would detach a policy from the
+> live role.
+
 > **The backend key is no longer in `provider.tf`.** It moved into the
 > `-backend-config` file so that a second deployment cannot silently attach to
 > live production state. If `terraform init` ever prompts interactively for
