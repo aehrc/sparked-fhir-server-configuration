@@ -30,12 +30,33 @@ data "aws_iam_policy_document" "users_secret_access" {
 }
 
 resource "aws_iam_policy" "users_secret_access" {
-  name        = "${var.name}-users-secret-access"
+  # IAM policy names are account-global, so two deployments both called "smile"
+  # would collide here with EntityAlreadyExists. Carrying the same suffix the
+  # module puts on its own generated names keeps them apart, and keeps this
+  # resource named consistently with them.
+  #
+  # No-op for the original deployment: its resourcenames_suffix is null (the
+  # module randomises internally), so the name stays smile-users-secret-access.
+  name        = "${var.name}-users-secret-access${var.resourcenames_suffix != null ? "-${var.resourcenames_suffix}" : ""}"
   description = "Allow SmileCDR to access users.json secret"
   policy      = data.aws_iam_policy_document.users_secret_access.json
 }
 
 resource "aws_iam_role_policy_attachment" "users_secret_access" {
-  role       = var.smilecdr_iam_role_name
+  # Either pinned via var.smilecdr_iam_role_name or reconstructed from the
+  # module's naming convention; see local.smilecdr_iam_role_name in main.tf.
+  role       = local.smilecdr_iam_role_name
   policy_arn = aws_iam_policy.users_secret_access.arn
+
+  lifecycle {
+    precondition {
+      condition     = var.smilecdr_iam_role_name != null || var.resourcenames_suffix != null
+      error_message = <<-EOT
+        Set either smilecdr_iam_role_name (to attach to an existing role) or
+        resourcenames_suffix (so the module's generated role name is
+        deterministic and can be reconstructed). With both null the role name
+        cannot be known before apply.
+      EOT
+    }
+  }
 }

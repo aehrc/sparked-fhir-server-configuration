@@ -1,0 +1,49 @@
+# Smile CDR on the shared `sparkey` cluster.
+#
+#   terraform init -reconfigure -backend-config=backend-sparkey.hcl
+#   terraform plan -var-file=../tfvars/sparkey.tfvars
+#
+# Copy to tfvars/sparkey.tfvars (gitignored) and add the two values that are not
+# committed: cdr_regcred_secret_arn and s3_bucket_name.
+
+cluster_name = "sparkey"
+
+name = "smile"
+
+# Fixes the suffix on every generated AWS name, replacing the module's random_id.
+# Two things depend on it:
+#
+#   1. Separation. The live deployment's resources carry a random suffix
+#      (smile-smilecdr-dff66d5832d6f1c8, smile-smilecluster-dff66d5832d6f1c8).
+#      A literal here keeps this deployment's distinct in the same account, and
+#      readable while both are running.
+#   2. Single-pass apply. iam-users-secret.tf has to attach a policy to the IRSA
+#      role the module creates. With a random suffix that role name is unknowable
+#      before the first apply; with this set it is just
+#      "${name}-smilecdr-${resourcenames_suffix}".
+#
+# Do NOT set this on the original deployment: it would rename live resources.
+resourcenames_suffix = "sparkey"
+
+# The module would derive this from lower(var.name) anyway. Pinned because the
+# GitOps HTTPRoutes, network policies and ArgoCD AppProject destination in
+# sparked-argo all hardcode "smile", and that coupling should be visible.
+namespace = "smile"
+
+# Routing and DNS are owned by the cluster, not by this module:
+#   - HTTPRoutes come from sparked-argo (charts/smilecdr-routes)
+#   - external-dns creates the Route53 record from the route hostname
+#   - the overlay below sets ingresses.default.enabled = false so the chart does
+#     not render a competing one
+#
+# Leaving this true would also break: in gatewayapi mode the module resolves the
+# gateway load balancer with the ELBv2-only aws_lb data source, and sparkey's
+# Envoy Gateway is fronted by a Classic ELB.
+manage_ingress = false
+
+extra_values_files = ["../module-config/values-sparkey.yaml"]
+
+# smilecdr_iam_role_name is deliberately NOT set. Left null, iam-users-secret.tf
+# reconstructs the role name from var.name and resourcenames_suffix above, which
+# is exactly what the module builds. Pin it only to attach to a pre-existing role,
+# as the original deployment does.

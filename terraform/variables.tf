@@ -32,7 +32,79 @@ variable "s3_bucket_name" {
 
 variable "smilecdr_iam_role_name" {
   type        = string
-  description = "The IAM role name for the SmileCDR service account"
+  description = <<-EOT
+    The IAM role name for the Smile CDR service account, for the extra
+    users.json-secret policy attachment in iam-users-secret.tf.
+
+    Leave null (the default) and it is derived from the module's IRSA output
+    instead, which is what a new deployment must do: the module generates the
+    role name with a random suffix, so the value cannot be known before the
+    first apply. Set it only to pin an existing role, as the original
+    dedicated-cluster deployment does.
+  EOT
+  default     = null
+}
+
+variable "resourcenames_suffix" {
+  type        = string
+  description = <<-EOT
+    Fixed suffix for the AWS resource names the sdh-deps module generates (the
+    IRSA role, the Aurora cluster, the secrets).
+
+    Null (the default) makes the module use a random_id, which is how the
+    original deployment got names like smile-smilecdr-dff66d5832d6f1c8. Leave it
+    null there: changing it would rename live resources.
+
+    Set it for a new deployment. It keeps names distinct from the existing ones
+    in the same AWS account, and it makes the IRSA role name predictable, which
+    is what lets the deployment come up in a single apply.
+  EOT
+  default     = null
+}
+
+variable "namespace" {
+  type        = string
+  description = <<-EOT
+    Kubernetes namespace for the Smile CDR release. Defaults to "smile" rather
+    than being derived from var.name by the module (which uses lower(name)), so
+    that a deployment can carry a distinct var.name for AWS resource naming while
+    keeping the namespace the GitOps manifests in sparked-argo expect.
+  EOT
+  default     = "smile"
+}
+
+variable "extra_values_files" {
+  type        = list(string)
+  description = <<-EOT
+    Extra Helm values files layered on top of values-common.yaml and
+    simplified-multinode.yaml, in order, last wins. Paths are relative to the
+    terraform directory.
+
+    Empty for the original dedicated-cluster deployment. The sparkey deployment
+    passes ["../module-config/values-sparkey.yaml"].
+  EOT
+  default     = []
+}
+
+variable "manage_ingress" {
+  type        = bool
+  description = <<-EOT
+    Whether this stack's sdh-deps module manages ingress and the Route53 record.
+
+    True (default) is the original deployment: the chart renders an nginx Ingress
+    and the module creates the DNS alias.
+
+    False is for a cluster where routing and DNS are owned elsewhere. On sparkey
+    the HTTPRoutes are authored in sparked-argo and external-dns creates the
+    record from the route hostname, so the module must not also try; its
+    gatewayapi path would fail anyway, because it resolves the gateway load
+    balancer with the ELBv2-only aws_lb data source and sparkey's Envoy Gateway
+    is fronted by a Classic ELB.
+
+    Set false together with an overlay in extra_values_files that sets
+    ingresses.default.enabled = false, or the chart will still render one.
+  EOT
+  default     = true
 }
 
 variable "rds_name" {

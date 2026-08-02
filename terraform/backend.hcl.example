@@ -1,4 +1,11 @@
-# Copy this file to backend.hcl and fill in your S3 bucket name.
-# Then run: terraform init -backend-config=backend.hcl
+# Backend config for the ORIGINAL deployment on the dedicated sparked-smilecdr
+# cluster. Copy to backend.hcl (gitignored) and fill in the bucket.
+#
+#   terraform init -reconfigure -backend-config=backend.hcl
+#
+# `key` lives here, not in provider.tf. See the comment on the backend block
+# there: with two deployments, an unnoticed init against the wrong key would
+# attach to live production state.
 
 bucket = "your-terraform-state-bucket"
+key    = "infra/smile-app/prod.tfstate"

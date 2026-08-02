@@ -4,6 +4,25 @@ module "smile_cdr_dependencies" {
   eks_cluster_name       = var.cluster_name
   cdr_regcred_secret_arn = var.cdr_regcred_secret_arn
   prod_mode              = false
+
+  # Kubernetes namespace, pinned rather than left to the module's lower(var.name)
+  # default. Both deployments are called "smile" so the default would give the
+  # same answer, but the GitOps HTTPRoutes, network policies and ArgoCD
+  # AppProject destination in sparked-argo all hardcode "smile", and that
+  # coupling deserves to be visible here rather than implied.
+  namespace = var.namespace
+
+  # Fixes the suffix on every generated AWS resource name. Left null (the
+  # original deployment) the module uses a random_id, which is why the live
+  # resources read smile-smilecdr-dff66d5832d6f1c8 and
+  # smile-smilecluster-dff66d5832d6f1c8.
+  #
+  # The sparkey deployment sets it to a literal, which does two things: it keeps
+  # the two deployments' AWS resources distinct while both exist in this one
+  # account, and it makes the IRSA role name knowable before the first apply (see
+  # local.smilecdr_iam_role_name below), so standing the deployment up is a single
+  # pass rather than apply-read-edit-apply.
+  resourcenames_suffix = var.resourcenames_suffix
   # Chart 9.0.2 pairs with the module tag above (the module stays on v9.0.2:
   # the v9.1.x/v9.2.0 module releases break plan for multi-node copyFiles, see
   # docs/smilecdr-2026.05-upgrade-plan.md). Chart v9 supports Smile CDR
@@ -12,10 +31,19 @@ module "smile_cdr_dependencies" {
   helm_chart_version = "9.0.2"
 
 
-  helm_chart_values = [                                                                            #alpha order
-    templatefile("../module-config/values-common.yaml", { s3_bucket = var.s3_bucket_name }),       #core - required
-    templatefile("../module-config/simplified-multinode.yaml", { s3_bucket = var.s3_bucket_name }) # per-node copyFiles reference the bucket
-  ]
+  # ORDER MATTERS: helm merges these left to right, so a later file overrides an
+  # earlier one. Overlays must come last.
+  helm_chart_values = concat(
+    [
+      templatefile("../module-config/values-common.yaml", { s3_bucket = var.s3_bucket_name }),       #core - required
+      templatefile("../module-config/simplified-multinode.yaml", { s3_bucket = var.s3_bucket_name }) # per-node copyFiles reference the bucket
+    ],
+    # Per-deployment overlay, empty for the original dedicated-cluster deployment.
+    # The sparkey deployment passes ../module-config/values-sparkey.yaml here to
+    # disable the chart's own ingress (GitOps owns the HTTPRoutes there) and to
+    # target the dedicated prod NodePool.
+    [for f in var.extra_values_files : templatefile(f, { s3_bucket = var.s3_bucket_name })]
+  )
 
   helm_chart_mapped_files = [
     # Package specifications
@@ -197,7 +225,21 @@ module "smile_cdr_dependencies" {
   # Ingress Configuration
   ################################################################################
 
-  ingress_config = {
+  # Empty when the cluster's own GitOps owns routing and DNS (the sparkey
+  # deployment). An empty map is explicitly supported by the module: its
+  # validation is `length(var.ingress_config) == 0 || alltrue([...])`, and the
+  # Gateway lookup, the aws_lb lookup and the Route53 record are all gated on
+  # having an entry.
+  #
+  # That gating matters here for a second reason. In `gatewayapi` mode the module
+  # resolves the Gateway's load balancer with the `aws_lb` data source, which is
+  # ELBv2 only. sparkey's Envoy Gateway is fronted by a CLASSIC ELB (its Service
+  # carries only aws-load-balancer-proxy-protocol, no
+  # aws-load-balancer-type: external, so the in-tree cloud provider serves it), so
+  # that lookup would fail outright. Letting external-dns own the record from the
+  # HTTPRoute hostname sidesteps it and matches how every other workload on that
+  # cluster gets DNS. Revisit if sparkey's gateway is ever moved to an NLB.
+  ingress_config = var.manage_ingress ? {
     public = {
       # The live serving ingress is the chart's default slot (rendered as
       # smilecdr-scdr, class nginx, host smile.sparked-fhir.com). Claim the default
@@ -208,12 +250,33 @@ module "smile_cdr_dependencies" {
       route53_create_record = local.route53_create_record
       parent_domain         = var.domain
     }
-  }
+  } : {}
 
 }
 
 locals {
   route53_create_record = true
+
+  # The IAM role the module builds for this deployment, needed by
+  # iam-users-secret.tf to attach one extra policy.
+  #
+  # Supplying this by hand (var.smilecdr_iam_role_name) cannot work for a
+  # deployment that does not exist yet: without var.resourcenames_suffix the
+  # module generates the name with a random_id, so it is unknowable before the
+  # first apply, making a new deployment a two-pass operation.
+  #
+  # So: set var.resourcenames_suffix and the name becomes deterministic. The
+  # module builds it as "${name}-smilecdr-${resourcenames_suffix}" and passes it
+  # with use_name_prefix = false, so this reproduces it exactly.
+  #
+  # NOT derived from the module's helm_sa_annotation output, which looks like the
+  # obvious source but is broken upstream at v9.0.2: it reads
+  # `module.smile_cdr_irsa_role[0].iam_role_arn` while pinning
+  # terraform-aws-modules/iam v6.2.3, where that output was renamed to `arn`. The
+  # surrounding try() swallows the missing attribute, so the output silently
+  # returns null rather than failing. (The module's own local.iam_role_arn uses
+  # `.arn` and is correct; only the output is wrong.)
+  smilecdr_iam_role_name = var.smilecdr_iam_role_name != null ? var.smilecdr_iam_role_name : "${var.name}-smilecdr-${var.resourcenames_suffix}"
 
   tags = {
     Name       = var.name

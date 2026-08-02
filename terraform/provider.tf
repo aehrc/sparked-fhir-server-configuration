@@ -35,8 +35,20 @@ terraform {
     }
   }
   backend "s3" {
-    # Configure via: terraform init -backend-config=backend.hcl
+    # bucket AND key both come from the -backend-config file. Select the
+    # deployment at init:
+    #
+    #   terraform init -reconfigure -backend-config=backend.hcl          # dedicated cluster
+    #   terraform init -reconfigure -backend-config=backend-sparkey.hcl  # sparkey
+    #
+    # The key used to be hardcoded here as infra/smile-app/prod.tfstate. That was
+    # fine while there was one deployment and became dangerous once there are two:
+    # a second deployment initialised without noticing would attach to the LIVE
+    # production state, and its first apply would try to move the running server
+    # onto the other cluster. Both keys must now be chosen explicitly.
+    #
+    # If terraform prompts interactively for "key", you passed no -backend-config.
+    # Stop and pass one rather than typing a value.
     region = "ap-southeast-2"
-    key    = "infra/smile-app/prod.tfstate"
   }
 }

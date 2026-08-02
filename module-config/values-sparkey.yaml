@@ -1,0 +1,95 @@
+# Overlay for the Smile CDR deployment on the shared `sparkey` cluster.
+#
+# Layered ON TOP of values-common.yaml and simplified-multinode.yaml (the
+# helm_chart_values list in terraform/main.tf is ordered, last wins), so this file
+# holds only what differs from the dedicated-cluster deployment. Upstream
+# recommends exactly this shape over a separate full config per environment; see
+# docs/guide/values-files-management.md in smile-dh-helm-charts.
+#
+# ---------------------------------------------------------------------------
+# specs.hostname is deliberately NOT overridden here.
+# ---------------------------------------------------------------------------
+# It is tempting to set it to smile-next.sparked-fhir.com to match the temporary
+# hostname this deployment is reachable on. Do not.
+#
+# specs.hostname is not a routing setting. The chart renders it into the Smile CDR
+# module config as the advertised base URL (see _scdr-module-helpers.tpl, which
+# builds `https://<specs.hostname><path>` for each service), so it becomes the
+# FHIR base in the CapabilityStatement, the issuer and endpoint URLs in
+# .well-known/smart-configuration, and the base for Bundle pagination links.
+#
+# Keeping it at smile.sparked-fhir.com means the server running here is configured
+# EXACTLY as it will be after cutover, so:
+#   - the SMART/OAuth path can be validated for real, against registered redirect
+#     URIs and the issuer that clients already trust;
+#   - cutover is a pure DNS and route change with NO config edit and NO pod
+#     restart, because nothing about the running server has to change.
+#
+# The cost is that browsing https://smile-next.sparked-fhir.com returns bodies
+# whose fullUrl and pagination links point at smile.sparked-fhir.com, i.e. back at
+# the OLD server. That is a browsing artefact, not a data artefact: the resources
+# returned are this deployment's. Two ways to work around it, in preference order:
+#
+#   1. scripts/upgrade_smoke_tests.sh --connect-to <sparkey gateway LB>
+#      Targets this cluster's load balancer while keeping SNI and Host as
+#      smile.sparked-fhir.com. This is the acceptance gate.
+#   2. A local /etc/hosts entry mapping smile.sparked-fhir.com to the sparkey
+#      gateway LB, for faithful interactive browsing.
+#
+# The temporary hostname lives on the HTTPRoute instead (charts/smilecdr-routes in
+# sparked-argo), which is where a routing concern belongs. Route hostname and
+# advertised hostname are different things and this split is on purpose.
+
+# ---------------------------------------------------------------------------
+# The chart does not render its own ingress here.
+# ---------------------------------------------------------------------------
+# sparkey serves every hostname through one shared Envoy Gateway that already
+# fronts 17 other names, and the HTTPRoutes are authored in GitOps
+# (sparked-argo charts/smilecdr-routes). Upstream expects this: "A Gateway
+# resource lives in the cluster and is shared across multiple Smile CDR
+# deployments (and other workloads) ... sdh-deps does not create the Gateway
+# itself" (docs/terraform/sdh-deps/ingress.md, v9.0.2).
+#
+# Leaving this enabled would also pull in the chart's aws-lbc-gwapi path, which
+# emits an AWS Load Balancer Controller TargetGroupConfiguration that means
+# nothing to Envoy Gateway and needs a newer LBC than this cluster runs (v2.7.1,
+# without the ALBGatewayAPI/NLBGatewayAPI feature gates).
+#
+# The nginx proxy-body-size annotation inherited from values-common.yaml is inert
+# once this is false. The 16 MiB limit it was raising still has to be reproduced
+# on the Envoy side before cutover, or large FHIR transaction Bundles will start
+# failing at the edge. Track that as a BackendTrafficPolicy/ClientTrafficPolicy in
+# sparked-argo, not here.
+ingresses:
+  default:
+    enabled: false
+
+# ---------------------------------------------------------------------------
+# Scheduling: the dedicated prod NodePool.
+# ---------------------------------------------------------------------------
+# BOTH of these are required, and neither is sufficient alone.
+#
+# The toleration gets past the `dedicated=prod:NoSchedule` taint, which is what
+# keeps every other workload on the cluster off this pool. Without it the pod
+# sits Pending.
+#
+# The nodeSelector is what actually chooses the pool. values-common.yaml already
+# pins karpenter.sh/capacity-type=on-demand by hard nodeAffinity, but sparkey has
+# an untainted `on-demand-overflow` NodePool, so that pin alone would also be
+# satisfied there, on a pool running WhenEmptyOrUnderutilized with
+# consolidateAfter 1m. `workload: prod` is set only by the on-demand-prod pool
+# (sparked-argo apps/karpenter-config/nodepool-ondemand-prod.yaml), which
+# consolidates WhenEmpty only, so a node holding this pod is never consolidated
+# away while drift and expiry still rotate it onto patched AMIs.
+#
+# This matters more than usual because Smile CDR runs a single replica with no
+# HPA and a PodDisruptionBudget that permits the eviction it appears to prevent,
+# so every voluntary disruption of its node is a real, if brief, outage.
+nodeSelector:
+  workload: prod
+
+tolerations:
+  - key: dedicated
+    operator: Equal
+    value: prod
+    effect: NoSchedule
