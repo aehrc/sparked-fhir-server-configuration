@@ -95,8 +95,16 @@ making on the plan rather than trusting the count:
 ### 3. Apply
 
 ```bash
-terraform apply sparkey.plan
+caffeinate -i terraform apply sparkey.plan
 ```
+
+**Use `caffeinate`.** This apply creates an Aurora cluster and then waits on a
+first-boot schema migration, so 20 to 30 minutes is normal. If the laptop sleeps
+mid-apply the terraform process is suspended: Go timers run off the monotonic
+clock, which does not advance during macOS sleep, so `helm_chart_timeout` never
+fires while the wall-clock "elapsed" counter races ahead. One apply was observed
+reporting 448 minutes elapsed without ever timing out, while the same timeout
+fired correctly at 30:23 on a run that stayed awake.
 
 The Aurora cluster is the long pole, typically 15 to 20 minutes. The Helm
 release then waits on pod readiness; Smile CDR's own startup probe allows up to
@@ -185,6 +193,14 @@ SMART configuration:
   --connect-to <sparkey gateway LB hostname> \
   -o sparkey-build.md
 ```
+
+> **This does not work until cutover prep adds a `smile-https` listener.** The
+> sparkey Gateway currently has a listener for `smile-next.sparked-fhir.com`
+> only, so a request carrying `Host: smile.sparked-fhir.com` fails TLS SNI and
+> the connection is refused (observed as curl exit 000, not an HTTP error). Until
+> that listener exists, verification has to go through `smile-next`, which does
+> not exercise the SMART discovery path against the production hostname. Add the
+> listener before relying on this as the acceptance gate.
 
 Compare against a baseline captured from the live server the same day.
 

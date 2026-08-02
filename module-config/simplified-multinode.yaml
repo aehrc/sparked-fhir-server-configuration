@@ -135,6 +135,23 @@ cdrNodes:
       smart_auth:
         name: security_out_smart
         config:
+          # The OIDC issuer, and the base every endpoint in
+          # .well-known/openid-configuration is built from. It is NOT derived
+          # from specs.hostname: leave it unset and the server advertises
+          # "https:///aucore/smartauth" with an empty host, which breaks
+          # discovery for every SMART client.
+          #
+          # Set on the live server but absent from this repo until 2026-08-03, so
+          # it could only surface on a cold boot (config.database means seeded
+          # properties apply on first boot only). Same class of gap as the
+          # SECURITY_IN_OIC dependency and the token-signing keystore.
+          #
+          # Deliberately names the PRODUCTION hostname on both deployments,
+          # including the one served at smile-next during the migration, so the
+          # parallel server issues tokens carrying the issuer clients already
+          # trust and cutover needs no config change or restart. Same reasoning
+          # as specs.hostname; see the header of values-sparkey.yaml.
+          issuer.url: "https://smile.sparked-fhir.com/aucore/smartauth"
           context_path: "aucore/smartauth"
           auth_request_detail.whitelist: "aud,grant_type,scope,launch"
           openid.signing.keystore_id: smilecdr-token-signing
