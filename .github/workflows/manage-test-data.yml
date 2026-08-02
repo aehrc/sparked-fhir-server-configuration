@@ -9,8 +9,6 @@ on:
         type: choice
         options:
           - clear-and-load-aucore
-          - clear-and-load-ereq
-          - clear-and-load-aucore-and-ereq
           - clear-and-expunge
       target_node:
         description: "Target node (only for clear-and-expunge operation)"
@@ -19,7 +17,6 @@ on:
         default: "aucore"
         options:
           - aucore
-          - ereq
       dry_run:
         description: "Dry run (preview without making changes)"
         required: false
@@ -41,9 +38,7 @@ permissions:
 jobs:
   clear-aucore:
     name: Clear aucore
-    if: >-
-      inputs.operation == 'clear-and-load-aucore' ||
-      inputs.operation == 'clear-and-load-aucore-and-ereq'
+    if: inputs.operation == 'clear-and-load-aucore'
     uses: ./.github/workflows/clear-test-data.yml
     with:
       delete_mode: wipe-all
@@ -57,9 +52,7 @@ jobs:
   load-aucore:
     name: Load aucore
     needs: clear-aucore
-    if: >-
-      inputs.operation == 'clear-and-load-aucore' ||
-      inputs.operation == 'clear-and-load-aucore-and-ereq'
+    if: inputs.operation == 'clear-and-load-aucore'
     uses: ./.github/workflows/load-test-data.yml
     with:
       upload_method: direct
@@ -70,39 +63,8 @@ jobs:
     secrets:
       CSIRO_FHIR_AUTH_64: ${{ secrets.CSIRO_FHIR_AUTH_64 }}
 
-  # ============================================================================
-  # Clear and Load eRequesting
-  # ============================================================================
-  clear-ereq:
-    name: Clear ereq
-    if: >-
-      inputs.operation == 'clear-and-load-ereq' ||
-      inputs.operation == 'clear-and-load-aucore-and-ereq'
-    uses: ./.github/workflows/clear-test-data.yml
-    with:
-      delete_mode: wipe-all
-      target_node: ereq
-      expunge: true
-      dry_run: ${{ inputs.dry_run }}
-      issue_number: ${{ inputs.issue_number && fromJSON(inputs.issue_number) || 0 }}
-    secrets:
-      CSIRO_FHIR_AUTH_64: ${{ secrets.CSIRO_FHIR_AUTH_64 }}
-
-  load-ereq:
-    name: Load ereq
-    needs: clear-ereq
-    if: >-
-      inputs.operation == 'clear-and-load-ereq' ||
-      inputs.operation == 'clear-and-load-aucore-and-ereq'
-    uses: ./.github/workflows/load-test-data.yml
-    with:
-      upload_method: direct
-      target_node: ereq
-      dry_run: ${{ inputs.dry_run }}
-      continue_on_error: true
-      issue_number: ${{ inputs.issue_number && fromJSON(inputs.issue_number) || 0 }}
-    secrets:
-      CSIRO_FHIR_AUTH_64: ${{ secrets.CSIRO_FHIR_AUTH_64 }}
+  # The ereq clear/load jobs were removed with the ereq node decommission
+  # (2026-08-02, issue #85). aucore is the only node.
 
   # ============================================================================
   # Clear and Expunge (any node)

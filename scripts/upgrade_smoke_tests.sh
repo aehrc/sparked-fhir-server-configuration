@@ -10,7 +10,7 @@
 #   -o FILE             write markdown results to FILE (default: upgrade-smoke-results.md)
 #   --expect-version V  fail if any node does not report Smile CDR version V
 #   --write             also do a create/read/delete round-trip with a tagged test
-#                       Patient on ereq DEFAULT (off by default)
+#                       Patient on aucore DEFAULT (off by default)
 #   --connect-to HOST   send every request to load balancer HOST (e.g. the Envoy
 #                       Gateway NLB) while keeping SNI and the Host header as
 #                       smile.sparked-fhir.com. Lets a new load balancer be verified
@@ -21,8 +21,12 @@
 set -u
 
 BASE="https://smile.sparked-fhir.com"
-NODES=(aucore hl7au ereq)
-EREQ_TENANTS=(DEFAULT SCENARIO-EREQ-MEDS VENDOR-DEMO)
+# aucore is the only node since the ereq and hl7au decommission (2026-08-02).
+NODES=(aucore)
+# Tenants to exercise. Partitions are runtime objects, not config, so keep this in
+# step with the live tenant list (admin console, Partition Management). This was
+# the ereq tenant set until the decommission.
+AUCORE_TENANTS=(DEFAULT)
 RESULTS="upgrade-smoke-results.md"
 EXPECT_VERSION=""
 DO_WRITE=0
@@ -116,12 +120,12 @@ for node in "${NODES[@]}"; do
 done
 
 # ---------------------------------------------------------------------------
-# ereq tenant checks (multitenancy)
+# aucore tenant checks (multitenancy)
 # ---------------------------------------------------------------------------
 note ""
-note "## ereq tenants"
-for tenant in "${EREQ_TENANTS[@]}"; do
-  fhir="$BASE/ereq/fhir/$tenant"
+note "## aucore tenants"
+for tenant in "${AUCORE_TENANTS[@]}"; do
+  fhir="$BASE/aucore/fhir/$tenant"
   code=$(anoncurl -o "$TMP/meta.json" -w "%{http_code}" "$fhir/metadata")
   [ "$code" = "200" ] && ok "$tenant metadata HTTP 200" || bad "$tenant metadata HTTP $code"
   code=$(acurl -o "$TMP/count.json" -w "%{http_code}" "$fhir/Patient?_summary=count")
@@ -172,7 +176,7 @@ fi
 # ---------------------------------------------------------------------------
 note ""
 note "## AU Patient Summary (\$summary, custom AUPS generator)"
-for target in "aucore DEFAULT" "ereq SCENARIO-EREQ-MEDS"; do
+for target in "aucore DEFAULT"; do
   set -- $target; node=$1; tenant=$2
   fhir="$BASE/$node/fhir/$tenant"
   code=$(acurl -o "$TMP/p.json" -w "%{http_code}" "$fhir/Patient?_count=1")
@@ -191,12 +195,17 @@ for target in "aucore DEFAULT" "ereq SCENARIO-EREQ-MEDS"; do
 done
 
 # ---------------------------------------------------------------------------
-# Optional write path: create/read/delete a tagged test Patient (ereq DEFAULT)
+# Optional write path: create/read/delete a tagged test Patient (aucore DEFAULT)
+#
+# Moved from ereq DEFAULT at the ereq decommission. This writes into the curated
+# shared dataset, so it stays off by default and the resource is deleted again
+# immediately. It uses the admin credential, which multitenancy Phase 2 kept
+# read/write on DEFAULT (only participant principals lost write).
 # ---------------------------------------------------------------------------
 if [ "$DO_WRITE" = "1" ]; then
   note ""
-  note "## Write round-trip (ereq DEFAULT)"
-  fhir="$BASE/ereq/fhir/DEFAULT"
+  note "## Write round-trip (aucore DEFAULT)"
+  fhir="$BASE/aucore/fhir/DEFAULT"
   code=$(acurl -o "$TMP/create.json" -w "%{http_code}" -X POST "$fhir/Patient" -d '{
     "resourceType":"Patient",
     "identifier":[{"system":"urn:sparked:upgrade-smoke","value":"upgrade-smoke-test"}],

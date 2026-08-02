@@ -1,5 +1,30 @@
-## when deploying start with just aucore, then sequentially add hl7au, ereq otherwise potential configmap duplicate name issue can occur
-# ~1min 50sec to deploy hl7au with config
+# The Sparked Dev FHIR Server is a single node, aucore, as of 2026-08-02.
+#
+# ereq and hl7au are DECOMMISSIONED. This is stage 1 of 2: the nodes are disabled
+# so their pods stop, but their config blocks, their `db_users` entries in
+# terraform/main.tf and their databases are all left in place. That keeps the
+# decommission a one-line revert for as long as the data is still wanted.
+#
+#   ereq   the AU eRequesting project is no longer run under Sparked; the agreed
+#          hosting period ran to end July 2026 (issue #85, requested by @dt-r).
+#   hl7au  decommissioned alongside it on the environment owner's direction. Note
+#          this node is NOT the HL7 AU reference server at fhir.hl7.org.au, which
+#          is a separate system and is unaffected.
+#
+# The AU eRequesting IG package (hl7.fhir.au.ereq) is a different thing from the
+# ereq NODE and is unaffected: the terminology servers still publish it, so
+# nothing under terminology-servers/ changes.
+#
+# Stage 2, after the data is confirmed no longer needed: delete these two node
+# blocks, drop the `ereq` and `hl7au` entries from `db_users` in
+# terraform/main.tf (which drops the databases), and remove
+# module-config/packages/package-au-erequesting-1.0.0.json together with its
+# `helm_chart_mapped_files` entry and its values-common.yaml reference. Only ereq
+# seeded that package, so nothing else loses it.
+#
+# Deployment note (historical, applies whenever more than one node is enabled):
+# start with just aucore, then add nodes sequentially, otherwise a configmap
+# duplicate name issue can occur. hl7au took ~1min 50sec to deploy with config.
 cdrNodes:
   masterdev:
     enabled: false
@@ -98,7 +123,10 @@ cdrNodes:
           cors.enable: true
   hl7au:
     name: hl7au
-    enabled: true
+    # DECOMMISSIONED 2026-08-02 (stage 1 of 2). See the header note at the top of
+    # this file. The node config below is retained verbatim so the change is a
+    # one-line revert while the hl7au database still exists.
+    enabled: false
     # hl7au does not run the AUPS generator, but it already carried the 1.0.0 jar
     # under the previous global copyFiles. Keep it here so moving copyFiles per-node
     # does not change hl7au's pod spec (avoids an unnecessary restart).
@@ -167,7 +195,10 @@ cdrNodes:
           context_path: "/hl7au/fhirweb"
   ereq:
     name: ereq
-    enabled: true
+    # DECOMMISSIONED 2026-08-02 (stage 1 of 2), per issue #85. See the header note
+    # at the top of this file. The node config below is retained verbatim so the
+    # change is a one-line revert while the ereq database still exists.
+    enabled: false
     # ereq pins the older 0.1.0-alpha AU Patient Summary generator jar (aucore runs 1.0.0),
     # consumed by ig_support.ips.generation_strategy_class in the persistence config below.
     copyFiles:
