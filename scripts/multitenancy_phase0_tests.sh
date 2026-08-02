@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Phase 0 multitenancy rehearsal against a Sparked Dev FHIR Server node.
-# Target node comes from PHASE0_NODE (default ereq); results path from PHASE0_RESULTS.
+# Target node comes from PHASE0_NODE (default aucore); results path from PHASE0_RESULTS.
 # Creates a temporary MTTEST partition, verifies isolation properties, then cleans up.
 # Admin credentials are fetched from AWS Secrets Manager at runtime and kept in memory only.
 set -u
 
-NODE="${PHASE0_NODE:-ereq}"
+NODE="${PHASE0_NODE:-aucore}"
 BASE="https://smile.sparked-fhir.com/$NODE/fhir"
 ADMINJSON="https://smile.sparked-fhir.com/$NODE/admin-json"
 PART_ID=9001

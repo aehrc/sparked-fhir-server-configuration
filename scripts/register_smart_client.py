@@ -72,14 +72,14 @@ DEFAULT_BASE_URL = "https://smile.sparked-fhir.com"
 # Each node has its own smart_auth and local_security modules (from useDefaultModules).
 # Clients and users must be registered per-node on that node's smart_auth module.
 MODULE_ID = "smart_auth"
-SUPPORTED_NODES = ["aucore", "ereq"]
+# aucore is the only node since the ereq and hl7au decommission (2026-08-02).
+SUPPORTED_NODES = ["aucore"]
 DEFAULT_NODE = "aucore"
 
 # Node-specific configuration for SMART auth context paths and admin API paths.
 # Each node's smart_auth module listens on its own context path.
 NODE_CONFIG = {
     "aucore": {"smartauth_path": "aucore/smartauth", "admin_path": "aucore/admin-json"},
-    "ereq":   {"smartauth_path": "ereq/smartauth",   "admin_path": "ereq/admin-json"},
 }
 
 

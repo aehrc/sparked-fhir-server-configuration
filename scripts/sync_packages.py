@@ -6,7 +6,7 @@ This script synchronizes FHIR IG packages across SmileCDR nodes.
 
 Usage:
     # From GitHub Actions workflow
-    python sync_packages.py --base-url https://smile.sparked-fhir.com --nodes aucore,ereq --source config --dry-run
+    python sync_packages.py --base-url https://smile.sparked-fhir.com --nodes aucore --source config --dry-run
 
     # Or sync all nodes from config
     python sync_packages.py --base-url https://smile.sparked-fhir.com --nodes all --source config

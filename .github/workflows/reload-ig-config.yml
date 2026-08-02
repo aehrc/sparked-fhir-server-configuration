@@ -8,7 +8,7 @@ on:
         required: true
         default: "https://smile.sparked-fhir.com"
       nodes:
-        description: "Comma-separated list of node names to update (e.g., 'aucore,ereq' or 'all' for all nodes)"
+        description: "Comma-separated list of node names to update (e.g., 'aucore' or 'all' for all nodes)"
         required: true
         default: "aucore"
       package_source:

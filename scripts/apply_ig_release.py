@@ -28,7 +28,7 @@ Usage:
         --package-id hl7.fhir.au.core \
         --version 2.1.0-draft \
         --ig-name "AU Core" \
-        --nodes aucore,ereq \
+        --nodes aucore \
         --install-mode STORE_AND_INSTALL \
         --fetch-dependencies false \
         --package-url ""            # optional; omit/empty to resolve from registry

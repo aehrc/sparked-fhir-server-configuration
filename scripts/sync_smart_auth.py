@@ -22,9 +22,10 @@ Canonical configuration per node:
                                  context-ehr-encounter (the launch script
                                  injects encounter context)
 
-hl7au is deliberately excluded: its live smart_auth predates the per-node
-layout (bare /smartauth context path, default-keystore). See
-docs/smart-auth-config.md.
+aucore is the only supported node since the ereq and hl7au decommission
+(2026-08-02). hl7au had always been excluded anyway: its live smart_auth
+predated the per-node layout (bare /smartauth context path, default-keystore).
+See docs/smart-auth-config.md.
 
 API Reference:
     https://smilecdr.com/docs/json_admin_endpoints/module_config_endpoint.html
@@ -41,7 +42,7 @@ Usage:
     python sync_smart_auth.py --apply
 
     # Single node
-    python sync_smart_auth.py --apply --node ereq
+    python sync_smart_auth.py --apply --node aucore
 
     # Archive the unused appSphere module (see docs/smart-auth-config.md)
     python sync_smart_auth.py --archive-app-gallery --apply
@@ -83,7 +84,7 @@ except ImportError:
 DEFAULT_BASE_URL = "https://smile.sparked-fhir.com"
 MODULE_ID = "smart_auth"
 APP_GALLERY_MODULE_ID = "app_gallery"
-SUPPORTED_NODES = ["aucore", "ereq"]
+SUPPORTED_NODES = ["aucore"]
 
 SCRIPT_PATH = Path(__file__).resolve().parent.parent / "module-config" / "smart-post-authorize.js"
 

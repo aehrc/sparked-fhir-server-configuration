@@ -49,38 +49,6 @@ sparked-test-data-loader load \
   --auth-header "$FHIR_AUTH_HEADER"
 ```
 
-**Clear and reload eRequesting test data:**
-```bash
-sparked-test-data-loader clear \
-  --mode wipe-all \
-  --fhir-url https://smile.sparked-fhir.com/ereq/fhir/DEFAULT \
-  --auth-header "$FHIR_AUTH_HEADER" \
-  --expunge
-
-sparked-test-data-loader load \
-  --method direct \
-  --fhir-url https://smile.sparked-fhir.com/ereq/fhir/DEFAULT \
-  --data-dir /tmp/test-data/au-fhir-test-data-set \
-  --auth-header "$FHIR_AUTH_HEADER"
-```
-
-**Load to both AU Core + eRequesting nodes:**
-```bash
-# Load to aucore
-sparked-test-data-loader load \
-  --method direct \
-  --fhir-url https://smile.sparked-fhir.com/aucore/fhir/DEFAULT \
-  --data-dir /tmp/test-data/au-fhir-test-data-set \
-  --auth-header "$FHIR_AUTH_HEADER"
-
-# Load to ereq
-sparked-test-data-loader load \
-  --method direct \
-  --fhir-url https://smile.sparked-fhir.com/ereq/fhir/DEFAULT \
-  --data-dir /tmp/test-data/au-fhir-test-data-set \
-  --auth-header "$FHIR_AUTH_HEADER"
-```
-
 **Dry run (preview without changes):**
 ```bash
 sparked-test-data-loader load \
@@ -95,7 +63,7 @@ sparked-test-data-loader load \
 
 Use the **Manage Test Data** workflow for common operations:
 - **Actions** -> **Manage Test Data** -> **Run workflow**
-- Operations: `clear-and-load-aucore`, `clear-and-load-ereq`, `clear-and-load-aucore-and-ereq`, `clear-and-expunge`
+- Operations: `clear-and-load-aucore`, `clear-and-expunge`
 
 Or use the individual workflows directly:
 - **Load Test Data** (`load-test-data.yml`) - Load data to any node
@@ -187,7 +155,7 @@ python scripts/sync_smart_auth.py
 python scripts/sync_smart_auth.py --apply
 
 # Single node
-python scripts/sync_smart_auth.py --apply --node ereq
+python scripts/sync_smart_auth.py --apply --node aucore
 
 # Also archive the unused appSphere (app_gallery) module
 python scripts/sync_smart_auth.py --archive-app-gallery --apply
@@ -230,7 +198,7 @@ python sync_packages.py --nodes all --source config --dry-run
 python sync_packages.py --nodes aucore --source config
 
 # Update multiple specific nodes
-python sync_packages.py --nodes aucore,ereq --source config
+python sync_packages.py --nodes aucore --source config
 
 # Force reinstall all packages
 python sync_packages.py --nodes all --source config --force-reinstall

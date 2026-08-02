@@ -45,7 +45,7 @@ body:
       description: |
         Full description of the request.
         For a **bug report**, please include: steps to reproduce, expected vs actual behaviour,
-        and the affected node/environment (e.g. aucore, ereq, tx.dev).
+        and the affected node/environment (e.g. aucore, tx.dev).
       placeholder: "Describe what you need, or what went wrong and how to reproduce it."
     validations:
       required: true

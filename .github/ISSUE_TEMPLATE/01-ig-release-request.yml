@@ -95,19 +95,17 @@ body:
       description: |
         Which SmileCDR nodes should this IG package be deployed to?
 
-        The `aucore` and `ereq` nodes make up the **Sparked Dev FHIR Server** on
+        The `aucore` node is the **Sparked Dev FHIR Server** on
         `smile.sparked-fhir.com`. This is not the HL7 AU reference server at `fhir.hl7.org.au`,
         which is a separate system (see the repository Governance notes).
 
         **Node Descriptions:**
         - **aucore**: AU Core node of the Sparked Dev FHIR Server (`smile.sparked-fhir.com/aucore`)
-        - **ereq**: eRequesting node of the Sparked Dev FHIR Server (`smile.sparked-fhir.com/ereq`)
 
-        **Tip**: Most Australian IGs should be requested for `aucore`. eRequesting-specific IGs should also include `ereq`.
+        The `ereq` and `hl7au` nodes were decommissioned on 2026-08-02. AU eRequesting is no
+        longer run under Sparked, so eRequesting IG releases are not deployed here.
       options:
         - label: aucore (Sparked dev AU Core node)
-          required: false
-        - label: ereq (Sparked dev eRequesting node)
           required: false
   - type: checkboxes
     id: deployment-options

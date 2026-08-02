@@ -176,8 +176,10 @@ jobs:
               const lines = targetNodesSection.split('\n');
               for (const line of lines) {
                 if (line.includes('[x]') || line.includes('[X]')) {
+                  // aucore is the only node since the ereq/hl7au decommission
+                  // (2026-08-02). Issues opened before then may still tick ereq;
+                  // it is ignored rather than dispatched at a node that is gone.
                   if (line.includes('aucore')) selectedNodes.push('aucore');
-                  if (line.includes('ereq')) selectedNodes.push('ereq');
                 }
               }
             }
