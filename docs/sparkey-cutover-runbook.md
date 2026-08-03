@@ -215,6 +215,29 @@ Expect the same 11/11, this time through real DNS. Also confirm:
 - the served certificate is this cluster's, `CN=smile.sparked-fhir.com` issued by
   Let's Encrypt, not the old cluster's
 
+### The first $validate after a restart returns 504
+
+Running the smoke suite ~2 minutes after a pod restart fails on `$validate` with
+HTTP 504. It is not a real failure and not caused by the OTel agent: the same
+call five minutes later is HTTP 422 in 0.09s to 0.46s, consistently.
+
+The cause is that readiness and usability are not the same thing here. The
+readiness probe is `GET /aucore/fhir/endpoint-health` on 8000, which is cheap, so
+the pod is marked Ready while the validation support chain and terminology caches
+are still empty. The first `$validate` then has to warm all of that, including
+remote terminology calls to `tx.dev.hl7.org.au`, and overruns the gateway
+timeout.
+
+Two consequences worth knowing:
+
+- **Do not treat a post-restart smoke run as authoritative.** Give the server a
+  few minutes, or re-run the one check.
+- **Clients calling `$validate` in that window get a 504**, not a slow response.
+  Restarts are not as transparent as the zero-downtime rollout implies.
+
+Pre-existing, not introduced by the migration or the agent. Listed as a
+follow-up below rather than fixed here.
+
 ### Config parity, checked after the cutover
 
 `scripts/config_diff.py` compares runtime module config between the two servers.
@@ -355,6 +378,7 @@ Not cutover blockers. Listed so they are not lost.
 | Ship network-policy deny events somewhere queryable | `--enable-cloudwatch-logs=true` on `aws-eks-nodeagent`; today they are node-local only, which is why this runbook's Loki check was silently vacuous |
 | No Smile CDR application telemetry, on either cluster | fixed by sparked-argo #228, which adds the `Instrumentation` CR to `smile`. Needs one pod restart after it lands, since injection happens at admission. The `inject-java` annotation is a silent no-op without a CR in the pod's own namespace |
 | Decide on AU Base `gender-identity` search | see the section above; a capability the old server had and sparkey does not |
+| `$validate` 504s for a few minutes after every restart | the readiness probe is a cheap health endpoint, so the pod is Ready long before the validation chain and terminology caches are warm. Either warm the validator during startup or gate readiness on it |
 | Consolidate the `OTEL_*` env vars into the Instrumentation CR | they now duplicate it; needs a terraform apply, so do it deliberately rather than opportunistically |
 | Convert sparkey's gateway from Classic ELB to NLB | legacy resource type fronting 19 hostnames |
 | Activate cost-allocation tags | still pending with CSIRO IMT; blocks measuring the saving |
