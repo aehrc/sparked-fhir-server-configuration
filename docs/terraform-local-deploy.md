@@ -2,6 +2,12 @@
 
 How to plan and apply the Sparked Smile CDR infrastructure from a workstation.
 
+> **This document covers the deployment on the dedicated `sparked-smilecdr`
+> cluster.** For the parallel deployment on the shared `sparkey` cluster, see
+> [sparkey-deploy-runbook.md](sparkey-deploy-runbook.md). The two use separate
+> state keys and separate tfvars, and `terraform init -reconfigure` selects
+> between them.
+
 **Terraform is applied locally, not in CI.** The `Smile Configuration Deployment`
 workflow (`.github/workflows/smile-application.yml`) is intentionally disabled: running
 `terraform plan`/`apply` against live infrastructure in a public repository would publish
@@ -21,9 +27,17 @@ instead; this document covers the normal, steady-state deploy.
   AWS SSO with admin access. Confirm with `aws sts get-caller-identity`.
 - **The two gitignored config files present in `terraform/`** with real values (see one-time
   setup below):
-  - `backend.hcl`, the S3 state bucket name. State lives at key `infra/smile-app/prod.tfstate`.
-  - `terraform.tfvars`, the three no-default variables: `s3_bucket_name`,
-    `cdr_regcred_secret_arn`, `smilecdr_iam_role_name`.
+  - `backend.hcl`, the S3 state bucket name **and the state key**. This deployment uses
+    `infra/smile-app/prod.tfstate`. The key used to be hardcoded in `provider.tf` and moved
+    into the backend config when a second deployment was added, so that initialising the
+    wrong one cannot silently attach to live production state. If `terraform init` prompts
+    interactively for `key`, you passed no `-backend-config`: stop rather than typing a value.
+  - `terraform.tfvars`, the no-default variables: `s3_bucket_name` and
+    `cdr_regcred_secret_arn`, plus `smilecdr_iam_role_name` pinned to
+    `smile-smilecdr-dff66d5832d6f1c8` for this deployment. That variable is optional now
+    (it defaults to null and is otherwise reconstructed from the module's naming
+    convention), but keep it set here: this deployment's role name carries a random suffix
+    that predates `resourcenames_suffix`, so it cannot be reconstructed.
 - **kubectl** (optional, for verification only). Terraform authenticates to EKS through the
   module's data sources, so it ignores your local kubectl context. For direct `kubectl`
   against the cluster, use `--context sparked-smile`.
@@ -32,9 +46,9 @@ instead; this document covers the normal, steady-state deploy.
 
 ```bash
 cd terraform
-cp backend.hcl.example backend.hcl              # set the real state bucket name
+cp backend.hcl.example backend.hcl              # set the real state bucket name (key is already in the example)
 cp terraform.tfvars.example terraform.tfvars    # set s3_bucket_name, cdr_regcred_secret_arn, smilecdr_iam_role_name
-terraform init -backend-config=backend.hcl
+terraform init -reconfigure -backend-config=backend.hcl
 ```
 
 Both files are gitignored (`.gitignore`) and must never be committed.

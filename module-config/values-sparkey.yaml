@@ -1,0 +1,222 @@
+# Overlay for the Smile CDR deployment on the shared `sparkey` cluster.
+#
+# Layered ON TOP of values-common.yaml and simplified-multinode.yaml (the
+# helm_chart_values list in terraform/main.tf is ordered, last wins), so this file
+# holds only what differs from the dedicated-cluster deployment. Upstream
+# recommends exactly this shape over a separate full config per environment; see
+# docs/guide/values-files-management.md in smile-dh-helm-charts.
+#
+# ---------------------------------------------------------------------------
+# specs.hostname is deliberately NOT overridden here.
+# ---------------------------------------------------------------------------
+# It is tempting to set it to smile-next.sparked-fhir.com to match the temporary
+# hostname this deployment is reachable on. Do not.
+#
+# specs.hostname is not a routing setting. The chart renders it into the Smile CDR
+# module config as the advertised base URL (see _scdr-module-helpers.tpl, which
+# builds `https://<specs.hostname><path>` for each service), so it becomes the
+# FHIR base in the CapabilityStatement, the issuer and endpoint URLs in
+# .well-known/smart-configuration, and the base for Bundle pagination links.
+#
+# Keeping it at smile.sparked-fhir.com means the server running here is configured
+# EXACTLY as it will be after cutover, so:
+#   - the SMART/OAuth path can be validated for real, against registered redirect
+#     URIs and the issuer that clients already trust;
+#   - cutover is a pure DNS and route change with NO config edit and NO pod
+#     restart, because nothing about the running server has to change.
+#
+# The cost is that browsing https://smile-next.sparked-fhir.com returns bodies
+# whose fullUrl and pagination links point at smile.sparked-fhir.com, i.e. back at
+# the OLD server. That is a browsing artefact, not a data artefact: the resources
+# returned are this deployment's. Two ways to work around it, in preference order:
+#
+#   1. scripts/upgrade_smoke_tests.sh --connect-to <sparkey gateway LB>
+#      Targets this cluster's load balancer while keeping SNI and Host as
+#      smile.sparked-fhir.com. This is the acceptance gate.
+#   2. A local /etc/hosts entry mapping smile.sparked-fhir.com to the sparkey
+#      gateway LB, for faithful interactive browsing.
+#
+# The temporary hostname lives on the HTTPRoute instead (charts/smilecdr-routes in
+# sparked-argo), which is where a routing concern belongs. Route hostname and
+# advertised hostname are different things and this split is on purpose.
+
+# ---------------------------------------------------------------------------
+# The chart does not render its own ingress here.
+# ---------------------------------------------------------------------------
+# sparkey serves every hostname through one shared Envoy Gateway that already
+# fronts 17 other names, and the HTTPRoutes are authored in GitOps
+# (sparked-argo charts/smilecdr-routes). Upstream expects this: "A Gateway
+# resource lives in the cluster and is shared across multiple Smile CDR
+# deployments (and other workloads) ... sdh-deps does not create the Gateway
+# itself" (docs/terraform/sdh-deps/ingress.md, v9.0.2).
+#
+# Leaving this enabled would also pull in the chart's aws-lbc-gwapi path, which
+# emits an AWS Load Balancer Controller TargetGroupConfiguration that means
+# nothing to Envoy Gateway and needs a newer LBC than this cluster runs (v2.7.1,
+# without the ALBGatewayAPI/NLBGatewayAPI feature gates).
+#
+# The nginx proxy-body-size annotation inherited from values-common.yaml is inert
+# once this is false. The 16 MiB limit it was raising still has to be reproduced
+# on the Envoy side before cutover, or large FHIR transaction Bundles will start
+# failing at the edge. Track that as a BackendTrafficPolicy/ClientTrafficPolicy in
+# sparked-argo, not here.
+ingresses:
+  default:
+    enabled: false
+
+# ---------------------------------------------------------------------------
+# Scheduling: the dedicated prod NodePool.
+# ---------------------------------------------------------------------------
+# BOTH of these are required, and neither is sufficient alone.
+#
+# The toleration gets past the `dedicated=prod:NoSchedule` taint, which is what
+# keeps every other workload on the cluster off this pool. Without it the pod
+# sits Pending.
+#
+# The nodeSelector is what actually chooses the pool. values-common.yaml already
+# pins karpenter.sh/capacity-type=on-demand by hard nodeAffinity, but sparkey has
+# an untainted `on-demand-overflow` NodePool, so that pin alone would also be
+# satisfied there, on a pool running WhenEmptyOrUnderutilized with
+# consolidateAfter 1m. `workload: prod` is set only by the on-demand-prod pool
+# (sparked-argo apps/karpenter-config/nodepool-ondemand-prod.yaml), which
+# consolidates WhenEmpty only, so a node holding this pod is never consolidated
+# away while drift and expiry still rotate it onto patched AMIs.
+#
+# This matters more than usual because Smile CDR runs a single replica with no
+# HPA and a PodDisruptionBudget that permits the eviction it appears to prevent,
+# so every voluntary disruption of its node is a real, if brief, outage.
+nodeSelector:
+  workload: prod
+
+tolerations:
+  - key: dedicated
+    operator: Equal
+    value: prod
+    effect: NoSchedule
+
+# ---------------------------------------------------------------------------
+# Startup probe budget, raised for cold starts.
+# ---------------------------------------------------------------------------
+# The chart default is failureThreshold 30 x periodSeconds 10 = 300s, and the
+# probe is an exec grepping smile.log for "Smile, we're up and running! :)".
+# Five minutes is ample for a warm start and NOT enough for a cold one.
+#
+# Observed on this deployment's first boot: the container ran 11:44:40 to
+# 11:50:33 (~6 minutes) and was SIGKILLed (exit 137) by the startup probe, then
+# restarted. A cold start against an empty database has to do the full schema
+# migration AND install the seeded packages (AU Base, AU Core, IPS, AUPS) with
+# their ValueSet expansion, none of which the live server pays because that work
+# is already in its database.
+#
+# The chart anticipates this. From _scdr-misc-helpers.tpl:
+#   "Startup Probe may need to be configurable in cases where a Smile CDR
+#    configuration takes longer than the default settings of 5 mins."
+#
+# 120 x 10s = 1200s (20 min), comfortably inside the 1800s helm_chart_timeout in
+# terraform/main.tf. Raising this cannot slow a healthy boot: it only changes how
+# long kubelet waits before giving up.
+#
+# NOTE this is a latent problem on the dedicated-cluster deployment too, which
+# carries the same 300s budget and would hit it on any cold start (a restore, or
+# a rebuild). It is set here rather than in values-common.yaml only to keep the
+# live deployment's pod spec untouched during the migration. Promote it to
+# values-common.yaml once the migration is done.
+startupProbe:
+  failureThreshold: 120
+  periodSeconds: 10
+
+# ---------------------------------------------------------------------------
+# OIDC token-signing keystore.
+# ---------------------------------------------------------------------------
+# smart_auth is configured with openid.signing.keystore_id =
+# smilecdr-token-signing, but nothing in this repo ever created that keystore. On
+# the live server it exists only because it was made by hand in the admin
+# console, i.e. runtime state in the database that git cannot reproduce. A server
+# built from this repo alone dies on boot:
+#
+#   ConfigurationException: No keystore with id smilecdr-token-signing
+#     -> tokenEnhancer fails -> smart_auth FAILED_TO_START
+#     -> fhir_endpoint gets no OIDC provider -> fails
+#     -> fhirweb_endpoint depends on fhir_endpoint -> fails
+#
+# Smile CDR seeds keystores from the file named by the clustermgr property
+# seed_keystores.file, which the chart already defaults to
+# classpath:/config_seeding/keystores.json. The container ships a sample there
+# holding only the demo keystore, so this mounts a real one over it.
+#
+# The document (private JWK inline) lives in AWS Secrets Manager, created by
+# scripts/generate_token_signing_keystore.py, so the key is never in git and
+# never in terraform state. Same Secrets Store CSI mechanism as users.json above.
+#
+# DELIBERATELY NOT IN values-common.yaml. The live server already has a working
+# keystore under this id, and it is NOT established whether seed_keystores
+# overwrites an existing keystore or skips it. If it overwrites, sharing this
+# would silently replace the live signing key and invalidate every token it has
+# issued. Confirm that behaviour before promoting this, and see the same open
+# question for partition seeding in docs/multitenancy-rollout-plan.md.
+secrets:
+  tokenSigningKeystore:
+    name: smilecdr-token-signing-jwks
+    type: sscsi
+    provider: aws
+    secretName: smilecdr-token-signing-jwks
+    secretArn: "PLACEHOLDER_SET_VIA_TERRAFORM"
+    secretKeyMap:
+      keystores-json:
+        secretKeyName: content
+        k8sSecretKeyName: keystores-json
+        mountSpec:
+          mountPath: /home/smile/smilecdr/classes/config_seeding/keystores.json
+          subPath: keystores-json
+
+# ---------------------------------------------------------------------------
+# Module config source: PROPERTIES_UNLOCKED, not DATABASE.
+# ---------------------------------------------------------------------------
+# simplified-multinode.yaml sets `config.database: true` on every node, which
+# renders node.propertysource = DATABASE. The chart documents what that means:
+#
+#   "in DATABASE mode, the module definitions below this line are only used to
+#    seed the database upon the very first startup of the system, and will be
+#    ignored after that. In PROPERTIES mode, the module definitions below are
+#    read every time the system starts, and existing definitions and config are
+#    overwritten by what is in this file."
+#
+# That single behaviour is the root cause of every configuration gap found while
+# standing this deployment up: the missing SECURITY_IN_OIC dependency, the
+# missing token-signing keystore, and the console-only smart_auth settings the
+# sync script exists to reconcile. All of them were added to a running server
+# after its first boot, so git never saw them and could not reproduce them.
+#
+# It also makes iteration brutally expensive. The SECURITY_IN_OIC fix was
+# correctly rendered into the configmap and the server still ignored it, because
+# the module record already existed in the database from the first (broken) boot.
+# The only remedy was destroying the whole stack.
+#
+# The chart itself warns against this mode:
+#
+#   "WARNING: `config.database` is enabled ... This mode is unsupported and not
+#    recommended for use when deploying using Helm ... If modules are added or
+#    altered in the console, the environment will be in a state of drift compared
+#    to the Helm Chart values."
+#
+# PROPERTIES_UNLOCKED (troubleshooting) rather than plain PROPERTIES: properties
+# are still authoritative and overwrite on every boot, so drift cannot accumulate,
+# but the admin console stays usable for live troubleshooting during an event.
+# Console changes are lost on the next restart, which turns silent permanent
+# drift into loud temporary drift and pushes the fix back into git.
+#
+# `database: false` is required, not just omitted: the chart checks
+# `config.database` first, and helm deep-merges this overlay onto
+# simplified-multinode.yaml, so the inherited `true` would otherwise win.
+#
+# NOT promoted to values-common.yaml. In this mode the properties file OVERWRITES
+# existing module config, and the live server's configuration is known to be
+# incomplete in git. Flipping it there today would strip whatever else was added
+# by console over the years. Prove the repo is complete here first. The chart's
+# warning is explicit that reverting the mode on a drifted database can cause
+# "modules being incorrectly configured, resulting to critical system faults".
+cdrNodes:
+  aucore:
+    config:
+      database: false
+      troubleshooting: true

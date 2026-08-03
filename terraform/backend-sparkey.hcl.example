@@ -1,0 +1,13 @@
+# Backend config for the deployment on the shared sparkey cluster. Copy to
+# backend-sparkey.hcl (gitignored, *.hcl is not, so check before committing) and
+# fill in the bucket.
+#
+#   terraform init -reconfigure -backend-config=backend-sparkey.hcl
+#   terraform plan  -var-file=../tfvars/sparkey.tfvars
+#
+# A SEPARATE key from prod.tfstate, deliberately. The two deployments run in
+# parallel through the migration, so they must not share state; the old one stays
+# authoritative until DNS cuts over and is destroyed only after the soak.
+
+bucket = "your-terraform-state-bucket"
+key    = "infra/smile-app/sparkey.tfstate"

@@ -65,14 +65,52 @@ cdrNodes:
           dao_config.default_total_mode: "NONE"
           dao_config.delete_enabled: true
           dao_config.enforce_referential_integrity_on_delete.enabled: true
-          dao_config.auto_create_placeholder_reference_targets.enabled: false
-          dao_config.allow_multiple_delete.enabled: false
+          # Both set true on 2026-08-03 to match the live server, which has run
+          # them enabled since an undated console change while this file asserted
+          # the opposite. Not a silent omission: the repo actively disagreed.
+          #
+          # Recorded because the obvious justification does NOT hold. The
+          # test-data tooling depends on neither: clear_test_data.py deletes
+          # single resources by id rather than by search criteria, so it needs no
+          # multiple-delete, and load_test_data.py orders resources by
+          # RESOURCE_TYPE_ORDER so it does not rely on placeholder creation. The
+          # flags that tooling actually needs are the expunge pair below.
+          #
+          # Chosen for parity instead. A migration should reproduce the server
+          # that exists rather than quietly harden it: something undocumented may
+          # rely on these (a vendor transaction bundle carrying forward
+          # references, a participant workflow), and a rebuild is the wrong moment
+          # to discover that.
+          #
+          # Both do loosen the server, so they deserve a deliberate review as
+          # their own change once the migration is done:
+          #   allow_multiple_delete            permits DELETE by search criteria,
+          #                                    so one bad query can remove many
+          #   auto_create_placeholder_targets  silently invents referenced
+          #                                    resources instead of rejecting a
+          #                                    dangling reference
+          dao_config.auto_create_placeholder_reference_targets.enabled: true
+          dao_config.allow_multiple_delete.enabled: true
           dao_config.allows_external_references.enabled: true
           dao_config.allow_external_references.enabled: true
           dao_config.server_id_mode: "UUID" #AUTOGENERATE instead?
           dao_config.fetch_size.default_maximum: 1000
           dao_config.allow_contains_searches: true
           dao_config.match_url_cache.enabled: true
+          # The four below are live on the server and were absent here, so a
+          # rebuild silently produced a less capable node. All were console edits.
+          #
+          # The two expunge flags are not optional extras: scripts/clear_test_data.py
+          # and the clear-test-data workflow both drive $expunge, and without them
+          # clearing test data between events fails.
+          dao_config.delete_expunge_enabled: true
+          dao_config.expunge_operation_enabled: true
+          # Required for the AU Patient Summary $summary operation, which is what
+          # ig_support.ips.generation_strategy_class below plugs into. Without it
+          # the generator jar is loaded and never invoked.
+          ig_support.ips.enabled: true
+          # Restricts subscription resthook targets to http/https URLs.
+          subscription.resthook.url_validation_regex: "((((http?|https?)://))([-%()_.!~*';/?:@&=+$,A-Za-z0-9])+)"
           dao_config.client_id_mode: "ANY"
           subscription.rest_hook_enabled: true
           subscription.message.enabled: true
@@ -89,11 +127,70 @@ cdrNodes:
           db.password: "#{env['AUCORE_DB_PASS']}"
           db.username: "#{env['AUCORE_DB_USER']}"
       fhir_endpoint:
+        # SECURITY_IN_OIC is the one module dependency that is neither a chart
+        # default nor was previously declared here, and without it
+        # security.oic.enabled below is set with nothing providing OIDC.
+        #
+        # The chart's default-modules.yaml wires PERSISTENCE_ALL and
+        # SECURITY_IN_UP for this module but not SECURITY_IN_OIC, and the live
+        # server only has it because it was added out of band at some point. A
+        # server built from this repo alone therefore fails to boot the endpoint:
+        #
+        #   Error creating bean with name 'webSecurityFilterChain' ...
+        #   No dependency of type 'OpenID Connect Authentication' has been specified
+        #
+        # Found 2026-08-02 on the first cold boot of the sparkey deployment, which
+        # is the first time this config has ever been applied to an empty
+        # database. No-op against the live server, whose module records already
+        # carry the dependency (config.database: true means seeded properties
+        # apply on first boot only).
+        requires:
+          SECURITY_IN_OIC: smart_auth
         config:
           request_validating.enabled: true
           partitioning.tenant_identification_strategy: "URL_BASED"
           context_path: "aucore/fhir"
-          # base_url.fixed: ""
+          # The advertised FHIR base: CapabilityStatement implementation.url,
+          # Bundle pagination links and entry.fullUrl are all built from it.
+          #
+          # NOT optional, and NOT derived from specs.hostname. Left unset the
+          # chart falls back to the in-cluster Service address, and the rebuilt
+          # server duly advertised "http://smilecdr-scdr-svc-fhir:8000/aucore/fhir"
+          # to the outside world. Set on the live server but only ever as a
+          # console edit, so it was invisible here until a cold boot exposed it.
+          #
+          # Pinned to the production hostname on both deployments, including the
+          # one served at smile-next during the migration, so the parallel server
+          # advertises the base clients already use and cutover needs no config
+          # change. Same reasoning as issuer.url and specs.hostname.
+          base_url.fixed: "https://smile.sparked-fhir.com/aucore/fhir"
+          # Required to set base_url.fixed at all. The chart autoconfigures that
+          # value from its OWN ingress: to the ingress hostname when one is
+          # enabled, and to the in-cluster Service address when none is. It then
+          # rejects any explicit value that disagrees, which is why the first
+          # attempt failed with:
+          #
+          #   `base_url.fixed` is set to `https://smile.sparked-fhir.com/aucore/fhir`
+          #   for the `fhir_endpoint` module. This is an invalid configuration.
+          #   If you need to override this, you can set `base_url.mismatch_allowed`.
+          #
+          # The chart is blunt about the escape hatch (_scdr-module-helpers.tpl):
+          # "This is not supported and may lead to unpredictable behaviour. It is
+          # only suitable for troubleshooting where you need to override the
+          # value."
+          #
+          # Used deliberately anyway, because the chart's assumption does not hold
+          # here: it infers that a deployment with no chart-managed ingress is
+          # reachable only in-cluster. On sparkey the routing is real but owned
+          # outside the chart, by the HTTPRoutes in sparked-argo, which is the
+          # arrangement upstream itself documents ("sdh-deps does not create the
+          # Gateway itself"). The chart cannot know the external hostname, so it
+          # has to be told.
+          #
+          # The effect is narrow and understood: the value passes through
+          # verbatim instead of being overwritten by the sentinel. Revisit if the
+          # chart ever gains a way to declare an externally-managed hostname.
+          base_url.mismatch_allowed: true
           security.oic.enabled: true
       package_registry:
         config:
@@ -101,6 +198,22 @@ cdrNodes:
       admin_web:
         config:
           context_path: "aucore/console"
+          # Both live on the server and absent here until the 2026-08-03 drift
+          # audit. Cosmetic rather than functional, but carried so a rebuild
+          # reproduces the console operators actually see.
+          prometheus_datasource_id: "prom"
+          privacy_security_notice.copy: "This access is governed by our Privacy and Security notice.Please agree to these terms."
+      # Not previously declared at all: the chart's default local_security module
+      # was taken as-is, so this setting existed only as a console edit on the
+      # live server.
+      #
+      # NOTE the value is weak: `.{4,100}` permits a four-character password on a
+      # publicly reachable server. It is carried verbatim so the rebuild matches
+      # live rather than silently changing auth behaviour mid-migration. Tighten
+      # it deliberately, as its own change, once the migration is done.
+      local_security:
+        config:
+          password_pattern: ".{4,100}"
       admin_json:
         config:
           context_path: "aucore/admin-json"
@@ -116,6 +229,49 @@ cdrNodes:
       smart_auth:
         name: security_out_smart
         config:
+          # The OIDC issuer, and the base every endpoint in
+          # .well-known/openid-configuration is built from. It is NOT derived
+          # from specs.hostname: leave it unset and the server advertises
+          # "https:///aucore/smartauth" with an empty host, which breaks
+          # discovery for every SMART client.
+          #
+          # Set on the live server but absent from this repo until 2026-08-03, so
+          # it could only surface on a cold boot (config.database means seeded
+          # properties apply on first boot only). Same class of gap as the
+          # SECURITY_IN_OIC dependency and the token-signing keystore.
+          #
+          # Deliberately names the PRODUCTION hostname on both deployments,
+          # including the one served at smile-next during the migration, so the
+          # parallel server issues tokens carrying the issuer clients already
+          # trust and cutover needs no config change or restart. Same reasoning
+          # as specs.hostname; see the header of values-sparkey.yaml.
+          issuer.url: "https://smile.sparked-fhir.com/aucore/smartauth"
+          # SMART capability advertisement in .well-known/smart-configuration.
+          #
+          # The value Smile CDR wants is newline-separated, and the chart renders
+          # every config item as one "key \t= value" properties line, so a real
+          # newline cannot be expressed. The comma-separated form its neighbours
+          # use (auth_request_detail.whitelist above) is rejected outright:
+          #
+          #   Module [smart_auth] failed to start!
+          #   Error creating bean with name 'smartCapabilitiesSet'
+          #
+          # So this uses ESCAPED newlines. Single-quoted in YAML so the backslash
+          # survives as a literal character, giving the properties file
+          # `...= launch-ehr\nlaunch-standalone\n...` on one line, which
+          # java.util.Properties unescapes back into the multi-line value.
+          # Verified by rendering the chart offline before applying.
+          #
+          # Why bother, rather than leaving it to scripts/sync_smart_auth.py:
+          # that script applies over the admin API, and this node runs
+          # PROPERTIES_UNLOCKED, where properties are re-read and overwrite the
+          # module config on every boot. Measured 2026-08-03: the script's
+          # changes were gone after one pod restart. Anything that must survive a
+          # restart has to be here, not applied afterwards.
+          #
+          # context-ehr-encounter is the entry that matters: smart-post-authorize.js
+          # injects encounter launch context, and the chart default omits it.
+          smart_capabilities_list: 'launch-ehr\nlaunch-standalone\nclient-public\nclient-confidential-symmetric\ncontext-ehr-patient\ncontext-ehr-encounter\ncontext-standalone-patient\nsso-openid-connect\npermission-patient\npermission-offline'
           context_path: "aucore/smartauth"
           auth_request_detail.whitelist: "aud,grant_type,scope,launch"
           openid.signing.keystore_id: smilecdr-token-signing
