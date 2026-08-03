@@ -379,6 +379,43 @@ on the old server, so sparkey is ahead of what was lost.
 > `code: supporting-info`. Only `gender-identity` and `indigenous-status` have a
 > code matching their URL suffix.
 
+#### Installing a SearchParameter does not index existing data. Reindex.
+
+The dangerous half of this. Straight after the install every AU Base search
+returned **HTTP 200 with `total: 0`**, while 25 patients demonstrably carried the
+`individual-genderIdentity` extension. A search that 400s is obvious; one that
+returns 200 and an empty bundle looks like "no matching data" and will be
+believed.
+
+Package-installed SearchParameters do not mark pre-existing resources for
+reindexing, and nothing in the scheduled jobs picks them up. The index stays
+empty until a reindex is run explicitly, per resource type:
+
+```bash
+POST /aucore/fhir/DEFAULT/$reindex
+{"resourceType":"Parameters","parameter":[{"name":"url","valueString":"Patient?"}]}
+```
+
+Returns 202. It is a Batch2 job, so it queues: expect a few minutes before it
+starts, not instant. Watch for `$reindex work chunk with N resources` in the pod
+log, then re-run the search.
+
+Reindexed on 2026-08-03 for every type the AU Base parameters target: Patient
+(93), Encounter (26), Practitioner (378), PractitionerRole (362), RelatedPerson
+(38), ServiceRequest (0). Verified afterwards against real data rather than by
+status code:
+
+| query | result | |
+|---|---|---|
+| `Patient?gender-identity=446141000124107` | 6 | old server returns 3, different AU Base version and expression |
+| `Patient?indigenous-status=1` | 17 | was 0 before the reindex |
+| `Encounter?discharge-disposition=9` | 1 | the only Encounter carrying the field |
+| `ServiceRequest?supporting-info=` | 0 | correct, there are no ServiceRequest resources |
+
+**Any future package install that adds SearchParameters needs the same reindex**,
+and the verification has to be against known-matching data. Checking for a 200 is
+not enough.
+
 `$validate` returned 504 on the smoke run two minutes after the restart and 422
 in 0.09s once warm, matching the pre-existing cold-start behaviour above rather
 than anything the 109 new profiles introduced.
