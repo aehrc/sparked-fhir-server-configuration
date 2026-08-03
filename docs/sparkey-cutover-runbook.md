@@ -482,6 +482,14 @@ Rollback is lossless for reads. Any writes accepted by the new server between th
 flip and the rollback stay only on the new server's Aurora, so keep the window
 short and prefer flipping outside an event.
 
+**The fallback decays.** Holding the old stack to 25 to 26 August keeps a way
+back, but by then its data is three weeks stale: everything written to sparkey
+since 2026-08-03 exists only there. So the retained old cluster is a way to keep
+serving, not a way to recover recent state. If rollback is ever used after a long
+gap, the writes on sparkey's Aurora have to be reconciled by hand or accepted as
+lost. That argues for deciding quickly if something is wrong, rather than
+treating a months-old fallback as equivalent.
+
 ## After the soak
 
 Two to four weeks is the suggested soak. Then, in order:
@@ -504,6 +512,50 @@ Two to four weeks is the suggested soak. Then, in order:
 
    Losing the rollback target is the accepted consequence of this step. Do not
    start it while the rollback path above still matters.
+
+   **Held until after the 25 to 26 August event.** The old stack is retained as
+   the fallback while the new one takes event load, which is the first real
+   stress test it will get. Final snapshot
+   `smile-old-cluster-final-retain-20260803` is already taken and tagged
+   `Retain=true`, so that prerequisite is done whenever teardown resumes.
+
+   Four things were checked on 2026-08-03 and must be handled when it does.
+
+   **`terraform destroy` on the app stack DELETES the Aurora cluster, it does not
+   stop it.** `aws_rds_cluster.this` and `aws_rds_cluster_instance.this` are both
+   in `infra/smile-app/prod.tfstate`. If the intent is to keep the database, stop
+   it out of band with `aws rds stop-db-cluster` and leave that stack alone.
+   Note a stopped Aurora cluster **restarts itself after 7 days**, so stopping is
+   a pause, not a resting state. It is Serverless v2 (0.5 to 4.0 ACU), so idle
+   cost is already modest and storage bills either way.
+
+   **Delete the LoadBalancer Services before destroying the cluster.** Three exist
+   and each holds an AWS load balancer:
+
+   | Service | Type |
+   |---|---|
+   | `ingress-nginx/ingress-nginx-controller` | NLB, the one that served production |
+   | `envoy-gateway-system/envoy-default-main-gateway-0c7e158b` | NLB |
+   | `argocd/argocd-ingress-nginx-controller` | Classic ELB |
+
+   Destroying the cluster with these in place strands the load balancers. That is
+   exactly how `a461e4fb43cdd45fba222e1e4dd0e9c5` was orphaned, still billing
+   months later.
+
+   **Remove two Route53 records first, or they dangle.**
+   `smile-argo.sparked-fhir.com` and `smile-monitoring.sparked-fhir.com` are
+   aliases to the argocd Classic ELB on this cluster. An alias left pointing at a
+   deleted load balancer is not merely broken, it is a subdomain-takeover
+   surface. Delete the records in the same change as the cluster.
+
+   **Repoint or retire the monitor.** `152.83.96.24` polls
+   `/aucore/console/`, `/ereq/console/` and `/hl7au/console/` on the old cluster
+   every few minutes. Two of those nodes no longer exist on sparkey, so it cannot
+   simply be aimed at the new cluster; decide what it should check first,
+   otherwise teardown converts it into a standing alert.
+
+   The EKS cluster itself is a separate stack, `smilecdr/smile-eks`, state key
+   `infra/smile/prod.tfstate`.
 3. **Archive `aehrc/sparked-smile-argo`.** Its Envoy config and smilecdr-routes
    chart have moved to sparked-argo; its dashboards should move to sparkey's
    Grafana before this.
