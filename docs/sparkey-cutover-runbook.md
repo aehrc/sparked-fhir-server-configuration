@@ -5,8 +5,15 @@ parallel deployment on `sparkey`. The build is covered by
 [sparkey-deploy-runbook.md](sparkey-deploy-runbook.md); this is the flip and the
 decommission.
 
-**The cutover itself is one line.** Everything else here is checking before and
-after.
+**Status: cut over 2026-08-03 07:22 UTC.** `smile.sparked-fhir.com` resolves to
+sparkey's gateway and the smoke suite passes 11/11 through real DNS. What remains
+is the soak and the decommission.
+
+**The cutover was not one line**, which is what this runbook previously promised.
+It took a chart fix (sparked-argo #226), the flag (#227), and a Route53 ownership
+transfer that was not documented at all. The corrected sequence is below; the
+sections that were wrong say so rather than being quietly overwritten, because
+the same assumptions will show up in the next migration.
 
 ## Preconditions
 
@@ -115,8 +122,11 @@ hostnames:
 ```
 
 That removes the `external-dns.alpha.kubernetes.io/controller: "none"` annotation
-from the production HTTPRoutes, and external-dns repoints the A record at
-sparkey's gateway within its sync interval (1m).
+from the production HTTPRoutes.
+
+**The flag alone does not move DNS, and did not.** It was necessary but not
+sufficient, and this cost an hour on the day. See "Hand the record to
+external-dns" below, which has to happen as well.
 
 Prepared as sparked-argo #227, stacked on #226. Merge #226 first, then rebase
 #227 onto main and merge it. With #226 in place the rendered diff of the flip is
@@ -128,9 +138,56 @@ diff <(git show main:charts/smilecdr-routes/values.yaml > /tmp/v.yaml; \
      <(helm template smilecdr-routes charts/smilecdr-routes -n smile)
 ```
 
-Nothing else changes. The listener, certificate, routes and body limit are
-already in place, and the server has been advertising the production FHIR base
-and OIDC issuer since it was built, so no config changes and no pod restart.
+Nothing else changes on the cluster. The listener, certificate, routes and body
+limit are already in place, and the server has been advertising the production
+FHIR base and OIDC issuer since it was built, so no config changes and no pod
+restart.
+
+### 3a. Hand the record to external-dns
+
+`smile.sparked-fhir.com` was **not external-dns's record to repoint**. It was
+created by the ORIGINAL deployment's terraform: `manage_ingress` defaults to
+true, which sets `route53_create_record = true`, and the sdh-deps module creates
+the alias to the old nginx NLB. sparkey's external-dns had no TXT ownership
+record for it, so with `--registry=txt --policy=sync` it declined to touch it and
+logged `All records are already up to date` every minute, with zero errors and no
+mention of the hostname. The symptom is silence, not a failure.
+
+Diagnosis, if this recurs: every hostname external-dns manages has a matching TXT
+record in the zone. If a hostname has none, external-dns does not own it and will
+never modify it, however correct the HTTPRoute is.
+
+Two steps, in this order, so terraform relinquishes before external-dns takes
+over. Both were done on 2026-08-03.
+
+1. Drop the record from the OLD stack's state so terraform stops believing it
+   owns it, and so a later `destroy` of that stack cannot take production DNS
+   with it. The state bucket has versioning enabled, so this is recoverable.
+
+   ```bash
+   # separate working copy: do NOT re-init the sparkey worktree against prod
+   terraform init -reconfigure -backend-config=backend.hcl   # infra/smile-app/prod.tfstate
+   terraform state rm 'module.smile_cdr_dependencies.aws_route53_record.publicdns["public"]'
+   ```
+
+2. Seed TXT ownership records so external-dns adopts the existing alias and
+   updates it **in place**. No delete, so no NXDOMAIN gap. Mirror the shape that
+   already works for `smile-next` on this cluster: a `cname-` and an `aaaa-`
+   prefixed TXT, value
+   `"heritage=external-dns,external-dns/owner=default,external-dns/resource=httproute/smile/smilecdr-aucore-smile-sparked-fhir-com"`,
+   TTL 300, applied with `aws route53 change-resource-record-sets`.
+
+On the next sync external-dns logs the adoption explicitly, which is the signal
+to watch for:
+
+```
+Desired change: UPSERT cname-smile.sparked-fhir.com TXT
+Desired change: UPSERT smile.sparked-fhir.com A
+Desired change: CREATE smile.sparked-fhir.com AAAA
+3 record(s) were successfully updated
+```
+
+Note it also creates an AAAA, which the terraform-managed record never had.
 
 ### 4. Watch it move
 
@@ -155,13 +212,45 @@ Expect the same 11/11, this time through real DNS. Also confirm:
 - `curl -s https://smile.sparked-fhir.com/aucore/fhir/DEFAULT/metadata | jq .implementation.url`
   returns `https://smile.sparked-fhir.com/aucore/fhir`, not an internal address
 - the OIDC issuer matches
-- telemetry appears in sparkey's Grafana (the OTLP endpoint resolves identically
-  on both clusters, so this needs no change and is a good end-to-end signal)
+- the served certificate is this cluster's, `CN=smile.sparked-fhir.com` issued by
+  Let's Encrypt, not the old cluster's
+
+**Do not use telemetry as the end-to-end signal.** This runbook used to claim
+OTLP data appearing in sparkey's Grafana would confirm the cutover. It does not
+appear, and never did. The deployment sets every `OTEL_*` variable and carries
+`instrumentation.opentelemetry.io/inject-java: "true"`, but the OTel operator
+resolves that annotation against an `Instrumentation` CR in the pod's OWN
+namespace and there is none in `smile`, so no agent is injected and nothing is
+exported. The pod has no `opentelemetry-auto-instrumentation-java` init
+container, which is the quick way to check.
+
+This is not a regression: the old cluster had no `Instrumentation` CRs either, so
+Smile CDR application telemetry was never flowing. Only cadvisor and
+kube-state-metrics cover the namespace. Recorded as a follow-up below.
 
 ## Rollback
 
-Set `publishDns: false` again. external-dns restores the record to the old
-cluster's load balancer, which has been serving throughout and is untouched.
+**Setting `publishDns: false` is no longer a rollback. It is an outage.** Now
+that external-dns owns the record, removing the source makes it DELETE the record
+under `--policy=sync`, rather than restore anything. external-dns has no
+knowledge of the old cluster's load balancer and cannot put it back. The earlier
+wording here was wrong on exactly the step you would reach for under pressure.
+
+To roll back, put the alias back yourself, then stop external-dns fighting you:
+
+1. UPSERT `smile.sparked-fhir.com` A back to the old cluster's nginx NLB,
+   `k8s-ingressn-ingressn-f807c43cbc-ec2e8c167651c4d6.elb.ap-southeast-2.amazonaws.com`
+   in hosted zone `ZCT6FZBF4DROD` (alias, `evaluate_target_health: false`).
+   Recorded here because it is no longer in any terraform state; it also survives
+   in `prod.tfstate` version history at serial 223.
+2. Set `publishDns: false` in `charts/smilecdr-routes/values.yaml` so external-dns
+   stops reconciling the hostname back to sparkey. Do this promptly: until it
+   lands, external-dns will re-point the record on its next 1m sync.
+3. Delete the `cname-smile` and `aaaa-smile` TXT records, and the AAAA record
+   external-dns created, if you want the zone back to its pre-cutover shape.
+
+Doing 2 before 1 is fine too and closes the racing window, at the cost of the
+record being briefly absent. The old cluster serves throughout either way.
 
 Rollback is lossless for reads. Any writes accepted by the new server between the
 flip and the rollback stay only on the new server's Aurora, so keep the window
@@ -178,6 +267,17 @@ Two to four weeks is the suggested soak. Then, in order:
    since HTTP-01 works once DNS points at this cluster.
 2. **Destroy the old app deployment**, then `smilecdr/smile-eks`. Take a final
    Aurora snapshot first and retain it.
+
+   The Route53 record was removed from that stack's state on 2026-08-03, so a
+   destroy will no longer delete production DNS. Confirm before destroying, since
+   this is the one mistake here that takes the service down and is slow to undo:
+
+   ```bash
+   terraform state list | grep route53_record   # expect no publicdns entry
+   ```
+
+   Losing the rollback target is the accepted consequence of this step. Do not
+   start it while the rollback path above still matters.
 3. **Archive `aehrc/sparked-smile-argo`.** Its Envoy config and smilecdr-routes
    chart have moved to sparked-argo; its dashboards should move to sparkey's
    Grafana before this.
@@ -200,6 +300,7 @@ Not cutover blockers. Listed so they are not lost.
 | Loader transaction mode omits `fullUrl` | `scripts/load_test_data.py`; makes transaction mode unusable |
 | 48 test resources reference AU eRequesting profiles | neither server has them; exclude from aucore loads |
 | Ship network-policy deny events somewhere queryable | `--enable-cloudwatch-logs=true` on `aws-eks-nodeagent`; today they are node-local only, which is why this runbook's Loki check was silently vacuous |
+| No Smile CDR application telemetry, on either cluster | add an `Instrumentation` CR to the `smile` namespace (copy `ontoserver/ontoserver-java-instrumentation`). The `inject-java` annotation is a silent no-op without one, so every `OTEL_*` setting on the deployment is currently inert |
 | Convert sparkey's gateway from Classic ELB to NLB | legacy resource type fronting 19 hostnames |
 | Activate cost-allocation tags | still pending with CSIRO IMT; blocks measuring the saving |
 | CSIRO TLS-inspection CA lacks an Authority Key Identifier | breaks Python tooling; worth reporting to IMT |
