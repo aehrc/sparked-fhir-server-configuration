@@ -215,6 +215,59 @@ Expect the same 11/11, this time through real DNS. Also confirm:
 - the served certificate is this cluster's, `CN=smile.sparked-fhir.com` issued by
   Let's Encrypt, not the old cluster's
 
+### Config parity, checked after the cutover
+
+`scripts/config_diff.py` compares runtime module config between the two servers.
+Result on 2026-08-03: **3 real differences**, all intentional (137 further
+differences suppressed as empty-vs-absent serialisation noise, and 20 modules
+present only on the old server, which is the ereq/hl7au decommission).
+
+The three are declarative IG package seeding, and the SMART post-authorize script
+moving from an inline blob to a classpath file. The script was verified
+byte-identical to the repo copy, so that pair is storage mechanism, not
+behaviour.
+
+### One capability did NOT survive: gender-identity search
+
+Module config parity does not imply conformance-content parity, and this is the
+case that proves it.
+
+| | old | new |
+|---|---|---|
+| `GET /Patient?gender-identity=446141000124107` | 200, 3 patients | **400, unknown search parameter** |
+| advertised in the CapabilityStatement | yes, 34 Patient params | no, 33 |
+
+`http://hl7.org.au/fhir/SearchParameter/gender-identity` is an AU Base search
+parameter. It is absent on sparkey because
+`module-config/packages/package-au-base-6.1.1-draft.json` sets
+`installMode: STORE_ONLY`, which registers the package without installing or
+indexing its conformance resources. AU Core is `STORE_AND_INSTALL`, which is why
+its search parameters did come through.
+
+The old server never used `startup_installation_specs` at all (the option is
+empty there); its packages were installed by hand over time, so it carries
+fully-installed AU Base artifacts from an earlier version. The same history
+explains its 800 StructureDefinition resources against 697 distinct canonical
+URLs, and its 97 patients against 93. The profile SET is identical: 697 distinct
+URLs on both, none unique to either side.
+
+So this is legacy residue on the old server rather than something the current
+declarative config ever produced. It is still an externally visible capability
+difference, and the smoke suite does not exercise search parameters, so it would
+not have been caught. Decide deliberately:
+
+- flip AU Base to `STORE_AND_INSTALL`, which restores it but installs that draft
+  package's entire conformance set, with the resulting overlap against AU Core to
+  be worked through
+- seed just the one SearchParameter
+- accept it and say so publicly, since the old server's behaviour here was an
+  accident of history
+
+Two other search parameters also differ and are **not** a problem: the AU Core
+canonicals `au-core-clinical-patient` and `au-core-practitionerrole-practitioner`
+replace the base-FHIR `clinical-patient` and `PractitionerRole-practitioner` with
+the same `code` and the same `base`, so the same searches work.
+
 **Do not use telemetry as the end-to-end signal.** This runbook used to claim
 OTLP data appearing in sparkey's Grafana would confirm the cutover. It does not
 appear, and never did. The deployment sets every `OTEL_*` variable and carries
@@ -300,7 +353,9 @@ Not cutover blockers. Listed so they are not lost.
 | Loader transaction mode omits `fullUrl` | `scripts/load_test_data.py`; makes transaction mode unusable |
 | 48 test resources reference AU eRequesting profiles | neither server has them; exclude from aucore loads |
 | Ship network-policy deny events somewhere queryable | `--enable-cloudwatch-logs=true` on `aws-eks-nodeagent`; today they are node-local only, which is why this runbook's Loki check was silently vacuous |
-| No Smile CDR application telemetry, on either cluster | add an `Instrumentation` CR to the `smile` namespace (copy `ontoserver/ontoserver-java-instrumentation`). The `inject-java` annotation is a silent no-op without one, so every `OTEL_*` setting on the deployment is currently inert |
+| No Smile CDR application telemetry, on either cluster | fixed by sparked-argo #228, which adds the `Instrumentation` CR to `smile`. Needs one pod restart after it lands, since injection happens at admission. The `inject-java` annotation is a silent no-op without a CR in the pod's own namespace |
+| Decide on AU Base `gender-identity` search | see the section above; a capability the old server had and sparkey does not |
+| Consolidate the `OTEL_*` env vars into the Instrumentation CR | they now duplicate it; needs a terraform apply, so do it deliberately rather than opportunistically |
 | Convert sparkey's gateway from Classic ELB to NLB | legacy resource type fronting 19 hostnames |
 | Activate cost-allocation tags | still pending with CSIRO IMT; blocks measuring the saving |
 | CSIRO TLS-inspection CA lacks an Authority Key Identifier | breaks Python tooling; worth reporting to IMT |
