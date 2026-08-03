@@ -169,33 +169,27 @@ release. Everything else is deliberate.
   prerequisite here; see
   [multitenancy-rollout-plan.md](multitenancy-rollout-plan.md).
 
-## Required post-deploy step: reconcile smart_auth
+## smart_auth needs no post-deploy step
 
-```bash
-export CSIRO_FHIR_AUTH_64=$(printf 'ADMIN:%s' "$(aws secretsmanager get-secret-value \
-  --secret-id smilecdr-user-passwords --query SecretString --output text \
-  | jq -r '."smilecdr-admin-password"')" | base64)
-export SMILECDR_BASE_URL=https://smile-next.sparked-fhir.com
-python scripts/sync_smart_auth.py --node aucore            # dry run first
-python scripts/sync_smart_auth.py --node aucore --apply
-```
+An earlier version of this runbook required `scripts/sync_smart_auth.py` after
+every deploy. It does not, and running it would not have held anyway.
 
-This is not optional and not covered by the Helm config. `smart_capabilities_list`
-is deliberately managed by that script rather than the chart values, because it
-is a multi-line property and the script's own comment records that "properties
-rendering of multi-line values is unsafe".
+`smart_capabilities_list` now lives in `module-config/simplified-multinode.yaml`
+using escaped newlines (`\n`, single-quoted in YAML), which java.util.Properties
+unescapes back into the multi-line value the module expects. Verified by
+rendering the chart offline before applying, and confirmed live: the module
+parses 10 entries including `context-ehr-encounter`.
 
-The consequence is visible on a fresh build: the chart's default capability list
-omits `context-ehr-encounter`, which `smart-post-authorize.js` depends on because
-it injects encounter launch context. Until the script runs, the server
-under-advertises its SMART capabilities.
+The reason this matters rather than being a style choice: this node runs
+`PROPERTIES_UNLOCKED`, where properties are re-read and overwrite module config
+on every boot. Measured 2026-08-03 by applying the script and restarting the pod,
+the script's changes were gone. Anything that must survive a restart has to be in
+the config, not applied over the admin API afterwards.
 
-Note the script talks to the admin API over TLS with `requests`, so it needs a CA
-bundle that trusts any corporate TLS-inspection proxy in the path. It fails with
-`CERTIFICATE_VERIFY_FAILED` otherwise, which is a local environment problem
-rather than a server one.
+`sync_smart_auth.py` remains useful against the old dedicated-cluster deployment,
+which runs `DATABASE` mode where API changes do persist.
 
-## Verify
+## Verify## Verify
 
 Two paths, and the second is the one that counts.
 

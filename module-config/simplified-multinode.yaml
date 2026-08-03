@@ -246,18 +246,32 @@ cdrNodes:
           # trust and cutover needs no config change or restart. Same reasoning
           # as specs.hostname; see the header of values-sparkey.yaml.
           issuer.url: "https://smile.sparked-fhir.com/aucore/smartauth"
-          # smart_capabilities_list deliberately does NOT live here. Tested
-          # 2026-08-03: the chart renders each config item as one "key = value"
-          # properties line, so the newline-separated value Smile CDR expects
-          # cannot be expressed, and the comma-separated form it accepts
-          # elsewhere (auth_request_detail.whitelist above) is rejected here:
+          # SMART capability advertisement in .well-known/smart-configuration.
+          #
+          # The value Smile CDR wants is newline-separated, and the chart renders
+          # every config item as one "key \t= value" properties line, so a real
+          # newline cannot be expressed. The comma-separated form its neighbours
+          # use (auth_request_detail.whitelist above) is rejected outright:
           #
           #   Module [smart_auth] failed to start!
-          #   Error creating bean with name 'smartCapabilitiesSet':
-          #   Invocation of init method failed
+          #   Error creating bean with name 'smartCapabilitiesSet'
           #
-          # So it stays owned by scripts/sync_smart_auth.py and applied over the
-          # admin API after deployment. See docs/sparkey-deploy-runbook.md.
+          # So this uses ESCAPED newlines. Single-quoted in YAML so the backslash
+          # survives as a literal character, giving the properties file
+          # `...= launch-ehr\nlaunch-standalone\n...` on one line, which
+          # java.util.Properties unescapes back into the multi-line value.
+          # Verified by rendering the chart offline before applying.
+          #
+          # Why bother, rather than leaving it to scripts/sync_smart_auth.py:
+          # that script applies over the admin API, and this node runs
+          # PROPERTIES_UNLOCKED, where properties are re-read and overwrite the
+          # module config on every boot. Measured 2026-08-03: the script's
+          # changes were gone after one pod restart. Anything that must survive a
+          # restart has to be here, not applied afterwards.
+          #
+          # context-ehr-encounter is the entry that matters: smart-post-authorize.js
+          # injects encounter launch context, and the chart default omits it.
+          smart_capabilities_list: 'launch-ehr\nlaunch-standalone\nclient-public\nclient-confidential-symmetric\ncontext-ehr-patient\ncontext-ehr-encounter\ncontext-standalone-patient\nsso-openid-connect\npermission-patient\npermission-offline'
           context_path: "aucore/smartauth"
           auth_request_detail.whitelist: "aud,grant_type,scope,launch"
           openid.signing.keystore_id: smilecdr-token-signing
