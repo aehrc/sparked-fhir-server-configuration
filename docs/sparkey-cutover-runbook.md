@@ -359,14 +359,25 @@ handles without intervention.
 | startup | 2m45s | ~5m |
 | smoke suite | 11/11 | 11/11 |
 
-`gender-identity` now returns 200, which was the point. `indigenous-status` works
-too.
+**All four AU Base search parameters work** and are advertised in the
+CapabilityStatement:
 
-`encounter-discharge-disposition` and `servicerequest-supporting-info` are stored
-with `status: active` and the right `base`, but HAPI still answers HAPI-0323
-`Unknown search parameter` for them, so they were not registered into the search
-registry the way the two Patient-based ones were. Neither worked on the old
-server either, so nothing regressed. Left as a loose end.
+| resource | query | |
+|---|---|---|
+| Patient | `?gender-identity=` | 200 |
+| Patient | `?indigenous-status=` | 200 |
+| Encounter | `?discharge-disposition=` | 200 |
+| ServiceRequest | `?supporting-info=` | 200 |
+
+Patient now advertises 35 search parameters, against 33 before the install and 34
+on the old server, so sparkey is ahead of what was lost.
+
+> **Query by `code`, not by the URL suffix.** Two of these differ, and it is an
+> easy way to convince yourself a search parameter is broken when it is fine:
+> `.../SearchParameter/encounter-discharge-disposition` has
+> `code: discharge-disposition`, and `.../servicerequest-supporting-info` has
+> `code: supporting-info`. Only `gender-identity` and `indigenous-status` have a
+> code matching their URL suffix.
 
 `$validate` returned 504 on the smoke run two minutes after the restart and 422
 in 0.09s once warm, matching the pre-existing cold-start behaviour above rather
@@ -463,7 +474,6 @@ Not cutover blockers. Listed so they are not lost.
 | 48 test resources reference AU eRequesting profiles | neither server has them; exclude from aucore loads |
 | Ship network-policy deny events somewhere queryable | `--enable-cloudwatch-logs=true` on `aws-eks-nodeagent`; today they are node-local only, which is why this runbook's Loki check was silently vacuous |
 | No Smile CDR application telemetry, on either cluster | fixed by sparked-argo #228, which adds the `Instrumentation` CR to `smile`. Needs one pod restart after it lands, since injection happens at admission. The `inject-java` annotation is a silent no-op without a CR in the pod's own namespace |
-| Two AU Base search parameters stored but not registered | `encounter-discharge-disposition` and `servicerequest-supporting-info` are `status: active` with the right `base`, yet HAPI returns HAPI-0323. The two Patient-based ones registered fine. Never worked on the old server either |
 | `$validate` 504s for a few minutes after every restart | the readiness probe is a cheap health endpoint, so the pod is Ready long before the validation chain and terminology caches are warm. Either warm the validator during startup or gate readiness on it |
 | Consolidate the `OTEL_*` env vars into the Instrumentation CR | they now duplicate it; needs a terraform apply, so do it deliberately rather than opportunistically |
 | Convert sparkey's gateway from Classic ELB to NLB | legacy resource type fronting 19 hostnames |
