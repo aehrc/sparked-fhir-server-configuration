@@ -246,6 +246,18 @@ cdrNodes:
           # trust and cutover needs no config change or restart. Same reasoning
           # as specs.hostname; see the header of values-sparkey.yaml.
           issuer.url: "https://smile.sparked-fhir.com/aucore/smartauth"
+          # smart_capabilities_list deliberately does NOT live here. Tested
+          # 2026-08-03: the chart renders each config item as one "key = value"
+          # properties line, so the newline-separated value Smile CDR expects
+          # cannot be expressed, and the comma-separated form it accepts
+          # elsewhere (auth_request_detail.whitelist above) is rejected here:
+          #
+          #   Module [smart_auth] failed to start!
+          #   Error creating bean with name 'smartCapabilitiesSet':
+          #   Invocation of init method failed
+          #
+          # So it stays owned by scripts/sync_smart_auth.py and applied over the
+          # admin API after deployment. See docs/sparkey-deploy-runbook.md.
           context_path: "aucore/smartauth"
           auth_request_detail.whitelist: "aud,grant_type,scope,launch"
           openid.signing.keystore_id: smilecdr-token-signing

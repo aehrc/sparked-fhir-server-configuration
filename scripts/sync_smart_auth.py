@@ -178,11 +178,32 @@ class ModuleConfigClient:
         return resp.json()
 
     def set_module_options(self, module_id: str, options: List[Dict], restart: bool) -> None:
-        """PUT the full options list back (fetch-modify-put, never a partial list)."""
+        """PUT the full options list back (fetch-modify-put, never a partial list).
+
+        Options whose value is null are dropped from the payload. The GET returns
+        every option the module knows about, including ones never given a value,
+        and those come back null. PUTting a null straight back is rejected:
+
+            ModuleValidationErrorsJson[errors={client_secret.expiry_duration_days=
+              ModuleValidationErrorJson[message='value' must not be null. Value: null]}]
+
+        which surfaces as HTTP 500 and, because the session retries 5xx, finally
+        as "too many 500 error responses".
+
+        This only bites where an option has never been set, so it was invisible
+        against the long-running deployment and appeared the first time the script
+        was pointed at a freshly built one (2026-08-03). Dropping nulls is safe:
+        an option absent from the payload keeps what the server already holds,
+        which for a null-valued option is nothing.
+        """
+        payload = [opt for opt in options if opt.get("value") is not None]
+        dropped = len(options) - len(payload)
+        if dropped:
+            print(f"  (omitting {dropped} option(s) that have no value set)")
         suffix = "/set?restart=true" if restart else "/set"
         resp = self.session.put(
             self._module_url(module_id, suffix),
-            json={"options": options},
+            json={"options": payload},
             timeout=60,
         )
         resp.raise_for_status()
