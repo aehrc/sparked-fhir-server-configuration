@@ -277,14 +277,46 @@ URLs on both, none unique to either side.
 So this is legacy residue on the old server rather than something the current
 declarative config ever produced. It is still an externally visible capability
 difference, and the smoke suite does not exercise search parameters, so it would
-not have been caught. Decide deliberately:
+not have been caught.
 
-- flip AU Base to `STORE_AND_INSTALL`, which restores it but installs that draft
-  package's entire conformance set, with the resulting overlap against AU Core to
-  be worked through
-- seed just the one SearchParameter
-- accept it and say so publicly, since the old server's behaviour here was an
-  accident of history
+#### What AU Base actually contributes today: almost nothing
+
+Checked on both servers before changing anything:
+
+| | old | new |
+|---|---|---|
+| `au-patient` (an AU Base profile) | 0 | 0 |
+| `au-core-patient` (AU Core) | 3 | 1 |
+| AU Base SearchParameters present | 1 of 4 | 0 of 4 |
+
+**Neither server has ever had AU Base conformance resources installed.** The old
+server's entire AU Base footprint is the one `gender-identity` SearchParameter,
+and it is version `4.2.2-ballot`, a far older AU Base than the 6.1.1-draft that
+is seeded. Someone loaded it by hand. The other three AU Base search parameters
+(`indigenous-status`, `encounter-discharge-disposition`,
+`servicerequest-supporting-info`) return 400 on both servers.
+
+#### Decision: install it (2026-08-03)
+
+`STORE_AND_INSTALL` is therefore not a parity restore. It introduces roughly 159
+resources AU Base has never contributed here (about 109 StructureDefinitions, 25
+ValueSets, 21 CodeSystems, 4 SearchParameters), where parity needs exactly one.
+Taken deliberately anyway, to have AU Base properly present rather than carrying
+a hand-loaded relic of it.
+
+Three things to know:
+
+- **Not reversible by config.** Setting the flag back to `STORE_ONLY` does not
+  uninstall what is already in the database. Recovery is an Aurora restore.
+  Snapshot `<pre-aubase-install-snapshot>` was taken first.
+- **No test bed exists.** `sparked-smile` and `sparked-smilecdr` are the same
+  cluster, `dev.tfstate` is an abandoned stub, and the old cluster is the
+  rollback target during the soak. This was applied straight to production.
+- **`fetchDependencies: true` combined with install is the unknown to watch.**
+  Loading is synchronous (`package_registry.load_specs_asynchronously: false`),
+  so if dependency packages are installed rather than merely fetched, startup
+  could grow sharply against the 1200s probe budget. Watch the first startup
+  rather than walking away from it.
 
 Two other search parameters also differ and are **not** a problem: the AU Core
 canonicals `au-core-clinical-patient` and `au-core-practitionerrole-practitioner`
