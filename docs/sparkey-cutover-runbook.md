@@ -312,11 +312,65 @@ Three things to know:
 - **No test bed exists.** `sparked-smile` and `sparked-smilecdr` are the same
   cluster, `dev.tfstate` is an abandoned stub, and the old cluster is the
   rollback target during the soak. This was applied straight to production.
-- **`fetchDependencies: true` combined with install is the unknown to watch.**
-  Loading is synchronous (`package_registry.load_specs_asynchronously: false`),
-  so if dependency packages are installed rather than merely fetched, startup
-  could grow sharply against the 1200s probe budget. Watch the first startup
-  rather than walking away from it.
+- **`fetchDependencies: true` combined with install broke it on the first
+  attempt.** Details below.
+
+#### The first attempt failed: STORE_AND_INSTALL needs fetchDependencies false
+
+Flipping `installMode` alone left `fetchDependencies: true`, and the persistence
+module refused to start:
+
+```
+HAPI-1286: Error installing IG hl7.fhir.r4.core#4.0.1:
+HAPI-0902: Can not create multiple ValueSet resources with ValueSet.url
+"http://hl7.org/fhir/ValueSet/FHIR-version" and ValueSet.version "4.0.1",
+already have one with resource ID: ValueSet/FHIR-version
+```
+
+`STORE_AND_INSTALL` with `fetchDependencies: true` installs the **dependency**
+packages as well as the named one, so it tried to install `hl7.fhir.r4.core` and
+collided with core resources already present from the AU Core install.
+
+The pairing is the rule, and every other package here already followed it:
+
+| installMode | fetchDependencies | packages |
+|---|---|---|
+| `STORE_AND_INSTALL` | `false` | au.core, au.ps, au.ereq |
+| `STORE_ONLY` | `true` | uv.ips |
+
+AU Base with install + fetch was the one combination never exercised. **If you
+set `STORE_AND_INSTALL`, set `fetchDependencies: false` in the same edit.**
+
+No production impact. `maxUnavailable: 0` kept the previous pod serving
+throughout, the failed install aborted on its first ValueSet, and
+StructureDefinition, SearchParameter and Patient counts were all still at their
+pre-change values afterwards. Terraform sat waiting on the rollout until
+`helm_chart_timeout` (1800s, `terraform/main.tf`) expired, then errored with
+`context deadline exceeded` and left the release `failed`, which a later upgrade
+handles without intervention.
+
+#### Result of the corrected install
+
+| | before | after |
+|---|---|---|
+| StructureDefinition | 697 | **806** (+109, the AU Base profiles) |
+| SearchParameter | 1471 | **1475** (+4) |
+| Patient | 93 | 93 |
+| startup | 2m45s | ~5m |
+| smoke suite | 11/11 | 11/11 |
+
+`gender-identity` now returns 200, which was the point. `indigenous-status` works
+too.
+
+`encounter-discharge-disposition` and `servicerequest-supporting-info` are stored
+with `status: active` and the right `base`, but HAPI still answers HAPI-0323
+`Unknown search parameter` for them, so they were not registered into the search
+registry the way the two Patient-based ones were. Neither worked on the old
+server either, so nothing regressed. Left as a loose end.
+
+`$validate` returned 504 on the smoke run two minutes after the restart and 422
+in 0.09s once warm, matching the pre-existing cold-start behaviour above rather
+than anything the 109 new profiles introduced.
 
 Two other search parameters also differ and are **not** a problem: the AU Core
 canonicals `au-core-clinical-patient` and `au-core-practitionerrole-practitioner`
@@ -409,7 +463,7 @@ Not cutover blockers. Listed so they are not lost.
 | 48 test resources reference AU eRequesting profiles | neither server has them; exclude from aucore loads |
 | Ship network-policy deny events somewhere queryable | `--enable-cloudwatch-logs=true` on `aws-eks-nodeagent`; today they are node-local only, which is why this runbook's Loki check was silently vacuous |
 | No Smile CDR application telemetry, on either cluster | fixed by sparked-argo #228, which adds the `Instrumentation` CR to `smile`. Needs one pod restart after it lands, since injection happens at admission. The `inject-java` annotation is a silent no-op without a CR in the pod's own namespace |
-| Decide on AU Base `gender-identity` search | see the section above; a capability the old server had and sparkey does not |
+| Two AU Base search parameters stored but not registered | `encounter-discharge-disposition` and `servicerequest-supporting-info` are `status: active` with the right `base`, yet HAPI returns HAPI-0323. The two Patient-based ones registered fine. Never worked on the old server either |
 | `$validate` 504s for a few minutes after every restart | the readiness probe is a cheap health endpoint, so the pod is Ready long before the validation chain and terminology caches are warm. Either warm the validator during startup or gate readiness on it |
 | Consolidate the `OTEL_*` env vars into the Instrumentation CR | they now duplicate it; needs a terraform apply, so do it deliberately rather than opportunistically |
 | Convert sparkey's gateway from Classic ELB to NLB | legacy resource type fronting 19 hostnames |
