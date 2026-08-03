@@ -1,5 +1,12 @@
 # Cutover runbook: move smile.sparked-fhir.com to sparkey
 
+> **This repository is public.** Keep AWS resource identifiers out of it: VPC and
+> subnet ids, security group ids, load balancer hostnames, RDS cluster and
+> snapshot identifiers, IAM role names, account ids, state bucket names. Record
+> the command that retrieves a value instead of the value. Public DNS records and
+> AWS-published regional constants are fine. The CI deploy workflow is disabled
+> for the same reason, see docs/terraform-local-deploy.md.
+
 Moves production traffic from the dedicated `sparked-smilecdr` cluster to the
 parallel deployment on `sparkey`. The build is covered by
 [sparkey-deploy-runbook.md](sparkey-deploy-runbook.md); this is the flip and the
@@ -197,9 +204,17 @@ watch -n5 'dig +short smile.sparked-fhir.com'
 
 It should change from the old nginx NLB addresses to sparkey's gateway. As at
 2026-08-03 that is `13.211.53.144 / 3.104.201.43 / 13.55.220.98` moving to
-`13.211.0.59 / 52.65.179.96`. Confirm the target set against
-`dig +short <sparkey-gateway-clb>.ap-southeast-2.elb.amazonaws.com`
-rather than the literals above, since the CLB's addresses can change.
+`13.211.0.59 / 52.65.179.96`.
+
+Do not trust those literals: a load balancer's addresses change. Resolve the
+gateway's current address and compare against that. This repo is public, so it
+records the command rather than the hostname:
+
+```bash
+CLB=$(kubectl --context sparkey get gateway -n default main-gateway \
+        -o jsonpath='{.status.addresses[0].value}')
+dig +short "$CLB"
+```
 
 ### 5. Verify
 
@@ -308,7 +323,8 @@ Three things to know:
 
 - **Not reversible by config.** Setting the flag back to `STORE_ONLY` does not
   uninstall what is already in the database. Recovery is an Aurora restore.
-  Snapshot `<pre-aubase-install-snapshot>` was taken first.
+  A pre-change Aurora snapshot was taken first; find it with
+  `aws rds describe-db-cluster-snapshots --snapshot-type manual`.
 - **No test bed exists.** `sparked-smile` and `sparked-smilecdr` are the same
   cluster, `dev.tfstate` is an abandoned stub, and the old cluster is the
   rollback target during the soak. This was applied straight to production.

@@ -84,7 +84,8 @@ making on the plan rather than trusting the count:
 
 - `aws_rds_cluster` identifier is `smile-smilecluster-<deployment>`, engine
   `aurora-postgresql` `16.13`
-- security group rules reference sparkey's VPC (`<sparkey-vpc-id>`) and its
+- security group rules reference sparkey's VPC (this repo is public, so get the
+  id from `terraform output` or the EKS console rather than from here) and its
   worker-node security group
 - the IAM policy is `smile-users-secret-access-sparkey` and the role attachment
   targets `smile-smilecdr-<deployment>`, neither colliding with the live
