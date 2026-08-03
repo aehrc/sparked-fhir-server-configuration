@@ -19,22 +19,64 @@ deployment may have sat for weeks.
 | DNS still on the old cluster | `dig +short smile.sparked-fhir.com` matches the old nginx NLB |
 | Listener and cert live | `kubectl --context sparkey get certificate -n default smile-gateway-cert` Ready, Gateway shows 19/19 listeners Programmed |
 | Pod healthy | one pod, `1/1`, no restart loop |
-| Network policies validated | no legitimate drops in `{log_type="netpol"}` in Loki (see below) |
+| Network policies validated | see below, and note the check this table used to name does not work |
+| Route naming fix merged | sparked-argo #226 MUST land before the flip (see below) |
 | Decommission PR merged | sparked-fhir-server-configuration #87, if ereq/hl7au are to stay off |
 
-### The one precondition still outstanding
+### Land the route-naming fix first
 
-Network policies for the `smile` namespace were written from the pod on the OLD
-cluster, not observed on this one. They have not been validated against real
-traffic. Before flipping, check the node-agent deny log in Grafana:
+Until sparked-argo #226 is merged, the flip is not safe. The HTTPRoute name in
+`charts/smilecdr-routes` was `smilecdr-<node>` plus an `-unpublished` suffix,
+with the hostname absent, so it is unique only while exactly one hostname is
+published. Setting `publishDns: true` on the second one renders two HTTPRoutes
+with the same name in the same namespace, and duplicate `targetRefs` in the
+BackendTrafficPolicy. The app is auto-sync with `prune: true` and client-side
+apply, so the flip would either fail to sync or apply last-wins and silently
+drop `smile-next.sparked-fhir.com`, taking its A record with it.
 
+#226 derives the name from node plus hostname and makes it independent of
+`publishDns`, which is also what makes the flip a pure annotation change rather
+than a delete and recreate.
+
+### The netpol check in this runbook was never valid
+
+This runbook previously said to check `{log_type="netpol"}` in Loki. **There is
+no `log_type` label in this Loki.** That query returns empty whatever the state
+of the world, so a green result from it was never evidence.
+
+There is no working deny signal in the observability stack today. The node agent
+runs with `--enable-policy-event-logs=true` but `--enable-cloudwatch-logs=false`,
+so policy events are written only to node-local disk at
+`/var/log/aws-routed-eni/network-policy-agent.log`, and the only agent metric
+scraped into Mimir is `awsnodeagent_policy_programming_latency_seconds`, which
+says nothing about drops. To read denies today you have to go to the node
+hosting the pod:
+
+```bash
+NODE=$(kubectl --context sparkey get pod -n smile -o jsonpath='{.items[0].spec.nodeName}')
+kubectl --context sparkey debug node/$NODE -it --image=busybox:1.36 --profile=general -- \
+  grep DENY /host/var/log/aws-routed-eni/network-policy-agent.log
 ```
-{log_type="netpol"} |= "smile"
-```
 
-Nothing legitimate should be dropping. Rolling back a policy is a one-file delete
-in sparked-argo, so an over-tight rule is cheap to fix now and expensive to
-discover at cutover.
+**Fix this properly** by setting `--enable-cloudwatch-logs=true` on the
+`aws-eks-nodeagent` container so policy events land somewhere queryable, then
+restore a real check to this table.
+
+### Why the flip is nonetheless not a netpol risk
+
+Reviewed the policies directly in place of the log. Both hostnames attach to the
+same `main-gateway` and are matched by the same ingress rule in
+`network-policies/phase1-ingress/smile.yaml`: `from: envoy-gateway-system` on the
+six container ports. Nothing in the policy set keys on hostname.
+
+The DNS flip changes which address clients resolve, not the path traffic takes.
+The acceptance gate run with `--connect-to` the gateway CLB therefore already
+exercised the exact post-cutover ingress path. Egress is unaffected by how
+clients arrive.
+
+What that does not cover is a policy that is fine for gate traffic but wrong for
+some real client pattern. Rolling back a policy is a one-file delete in
+sparked-argo, so it stays cheap to fix.
 
 ## Cutover
 
@@ -44,6 +86,9 @@ The Route53 record is managed by external-dns. Lower its TTL a few hours ahead s
 rollback propagates quickly. external-dns sets a default TTL unless annotated; if
 it is high, add `external-dns.alpha.kubernetes.io/ttl` to the HTTPRoute in the
 smilecdr-routes chart and let it reconcile before proceeding.
+
+Checked 2026-08-03: the record is already at TTL 60, so there is nothing to do
+here. Re-check with `dig smile.sparked-fhir.com A` rather than assuming.
 
 ### 2. Announce
 
@@ -73,6 +118,16 @@ That removes the `external-dns.alpha.kubernetes.io/controller: "none"` annotatio
 from the production HTTPRoutes, and external-dns repoints the A record at
 sparkey's gateway within its sync interval (1m).
 
+Prepared as sparked-argo #227, stacked on #226. Merge #226 first, then rebase
+#227 onto main and merge it. With #226 in place the rendered diff of the flip is
+that one annotation and nothing else, which is verifiable before merging:
+
+```bash
+diff <(git show main:charts/smilecdr-routes/values.yaml > /tmp/v.yaml; \
+       helm template smilecdr-routes charts/smilecdr-routes -n smile -f /tmp/v.yaml) \
+     <(helm template smilecdr-routes charts/smilecdr-routes -n smile)
+```
+
 Nothing else changes. The listener, certificate, routes and body limit are
 already in place, and the server has been advertising the production FHIR base
 and OIDC issuer since it was built, so no config changes and no pod restart.
@@ -83,7 +138,11 @@ and OIDC issuer since it was built, so no config changes and no pod restart.
 watch -n5 'dig +short smile.sparked-fhir.com'
 ```
 
-It should change from the old nginx NLB addresses to sparkey's gateway.
+It should change from the old nginx NLB addresses to sparkey's gateway. As at
+2026-08-03 that is `13.211.53.144 / 3.104.201.43 / 13.55.220.98` moving to
+`13.211.0.59 / 52.65.179.96`. Confirm the target set against
+`dig +short <sparkey-gateway-clb>.ap-southeast-2.elb.amazonaws.com`
+rather than the literals above, since the CLB's addresses can change.
 
 ### 5. Verify
 
@@ -140,6 +199,7 @@ Not cutover blockers. Listed so they are not lost.
 | `smart-post-authorize.js` findings | [smart-post-authorize-review.md](smart-post-authorize-review.md), especially the client-suppliable `launch` parameter |
 | Loader transaction mode omits `fullUrl` | `scripts/load_test_data.py`; makes transaction mode unusable |
 | 48 test resources reference AU eRequesting profiles | neither server has them; exclude from aucore loads |
+| Ship network-policy deny events somewhere queryable | `--enable-cloudwatch-logs=true` on `aws-eks-nodeagent`; today they are node-local only, which is why this runbook's Loki check was silently vacuous |
 | Convert sparkey's gateway from Classic ELB to NLB | legacy resource type fronting 19 hostnames |
 | Activate cost-allocation tags | still pending with CSIRO IMT; blocks measuring the saving |
 | CSIRO TLS-inspection CA lacks an Authority Key Identifier | breaks Python tooling; worth reporting to IMT |
