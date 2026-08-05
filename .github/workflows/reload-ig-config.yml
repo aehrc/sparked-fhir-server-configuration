@@ -34,6 +34,11 @@ on:
         required: true
         default: false
         type: boolean
+      skip_uninstall:
+        description: "Install without removing other versions of the same package, so several versions coexist"
+        required: false
+        default: false
+        type: boolean
       issue_number:
         description: "Issue number to post results to (optional)"
         required: false
@@ -59,6 +64,10 @@ on:
         type: boolean
         default: false
       force_reinstall:
+        required: false
+        type: boolean
+        default: false
+      skip_uninstall:
         required: false
         type: boolean
         default: false
@@ -107,6 +116,7 @@ jobs:
           IN_CUSTOM_PACKAGES: ${{ inputs.custom_packages || github.event.inputs.custom_packages }}
           IN_DRY_RUN: ${{ inputs.dry_run != '' && inputs.dry_run || github.event.inputs.dry_run }}
           IN_FORCE_REINSTALL: ${{ inputs.force_reinstall != '' && inputs.force_reinstall || github.event.inputs.force_reinstall }}
+          IN_SKIP_UNINSTALL: ${{ inputs.skip_uninstall != '' && inputs.skip_uninstall || github.event.inputs.skip_uninstall }}
           IN_ISSUE_NUMBER: ${{ inputs.issue_number || github.event.inputs.issue_number }}
         run: |
           # Use workflow_call inputs if available, otherwise use workflow_dispatch inputs
@@ -116,6 +126,7 @@ jobs:
             echo "package_source=$IN_PACKAGE_SOURCE"
             echo "dry_run=$IN_DRY_RUN"
             echo "force_reinstall=$IN_FORCE_REINSTALL"
+            echo "skip_uninstall=$IN_SKIP_UNINSTALL"
             echo "issue_number=$IN_ISSUE_NUMBER"
             echo "custom_packages<<CUSTOM_PACKAGES_EOF"
             echo "$IN_CUSTOM_PACKAGES"
@@ -134,6 +145,7 @@ jobs:
           CUSTOM_PACKAGES: ${{ steps.inputs.outputs.custom_packages }}
           DRY_RUN: ${{ steps.inputs.outputs.dry_run }}
           FORCE_REINSTALL: ${{ steps.inputs.outputs.force_reinstall }}
+          SKIP_UNINSTALL: ${{ steps.inputs.outputs.skip_uninstall }}
         run: |
           # Build the argument list with the POSIX positional parameters, not a
           # bash array. python:3.12-slim ships no bash, so the runner falls back
@@ -148,6 +160,14 @@ jobs:
 
           if [ "$FORCE_REINSTALL" = "true" ]; then
             set -- "$@" --force-reinstall
+          fi
+
+          # sync_packages.py removes any other version of the same package id by
+          # default. SmileCDR itself keys the registry on (package id, version)
+          # and is happy to hold several versions at once, which is what lets
+          # packages with conflicting dependency pins coexist on one node.
+          if [ "$SKIP_UNINSTALL" = "true" ]; then
+            set -- "$@" --skip-uninstall
           fi
 
           if [ "$PACKAGE_SOURCE" = "custom" ]; then
