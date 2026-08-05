@@ -93,6 +93,16 @@ module "smile_cdr_dependencies" {
       location = "classes/config_seeding"
       data     = file("../module-config/packages/package-au-patient-summary-1.0.0.json")
     },
+    {
+      name     = "package-au-base-7.0.0-ballot1.json"
+      location = "classes/config_seeding"
+      data     = file("../module-config/packages/package-au-base-7.0.0-ballot1.json")
+    },
+    {
+      name     = "package-aucore-3.0.0-ballot1.json"
+      location = "classes/config_seeding"
+      data     = file("../module-config/packages/package-aucore-3.0.0-ballot1.json")
+    },
     # Users configuration moved to AWS Secrets Manager - see extra_secrets below
   ]
 
