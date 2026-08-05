@@ -33,10 +33,16 @@ on:
           - bundle
           - transaction
 
+# A reusable workflow may only request permissions the caller already holds, and
+# GitHub validates that for the WHOLE file at startup. load-test-data.yml needs
+# id-token: write for its ECR OIDC login, so omitting it here does not just break
+# load-test-data-execute: it fails the entire workflow with startup_failure, and
+# every unrelated job (create-ig-pr included) never starts.
 permissions:
   contents: write
   pull-requests: write
   issues: write
+  id-token: write
 
 jobs:
   # ============================================================================

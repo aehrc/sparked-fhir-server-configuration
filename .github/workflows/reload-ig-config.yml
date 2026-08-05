@@ -89,25 +89,38 @@ jobs:
       - name: Install dependencies
         run: pip install -r scripts/requirements.txt
 
+      # Every value arrives via env rather than inline ${{ }}. Interpolating the
+      # custom_packages JSON straight into a shell assignment let its own double
+      # quotes close the string, so the value reached the script as
+      # [{name: hl7.fhir.au.base, ...}] and no longer parsed as JSON. Env passing
+      # also keeps issue-supplied text out of the executed script.
+      #
+      # custom_packages is written with the heredoc form because a JSON blob is
+      # multi-line-capable; the KEY=value form silently truncates at the first
+      # newline.
       - name: Determine input source
         id: inputs
+        env:
+          IN_BASE_URL: ${{ inputs.base_url || github.event.inputs.base_url }}
+          IN_NODES: ${{ inputs.nodes || github.event.inputs.nodes }}
+          IN_PACKAGE_SOURCE: ${{ inputs.package_source || github.event.inputs.package_source }}
+          IN_CUSTOM_PACKAGES: ${{ inputs.custom_packages || github.event.inputs.custom_packages }}
+          IN_DRY_RUN: ${{ inputs.dry_run != '' && inputs.dry_run || github.event.inputs.dry_run }}
+          IN_FORCE_REINSTALL: ${{ inputs.force_reinstall != '' && inputs.force_reinstall || github.event.inputs.force_reinstall }}
+          IN_ISSUE_NUMBER: ${{ inputs.issue_number || github.event.inputs.issue_number }}
         run: |
           # Use workflow_call inputs if available, otherwise use workflow_dispatch inputs
-          BASE_URL="${{ inputs.base_url || github.event.inputs.base_url }}"
-          NODES="${{ inputs.nodes || github.event.inputs.nodes }}"
-          PACKAGE_SOURCE="${{ inputs.package_source || github.event.inputs.package_source }}"
-          CUSTOM_PACKAGES="${{ inputs.custom_packages || github.event.inputs.custom_packages }}"
-          DRY_RUN="${{ inputs.dry_run != '' && inputs.dry_run || github.event.inputs.dry_run }}"
-          FORCE_REINSTALL="${{ inputs.force_reinstall != '' && inputs.force_reinstall || github.event.inputs.force_reinstall }}"
-          ISSUE_NUMBER="${{ inputs.issue_number || github.event.inputs.issue_number }}"
-
-          echo "base_url=$BASE_URL" >> $GITHUB_OUTPUT
-          echo "nodes=$NODES" >> $GITHUB_OUTPUT
-          echo "package_source=$PACKAGE_SOURCE" >> $GITHUB_OUTPUT
-          echo "custom_packages=$CUSTOM_PACKAGES" >> $GITHUB_OUTPUT
-          echo "dry_run=$DRY_RUN" >> $GITHUB_OUTPUT
-          echo "force_reinstall=$FORCE_REINSTALL" >> $GITHUB_OUTPUT
-          echo "issue_number=$ISSUE_NUMBER" >> $GITHUB_OUTPUT
+          {
+            echo "base_url=$IN_BASE_URL"
+            echo "nodes=$IN_NODES"
+            echo "package_source=$IN_PACKAGE_SOURCE"
+            echo "dry_run=$IN_DRY_RUN"
+            echo "force_reinstall=$IN_FORCE_REINSTALL"
+            echo "issue_number=$IN_ISSUE_NUMBER"
+            echo "custom_packages<<CUSTOM_PACKAGES_EOF"
+            echo "$IN_CUSTOM_PACKAGES"
+            echo "CUSTOM_PACKAGES_EOF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Run package synchronization script
         id: sync
@@ -122,27 +135,29 @@ jobs:
           DRY_RUN: ${{ steps.inputs.outputs.dry_run }}
           FORCE_REINSTALL: ${{ steps.inputs.outputs.force_reinstall }}
         run: |
-          # Build command arguments as an array so the custom_packages JSON is
-          # preserved as one quoted argument (previously the quotes were stripped
-          # by word-splitting, breaking the 'custom' source).
-          ARGS=(--nodes "$NODES" --source "$PACKAGE_SOURCE")
+          # Build the argument list with the POSIX positional parameters, not a
+          # bash array. python:3.12-slim ships no bash, so the runner falls back
+          # to `sh -e {0}` and ARGS=(...) is a syntax error that failed this step
+          # on every input, not just the 'custom' source. `set --` keeps the
+          # custom_packages JSON as one argument the same way an array would.
+          set -- --nodes "$NODES" --source "$PACKAGE_SOURCE"
 
           if [ "$DRY_RUN" = "true" ]; then
-            ARGS+=(--dry-run)
+            set -- "$@" --dry-run
           fi
 
           if [ "$FORCE_REINSTALL" = "true" ]; then
-            ARGS+=(--force-reinstall)
+            set -- "$@" --force-reinstall
           fi
 
           if [ "$PACKAGE_SOURCE" = "custom" ]; then
-            ARGS+=(--packages "$CUSTOM_PACKAGES")
+            set -- "$@" --packages "$CUSTOM_PACKAGES"
           fi
 
           # Run the script and capture output
-          echo "Running: python scripts/sync_packages.py ${ARGS[*]}"
+          echo "Running: python scripts/sync_packages.py $*"
           set +e  # Don't exit on error
-          OUTPUT=$(python scripts/sync_packages.py "${ARGS[@]}" 2>&1)
+          OUTPUT=$(python scripts/sync_packages.py "$@" 2>&1)
           EXIT_CODE=$?
           set -e
 
@@ -188,11 +203,16 @@ jobs:
       - name: Post results to issue
         if: always() && steps.inputs.outputs.issue_number != ''
         uses: actions/github-script@v7
+        env:
+          # The sync log is server-controlled text. Interpolated into the script
+          # body it would break the surrounding template literal on any backtick
+          # or ${ it contains, so read it from env at runtime instead.
+          SYNC_RESULT: ${{ steps.sync.outputs.result }}
         with:
           script: |
             const issueNumber = parseInt('${{ steps.inputs.outputs.issue_number }}');
             const status = '${{ steps.sync.outputs.status }}';
-            const output = `${{ steps.sync.outputs.result }}`;
+            const output = process.env.SYNC_RESULT || '';
             const nodes = '${{ steps.inputs.outputs.nodes }}';
             const dryRun = '${{ steps.inputs.outputs.dry_run }}' === 'true';
 
