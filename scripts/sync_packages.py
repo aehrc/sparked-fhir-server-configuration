@@ -106,13 +106,37 @@ class SmileCDRPackageSync:
             # Continue anyway - package might not be installed
             return False
 
+    def get_installed_versions(self, node_name: str, package_name: str) -> List[str]:
+        """Return every version of one package id stored on a node.
+
+        Reads the npm packument rather than the search index. `/-/v1/search`
+        reports a single object per package id, so it cannot see a version that
+        is stored but not current, whereas SmileCDR keys the registry on
+        (package id, version) and holds several versions at once.
+        """
+        url = f"{self.base_url}/{node_name}/package/npm/{package_name}"
+        try:
+            response = requests.get(url, headers=self.headers, timeout=30)
+            response.raise_for_status()
+            return sorted((response.json().get('versions') or {}).keys())
+        except (requests.exceptions.RequestException, ValueError):
+            return []
+
     def is_package_installed(self, node_name: str, package_name: str, package_version: str) -> bool:
         """Return True if a specific package@version is registered on a node.
 
         Used to confirm the real post-install state, since SmileCDR can return a
-        500 while re-inserting an already-present dependency even though the
-        target package itself installed correctly.
+        500 or time out at the ingress while the install itself succeeds.
+
+        Checks the packument first so a correctly stored non-current version is
+        not reported as a failed install; falls back to the search index when
+        the packument is unavailable.
         """
+        versions = self.get_installed_versions(node_name, package_name)
+        if versions:
+            print(f"      Registry holds {package_name}: {', '.join(versions)}")
+            return package_version in versions
+
         url = f"{self.base_url}/{node_name}/package/npm/-/v1/search"
         try:
             response = requests.get(url, headers=self.headers, timeout=30)
@@ -236,6 +260,14 @@ class SmileCDRPackageSync:
             success = self.install_package(node_name, package)
             if not success and not self.dry_run:
                 failed_operations.append(f"Install {package_key} on {node_name}")
+
+        if not self.dry_run:
+            # Report every stored version, not just the current one, so a bump
+            # that left an older version behind is visible in the run log.
+            print(f"\n📋 Registry state for the packages just processed:")
+            for name in dict.fromkeys(p['name'] for p in desired_packages):
+                versions = self.get_installed_versions(node_name, name)
+                print(f"   {name}: {', '.join(versions) if versions else '(none)'}")
 
         print(f"\n{'=' * 80}")
         print(f"Completed processing node: {node_name}")
