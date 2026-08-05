@@ -51,7 +51,12 @@ cdrNodes:
           seed.base_validation_resources: true
           package_registry.resource_status_validation_filter.enabled: false
           package_registry.load_specs_asynchronously: false
-          package_registry.startup_installation_specs: "classpath:/config_seeding/package-au-base-7.0.0-ballot1.json classpath:/config_seeding/package-au-patient-summary-1.0.0.json classpath:/config_seeding/package-aucore-3.0.0-ballot1.json classpath:/config_seeding/package-international-patient-summary-2.0.1.json"
+          # Dependencies first. apply_ig_release.py appends a brand new package,
+          # but hl7.terminology and smart-app-launch are dependencies of the AU
+          # Base and AU Core ballots, so on a fresh node they have to be present
+          # before those install. Order is significant here and is preserved on
+          # subsequent version bumps, which replace in place.
+          package_registry.startup_installation_specs: "classpath:/config_seeding/package-hl7-terminology-7.3.0.json classpath:/config_seeding/package-smart-app-launch-2.2.0.json classpath:/config_seeding/package-au-base-7.0.0-ballot1.json classpath:/config_seeding/package-au-patient-summary-1.0.0.json classpath:/config_seeding/package-aucore-3.0.0-ballot1.json classpath:/config_seeding/package-international-patient-summary-2.0.1.json"
           # Pulled from the live aucore node (2026-07-20) to eliminate seed drift.
           # Adds CarePlan/Goal/CareTeam (patient Care Plan viewer support) and the
           # DiagnosticReport/DocumentReference/MedicationDispense/Endpoint/Bundle

@@ -51,6 +51,10 @@ mappedFiles:
     path: /home/smile/smilecdr/classes/config_seeding
   package-aucore-3.0.0-ballot1.json:
     path: /home/smile/smilecdr/classes/config_seeding
+  package-hl7-terminology-7.3.0.json:
+    path: /home/smile/smilecdr/classes/config_seeding
+  package-smart-app-launch-2.2.0.json:
+    path: /home/smile/smilecdr/classes/config_seeding
 
 # Mount users.json from AWS Secrets Manager
 secrets:

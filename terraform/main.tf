@@ -103,6 +103,16 @@ module "smile_cdr_dependencies" {
       location = "classes/config_seeding"
       data     = file("../module-config/packages/package-aucore-3.0.0-ballot1.json")
     },
+    {
+      name     = "package-hl7-terminology-7.3.0.json"
+      location = "classes/config_seeding"
+      data     = file("../module-config/packages/package-hl7-terminology-7.3.0.json")
+    },
+    {
+      name     = "package-smart-app-launch-2.2.0.json"
+      location = "classes/config_seeding"
+      data     = file("../module-config/packages/package-smart-app-launch-2.2.0.json")
+    },
     # Users configuration moved to AWS Secrets Manager - see extra_secrets below
   ]
 
