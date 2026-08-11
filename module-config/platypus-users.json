@@ -1,0 +1,15 @@
+{
+  "description": "User account for the Platypus Health demo tenant on the aucore node. Create with: python scripts/manage_smart_users.py --bulk --users-file module-config/platypus-users.json --node aucore",
+  "version": "1.0.0",
+  "notes": "The password is NOT stored here. This account already exists on aucore (pid 1602); the script is idempotent and will skip it rather than reset the password. On a fresh node the script generates a password and prints it once, which must then be distributed securely. See docs/platypus-demo-tenant.md.",
+  "users": [
+    {
+      "username": "platypus-demo-patient",
+      "givenName": "Mia",
+      "familyName": "Banks",
+      "permissionLevel": "read-write",
+      "patientId": "banks-mia-leanne",
+      "tenant": "PLATYPUS,DEFAULT"
+    }
+  ]
+}
