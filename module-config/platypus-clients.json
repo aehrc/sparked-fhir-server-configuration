@@ -1,0 +1,17 @@
+{
+  "description": "SMART on FHIR client for the Platypus Health app against the aucore node. Register with: python scripts/register_smart_client.py --bulk --clients-file module-config/platypus-clients.json --node aucore",
+  "version": "1.0.0",
+  "notes": "Scopes here are the live registration as read from the admin JSON API on 2026-08-12, which is READ-ONLY. An earlier granular vitals write scope is recorded in the app's own notes but is not present on the server; see docs/platypus-demo-tenant.md before adding a write scope back.",
+  "clients": [
+    {
+      "clientId": "platypus-health",
+      "clientName": "Platypus Health",
+      "clientType": "smart-app-launch",
+      "scopes": ["openid", "fhirUser", "launch/patient", "offline_access", "patient/*.read"],
+      "redirectUris": [
+        "platypus-health://smart/callback",
+        "https://checkin.fhir-examples.com/smart/callback"
+      ]
+    }
+  ]
+}
