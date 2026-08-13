@@ -1022,6 +1022,7 @@ jobs:
       scopes: ${{ steps.issue.outputs.scopes }}
       contact_email: ${{ steps.issue.outputs.contact_email }}
       target_nodes: ${{ steps.issue.outputs.target_nodes }}
+      tenant: ${{ steps.issue.outputs.tenant }}
       issue_number: ${{ steps.issue.outputs.issue_number }}
 
     steps:
@@ -1055,18 +1056,30 @@ jobs:
             const body = issue.body || '';
 
             const extractField = (label) => {
-              const regex = new RegExp(`### ${label}\\s*([\\s\\S]*?)(?=###|$)`, 'i');
+              // Labels can contain regex metacharacters, e.g. "Tenant (optional)".
+              const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+              const regex = new RegExp(`### ${escaped}\\s*([\\s\\S]*?)(?=###|$)`, 'i');
               const match = body.match(regex);
-              const value = match ? match[1].trim() : '';
-              return value === '_No response_' ? '' : value;
+              let value = match ? match[1].trim() : '';
+              if (value === '_No response_') return '';
+              // Requesters routinely wrap single-line answers in backticks, and the
+              // raw value is passed straight to the CLI. A scope of "`system/*.*`"
+              // matches no prefix in scopes_to_authorities and silently yields a
+              // client with no read or write permission at all.
+              if (!value.includes('\n')) value = value.replace(/^`+|`+$/g, '').trim();
+              return value;
             };
 
-            const clientId = extractField('Client ID');
+            // Values that can never legitimately contain a backtick, and are passed
+            // to the CLI as identifiers rather than prose.
+            const stripTicks = (s) => s.replace(/`/g, '').trim();
+
+            const clientId = stripTicks(extractField('Client ID'));
             const clientName = extractField('Client Name');
             const clientType = extractField('Client Type');
             const redirectUris = extractField('Redirect URIs');
-            const scopes = extractField('Scopes');
-            const contactEmail = extractField('Contact Email');
+            const scopes = stripTicks(extractField('Scopes'));
+            const contactEmail = stripTicks(extractField('Contact Email'));
 
             // Extract target nodes from checkboxes
             const targetNodesSection = extractField('Target Nodes');
@@ -1085,6 +1098,25 @@ jobs:
             // Default to aucore if no nodes selected (backwards compatibility)
             const targetNodes = selectedNodes.length > 0 ? selectedNodes.join(',') : 'aucore';
 
+            // Tenant (partition) the client is scoped to. Blank means the shared
+            // DEFAULT tenant. Requesters often write prose here rather than a bare
+            // partition name, so anything that is not a clean token is handed to a
+            // human instead of being guessed at.
+            const tenantRaw = extractField('Tenant (optional)');
+            let tenant = 'DEFAULT';
+            if (tenantRaw) {
+              const candidate = tenantRaw.trim().replace(/^`|`$/g, '').toUpperCase();
+              if (!/^[A-Z0-9][A-Z0-9_-]{0,63}$/.test(candidate)) {
+                core.setFailed(
+                  'The Tenant field is not a bare partition name. Create the partition and ' +
+                  'register the client manually, or ask the requester to put just the tenant ' +
+                  `name in that field. Received: ${JSON.stringify(tenantRaw.slice(0, 200))}`
+                );
+                return;
+              }
+              tenant = candidate;
+            }
+
             core.setOutput('issue_number', issueNumber);
             core.setOutput('client_id', clientId);
             core.setOutput('client_name', clientName);
@@ -1093,6 +1125,7 @@ jobs:
             core.setOutput('scopes', scopes);
             core.setOutput('contact_email', contactEmail);
             core.setOutput('target_nodes', targetNodes);
+            core.setOutput('tenant', tenant);
 
             if (!clientId || !clientName || !clientType) {
               core.setFailed('Missing required fields: Client ID, Client Name, or Client Type');
@@ -1121,6 +1154,27 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
 
+      # Partition creation is deliberately not automated (no partition is expressed
+      # in this repository for any tenant). Registering a client against a tenant
+      # that does not exist would otherwise succeed and hand the requester a FHIR
+      # base URL that resolves to nothing, so fail loudly here instead.
+      - name: Verify tenant partition exists
+        if: steps.issue.outputs.tenant != 'DEFAULT'
+        shell: bash
+        run: |
+          PARTITIONS=$(curl -sf -H "Authorization: Basic $CSIRO_FHIR_AUTH_64" \
+            "https://smile.sparked-fhir.com/aucore/fhir/DEFAULT/\$partition-management-list-partitions")
+          if echo "$PARTITIONS" | jq -e --arg t "$TENANT" \
+               '.parameter[]?.part[]? | select(.name == "name" and .valueCode == $t)' > /dev/null; then
+            echo "Tenant partition $TENANT exists on aucore."
+          else
+            echo "::error::Tenant partition '$TENANT' does not exist on aucore. Create it with \$partition-management-create-partition first (see docs/fhirfrog-tenant.md), then re-apply the ready-for-automation label."
+            exit 1
+          fi
+        env:
+          CSIRO_FHIR_AUTH_64: ${{ secrets.CSIRO_FHIR_AUTH_64 }}
+          TENANT: ${{ steps.issue.outputs.tenant }}
+
       - name: Register SMART client
         id: register
         shell: bash
@@ -1146,6 +1200,7 @@ jobs:
             echo "=== Registering on node: $NODE ==="
             python scripts/register_smart_client.py \
               --node "$NODE" \
+              --tenant "$TENANT" \
               --client-type "$CLIENT_TYPE_ARG" \
               --client-id "$CLIENT_ID" \
               --client-name "$CLIENT_NAME" \
@@ -1180,6 +1235,7 @@ jobs:
           SCOPES: ${{ steps.issue.outputs.scopes }}
           CONTACT_EMAIL: ${{ steps.issue.outputs.contact_email }}
           TARGET_NODES: ${{ steps.issue.outputs.target_nodes }}
+          TENANT: ${{ steps.issue.outputs.tenant }}
 
       - name: Post success comment
         if: success()
@@ -1192,6 +1248,7 @@ jobs:
             const nodes = summary.target_nodes.split(',');
             const issueNumber = parseInt('${{ steps.issue.outputs.issue_number }}');
             const baseUrl = 'https://smile.sparked-fhir.com';
+            const tenant = '${{ steps.issue.outputs.tenant }}' || 'DEFAULT';
 
             const clientType = result.client_type === 'smart-app-launch'
               ? 'SMART App Launch (Public)'
@@ -1202,13 +1259,14 @@ jobs:
             body += `| Client ID | \`${result.client_id}\` |\n`;
             body += `| Client Name | ${result.client_name} |\n`;
             body += `| Client Type | ${clientType} |\n`;
+            body += `| Tenant | \`${tenant}\` |\n`;
             body += `| Registered On | ${nodes.join(', ')} |\n\n`;
 
             body += `### Endpoints\n\n`;
             body += `| Node | FHIR Base | Well-Known | Authorize | Token |\n`;
             body += `|------|-----------|------------|-----------|-------|\n`;
             for (const node of nodes) {
-              body += `| ${node} | \`${baseUrl}/${node}/fhir/DEFAULT\` | \`${baseUrl}/${node}/smartauth/.well-known/openid-configuration\` | \`${baseUrl}/${node}/smartauth/oauth/authorize\` | \`${baseUrl}/${node}/smartauth/oauth/token\` |\n`;
+              body += `| ${node} | \`${baseUrl}/${node}/fhir/${tenant}\` | \`${baseUrl}/${node}/smartauth/.well-known/openid-configuration\` | \`${baseUrl}/${node}/smartauth/oauth/authorize\` | \`${baseUrl}/${node}/smartauth/oauth/token\` |\n`;
             }
             body += `\n`;
 

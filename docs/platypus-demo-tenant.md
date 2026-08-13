@@ -7,7 +7,7 @@ node, for different reasons, and the split is easy to get wrong.
 | Partition | What Platypus uses it for | Writable |
 | --- | --- | --- |
 | `DEFAULT` | The curated AU Core dataset it reads as a patient's clinical history, and the shared conformance resources (`Questionnaire`, `StructureDefinition`, `ValueSet`, `CodeSystem`) every tenant needs | No, by design (ADR 0001) |
-| `PLATYPUS` (partition 102) | Anything the demo needs to WRITE: patient-contributed observations, form responses, seeded scenario data | Yes |
+| `PLATYPUS` (partition 1) | Anything the demo needs to WRITE: patient-contributed observations, form responses, seeded scenario data | Yes |
 
 ## What is seeded from this repository, and what is not
 
