@@ -27,9 +27,14 @@ FHIR_ALL_DELETE
 `FHIR_ALL_DELETE` matters and is easy to miss. In Smile CDR `FHIR_ALL_WRITE`
 covers create and update only; DELETE is a separate permission. Verified against
 this server: with read, write and transaction granted and no `FHIR_ALL_DELETE`,
-every `DELETE` in the tenant returns 403 while creates return 201. Any
-create-test-teardown workflow fails at teardown without it, which is exactly
-frog-runner's `autodelete` step.
+every `DELETE` in the tenant returns 403 while creates return 201. Adding it
+takes the same delete to 200, with a 410 on read-back. Any create-test-teardown
+workflow fails at teardown without it, which is exactly frog-runner's
+`autodelete` step.
+
+Clients registered before this was fixed in `scopes_to_authorities` do not gain
+the permission retrospectively; it has to be added to the live client record by
+hand, substituting the real secret into the `PUT` as described below.
 
 ## What is seeded from this repository, and what is not
 
@@ -154,7 +159,9 @@ Confirmed end to end against the live node with the issued credentials:
 | Create `Patient` in `FHIRFROG` | 201 |
 | Read it back from `FHIRFROG` | 200 |
 | Transaction bundle with conditional create in `FHIRFROG` | 200 |
-| Delete in `FHIRFROG` (before `FHIR_ALL_DELETE`) | 403 |
+| Delete in `FHIRFROG`, before `FHIR_ALL_DELETE` was granted | 403 |
+| Delete in `FHIRFROG`, after `FHIR_ALL_DELETE` was granted | 200, and 410 on read-back |
+| Delete in `DEFAULT` with the token | 403 |
 | Create in `DEFAULT` with the token | 403 |
 | Authenticated read of `DEFAULT` with the token | 403 |
 | Transaction against `DEFAULT` with the token | 403 |
