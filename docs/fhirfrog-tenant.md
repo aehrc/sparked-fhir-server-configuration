@@ -12,6 +12,25 @@ afterwards. That write requirement is what this tenant exists to serve.
 
 Requested in [#95](https://github.com/aehrc/sparked-fhir-server-configuration/issues/95).
 
+The client's authority set is:
+
+```
+ROLE_FHIR_CLIENT
+FHIR_CAPABILITIES
+FHIR_ACCESS_PARTITION_NAME: FHIRFROG
+FHIR_ALL_READ
+FHIR_ALL_WRITE
+FHIR_TRANSACTION
+FHIR_ALL_DELETE
+```
+
+`FHIR_ALL_DELETE` matters and is easy to miss. In Smile CDR `FHIR_ALL_WRITE`
+covers create and update only; DELETE is a separate permission. Verified against
+this server: with read, write and transaction granted and no `FHIR_ALL_DELETE`,
+every `DELETE` in the tenant returns 403 while creates return 201. Any
+create-test-teardown workflow fails at teardown without it, which is exactly
+frog-runner's `autodelete` step.
+
 ## What is seeded from this repository, and what is not
 
 Seeded from here:
@@ -113,7 +132,35 @@ curl -X POST https://smile.sparked-fhir.com/aucore/smartauth/oauth/token \
 
 The FHIR base is `https://smile.sparked-fhir.com/aucore/fhir/FHIRFROG`.
 
-The secret is **not** stored in this repository. Note that
-`register_smart_client.py` stores it hashed server-side and cannot read it back:
-if it is lost, it has to be reset with a `PUT` to the client's admin JSON record,
-not recovered. Use `--secret-file` at registration time to capture it.
+The secret is **not** stored in this repository, and it cannot be recovered: the
+admin API masks it as `"***"` on read. If it is lost it has to be reset with a
+`PUT` to the client's admin JSON record, not retrieved. Use `--secret-file` at
+registration time to capture it.
+
+That mask is a trap for any read-modify-write against a backend-service client.
+Fetching the client, changing a field and PUTting the result back sets the secret
+to the literal string `***` and locks out the real one. `register_smart_client.py
+--update-existing` now refuses in that situation unless `--client-secret` supplies
+a replacement; hand-rolled admin API scripts have to substitute the real secret
+themselves before the PUT.
+
+## Verification
+
+Confirmed end to end against the live node with the issued credentials:
+
+| Check | Result |
+| --- | --- |
+| `client_credentials` token issuance, scope `system/*.*` | 200 |
+| Create `Patient` in `FHIRFROG` | 201 |
+| Read it back from `FHIRFROG` | 200 |
+| Transaction bundle with conditional create in `FHIRFROG` | 200 |
+| Delete in `FHIRFROG` (before `FHIR_ALL_DELETE`) | 403 |
+| Create in `DEFAULT` with the token | 403 |
+| Authenticated read of `DEFAULT` with the token | 403 |
+| Transaction against `DEFAULT` with the token | 403 |
+| `StructureDefinition` via the tenant endpoint with the token | 403 |
+| Anonymous read of `DEFAULT` | 200 |
+| Anonymous read of `StructureDefinition` in `DEFAULT` | 200 |
+
+The last two are the reason the missing authenticated `DEFAULT` read costs
+nothing in practice.

@@ -194,6 +194,14 @@ def scopes_to_authorities(scopes: List[str], tenant: str = DEFAULT_PARTITION) ->
     if has_write:
         authorities.append({"permission": "FHIR_ALL_WRITE"})
         authorities.append({"permission": "FHIR_TRANSACTION"})
+        # FHIR_ALL_WRITE covers create and update only. DELETE is a separate
+        # permission in Smile CDR, so without this a client with system/*.* gets
+        # 403 on every delete, which breaks any create-test-teardown workflow.
+        # A SMART v1 ".write" scope covers create, update and delete.
+        # This is only safe because a write-capable backend client can no longer
+        # be registered against DEFAULT (see default_write_refusal): delete
+        # authority is always confined to the client's own tenant.
+        authorities.append({"permission": "FHIR_ALL_DELETE"})
 
     return authorities
 
@@ -350,7 +358,8 @@ class SmartClientRegistrar:
     def __init__(self, base_url: str, auth_header: str, node_id: str = DEFAULT_NODE,
                  dry_run: bool = False, skip_existing: bool = True,
                  update_existing: bool = False, tenant: str = DEFAULT_PARTITION,
-                 allow_default_write: bool = False):
+                 allow_default_write: bool = False,
+                 replacement_secret: Optional[str] = None):
         self.base_url = base_url.rstrip("/")
         self.node_id = node_id
         self.tenant = tenant
@@ -359,6 +368,7 @@ class SmartClientRegistrar:
         self.skip_existing = skip_existing
         self.update_existing = update_existing
         self.allow_default_write = allow_default_write
+        self.replacement_secret = replacement_secret
         self.session = create_session(auth_header)
 
     def _client_url(self, client_id: Optional[str] = None) -> str:
@@ -498,6 +508,29 @@ class SmartClientRegistrar:
                 existing_perms_list.append(auth)
 
         existing["permissions"] = existing_perms_list
+
+        # The admin API masks secrets on read, returning {"secret": "***"}. PUTting
+        # that straight back sets the client's secret to the literal string "***"
+        # and locks the real one out, so refuse rather than silently destroy it.
+        masked = [
+            s for s in existing.get("clientSecrets") or []
+            if set(str(s.get("secret", ""))) == {"*"}
+        ]
+        if masked:
+            if not self.replacement_secret:
+                return RegistrationResult(
+                    client_id=client_id,
+                    client_name=existing.get("clientName", client_id),
+                    client_type="backend-service" if is_backend else "smart-app-launch",
+                    success=False,
+                    tenant=self.tenant,
+                    error_message=(
+                        "the admin API masks this client's secret, so updating it in place "
+                        "would overwrite the secret with '***'. Re-run with --client-secret "
+                        "to set a known secret at the same time."
+                    ),
+                )
+            existing["clientSecrets"] = [{"secret": self.replacement_secret}]
 
         # Note: pid MUST be kept in the payload — SmileCDR requires it for PUT.
         # Remove only truly read-only timestamp fields if present.
@@ -884,6 +917,11 @@ def main():
                         help="Write generated backend-service client secrets to this file "
                              "(mode 0600, one 'client_id: secret' line per client). Without "
                              "this the generated secret is unrecoverable once the run ends.")
+    parser.add_argument("--client-secret", default=os.getenv("SMART_CLIENT_SECRET"),
+                        help="Secret to set when updating an existing backend-service client "
+                             "(or set SMART_CLIENT_SECRET). Required with --update-existing on "
+                             "such a client, because the admin API masks secrets on read and "
+                             "writing the mask back would destroy the real one.")
     parser.add_argument("--allow-default-write", action="store_true", default=False,
                         help="Permit registering a write-capable client against the shared "
                              "DEFAULT tenant. Refused by default: DEFAULT holds the curated "
@@ -904,6 +942,7 @@ def main():
         update_existing=args.update_existing,
         tenant=args.tenant,
         allow_default_write=args.allow_default_write,
+        replacement_secret=args.client_secret,
     )
 
     if args.bulk:
