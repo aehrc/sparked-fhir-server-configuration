@@ -88,6 +88,14 @@ module "smile_cdr_dependencies" {
       location = "classes/config_seeding"
       data     = file("../module-config/smart-post-authorize.js")
     },
+    # Consent service enforcing the read-only DEFAULT partition (ADR 0001).
+    # Referenced by consent_service.script.file on the aucore fhir_endpoint
+    # module in simplified-multinode.yaml.
+    {
+      name     = "consent-default-readonly.js"
+      location = "classes/config_seeding"
+      data     = file("../module-config/consent-default-readonly.js")
+    },
     {
       name     = "package-au-patient-summary-1.0.0.json"
       location = "classes/config_seeding"

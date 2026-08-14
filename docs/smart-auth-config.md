@@ -135,12 +135,19 @@ write as one and has no partition-scoped read-only variant:
    participants. The consent service
    [`module-config/consent-default-readonly.js`](../module-config/consent-default-readonly.js)
    rejects write verbs (and transaction write entries) whose request partition is
-   `DEFAULT`, exempting curator accounts. Wire it per node via
-   `consent_service.script.file` on the persistence module, and add a
-   DEFAULT-write-rejection + curator-exemption case to the Phase 0 matrix before
-   deploying. Until it is deployed, treat a `<TENANT>,DEFAULT` grant as also
-   conferring `DEFAULT` write (the current interim state for `platypus-demo-patient`
-   on `ereq`).
+   `DEFAULT`, exempting curator accounts. It is wired on the **FHIR REST
+   Endpoint** module, not persistence, via `consent_service.enabled` and
+   `consent_service.script.file`; see
+   [consent-service-rollout.md](consent-service-rollout.md) for why, for the
+   observe-then-enforce procedure, and for the rollback.
+
+   **It ships in observe mode**, which logs would-be rejections and blocks
+   nothing. Until `ENFORCE` is flipped, treat a `<TENANT>,DEFAULT` grant as also
+   conferring `DEFAULT` write. That is the current state of
+   `platypus-demo-patient` on `aucore`, which is `read-write` on
+   `PLATYPUS,DEFAULT`; what stops it writing the curated dataset today is that
+   the Platypus client is registered with read-only scopes, not the partition
+   model.
 
 ## Known follow-ups
 

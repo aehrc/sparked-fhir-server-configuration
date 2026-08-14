@@ -1,106 +1,277 @@
 /**
  * Consent service: read-only DEFAULT partition.
  *
- * Enforces ADR 0001 (points 2, 3, 6): every session — anonymous and
- * authenticated — may READ the shared `DEFAULT` partition, but no participant
- * session may WRITE it. Because Smile CDR's `FHIR_ACCESS_PARTITION_NAME` gates
- * read and write together (there is no partition-scoped read-only permission),
+ * Enforces ADR 0001 (points 2, 3, 6): every session, anonymous and
+ * authenticated, may READ the shared `DEFAULT` partition, but no participant
+ * session may WRITE it. Smile CDR's `FHIR_ACCESS_PARTITION_NAME` gates read and
+ * write together and there is no partition-scoped read-only permission, so
  * tenant principals are granted `<TENANT>,DEFAULT` for the authenticated
- * `DEFAULT` read, and this consent service supplies the missing half: it rejects
+ * `DEFAULT` read and this consent service supplies the missing half: it rejects
  * write verbs whose resolved request partition is `DEFAULT`.
  *
- * Config key: `consent_service.script.file` on the persistence module.
- * Docs: https://smilecdr.com/docs/security/consent_service.html
+ * Config keys, on the FHIR REST Endpoint module (NOT persistence):
+ *   consent_service.enabled:     true
+ *   consent_service.script.file: classpath:config_seeding/consent-default-readonly.js
  *
- * STATUS: reference implementation for ADR 0001 sign-off. The tenant/partition
- * and role accessors below are the parts most likely to differ across Smile CDR
- * releases — verify each against the deployed version and exercise the Phase 0
- * matrix (incl. a DEFAULT-write-rejection case and a curator-exemption case)
- * before wiring into any node. Not yet referenced by simplified-multinode.yaml.
+ * Mounted on the endpoint rather than on storage deliberately. Package registry
+ * seeding, IG installs and every other internal DAO write into DEFAULT happen
+ * below the REST layer, so an endpoint mount cannot stop the node coming up. A
+ * storage mount would put this script in the path of startup seeding, where a
+ * rejection or a script error means the node never becomes healthy. Participant
+ * traffic is all REST, so the endpoint mount loses no coverage that matters.
+ *
+ * Docs: https://smilecdr.com/docs/security/consent_service_javascript.html
+ *
+ * OBSERVE MODE. `ENFORCE` below is false on first deploy. The script then logs
+ * every decision it would have made and rejects nothing, which is how the
+ * accessor probing and the curator exemption get verified against the deployed
+ * build before they can break anything. Read the logs, confirm the partition
+ * resolves and that no curator or loader traffic appears as a would-reject, then
+ * flip ENFORCE to true and redeploy. See docs/consent-service-rollout.md.
  */
 
-// Partition whose writes are protected. Reads are never blocked.
+// ---------------------------------------------------------------------------
+// Configuration
+// ---------------------------------------------------------------------------
+
+/** false: log decisions, reject nothing. true: enforce. */
+var ENFORCE = false;
+
+/** Partition whose writes are protected. Reads are never blocked. */
 var PROTECTED_PARTITION = 'DEFAULT';
 
-// Write operations to reject on the protected partition. Reads (READ, VLREAD,
-// SEARCH_TYPE, SEARCH_SYSTEM, HISTORY_*, GET_PAGE, metadata) are always allowed.
+/** Prefix on every log line from this script, so the rollout is greppable. */
+var TAG = '[consent-default-readonly]';
+
+/**
+ * Authorities that identify a principal allowed to write DEFAULT.
+ *
+ * FHIR_ACCESS_PARTITION_ALL is the load-bearing one, and the reason this list is
+ * not just the superuser roles: participants are provisioned with
+ * FHIR_ACCESS_PARTITION_NAME:<TENANT>, while curator and admin principals get
+ * partition-wide access. That makes it the discriminator that actually tracks
+ * how accounts are provisioned in this repo, rather than one that happens to
+ * match today's admin account.
+ */
+var CURATOR_AUTHORITIES = [
+  'ROLE_SUPERUSER',
+  'ROLE_FHIR_CLIENT_SUPERUSER',
+  'FHIR_ACCESS_PARTITION_ALL',
+];
+
+/**
+ * HTTP verbs that can never modify state. Everything else is treated as a write
+ * unless the REST operation type says otherwise.
+ */
+var READ_VERBS = { GET: true, HEAD: true, OPTIONS: true };
+
+/**
+ * REST operation types that are reads despite arriving as POST. A FHIR search
+ * can be POSTed to `[type]/_search`, and blocking that would break exactly the
+ * authenticated DEFAULT read this change exists to enable.
+ */
+var READ_OPERATIONS = {
+  READ: true,
+  VREAD: true,
+  VLREAD: true,
+  SEARCH_TYPE: true,
+  SEARCH_SYSTEM: true,
+  HISTORY_INSTANCE: true,
+  HISTORY_TYPE: true,
+  HISTORY_SYSTEM: true,
+  GET_PAGE: true,
+  METADATA: true,
+};
+
+/** REST operation types that modify state. */
 var WRITE_OPERATIONS = {
   CREATE: true,
   UPDATE: true,
   PATCH: true,
   DELETE: true,
-  // A transaction/batch can carry write entries; gate it and let per-entry
-  // partition resolution below catch the writes. (A read-only batch is rare
-  // from a participant and still resolves per entry.)
+  // A transaction or batch can carry write entries, so gate the whole bundle.
   TRANSACTION: true,
   BATCH: true,
 };
 
-/**
- * Curator exemption: the Sparked-team accounts that legitimately maintain the
- * shared dataset keep write access to DEFAULT. Identify them by a role/authority
- * rather than by username so new curator accounts inherit it. Adjust the marker
- * to match how curator accounts are provisioned (e.g. a superuser role or an
- * explicit custom authority).
- */
-function isCurator(theRequestDetails) {
+// ---------------------------------------------------------------------------
+// Accessor probing
+//
+// theRequestDetails is a RequestDetailsJson. Smile CDR documents the callback
+// signatures but not this object's accessors, and they have moved between
+// releases. Every read below is therefore attempted and allowed to fail, and
+// what resolved is logged in observe mode. Nothing here may throw: an exception
+// out of consentStartOperation fails the request, and this script sits in front
+// of every REST call on the node.
+// ---------------------------------------------------------------------------
+
+/** Call a no-arg accessor by name, returning null rather than throwing. */
+function tryAccessor(theObject, theName) {
   try {
-    var session = theRequestDetails.getUserSession && theRequestDetails.getUserSession();
-    if (!session) return false;
-    if (session.hasAuthority && session.hasAuthority('ROLE_FHIR_CLIENT_SUPERUSER')) return true;
-    if (session.hasAuthority && session.hasAuthority('ROLE_SUPERUSER')) return true;
-    return false;
+    if (!theObject || typeof theObject[theName] !== 'function') {
+      return null;
+    }
+    var value = theObject[theName]();
+    if (value === null || value === undefined) {
+      return null;
+    }
+    value = '' + value;
+    return value.length > 0 ? value : null;
   } catch (e) {
-    // Fail closed: if we cannot prove curator status, treat as a participant.
-    return false;
+    return null;
   }
-}
-
-/** The tenant/partition segment of the request URL (e.g. "DEFAULT", "PLATYPUS"). */
-function requestPartition(theRequestDetails) {
-  if (theRequestDetails.getTenantId) {
-    return theRequestDetails.getTenantId();
-  }
-  if (theRequestDetails.getPartitionName) {
-    return theRequestDetails.getPartitionName();
-  }
-  return null;
-}
-
-function isWriteOperation(theRequestDetails) {
-  var op = theRequestDetails.getRestOperationType
-    ? '' + theRequestDetails.getRestOperationType()
-    : '';
-  // RestOperationType may serialise as e.g. "CREATE" or "create"; normalise.
-  return WRITE_OPERATIONS[op.toUpperCase()] === true;
 }
 
 /**
- * Called once at the start of every operation. Reject participant writes whose
- * request partition is DEFAULT; proceed for everything else (all reads, all
- * writes to a real tenant, and all curator activity).
+ * The partition the request targets, or null if it cannot be determined.
+ *
+ * Tries the direct accessors first, then falls back to the tenant segment of
+ * the URL, which is where URL-based multitenancy puts it
+ * (https://host/aucore/fhir/<PARTITION>/...).
  */
-function consentStartOperation(theRequestDetails, theContextServices) {
-  var partition = requestPartition(theRequestDetails);
-  if (partition !== PROTECTED_PARTITION) {
-    return theContextServices.proceed();
+function resolvePartition(theRequestDetails) {
+  var direct = tryAccessor(theRequestDetails, 'getTenantId')
+    || tryAccessor(theRequestDetails, 'getPartitionName');
+  if (direct) {
+    return direct;
   }
-  if (!isWriteOperation(theRequestDetails)) {
-    return theContextServices.proceed(); // reads of DEFAULT are always allowed
+
+  var url = tryAccessor(theRequestDetails, 'getFhirServerBase')
+    || tryAccessor(theRequestDetails, 'getCompleteUrl')
+    || tryAccessor(theRequestDetails, 'getRequestPath');
+  if (!url) {
+    return null;
   }
-  if (isCurator(theRequestDetails)) {
-    return theContextServices.proceed(); // team curator accounts maintain DEFAULT
+
+  // Take the segment after "/fhir/". Strip any query string first.
+  var path = ('' + url).split('?')[0];
+  var marker = path.indexOf('/fhir/');
+  if (marker < 0) {
+    return null;
   }
-  return theContextServices.reject(
-    'The DEFAULT partition is read-only (ADR 0001). Write your data to your own tenant.'
-  );
+  var rest = path.substring(marker + '/fhir/'.length);
+  var segment = rest.split('/')[0];
+  return segment && segment.length > 0 ? segment : null;
 }
 
-// Reads are unrestricted: authorise resources without per-resource filtering.
-function canSeeResource(theRequestDetails, theResource, theContextServices) {
-  return theContextServices.authorized();
+/**
+ * True if this request modifies state.
+ *
+ * The REST operation type is authoritative when it resolves. The HTTP verb is
+ * the fallback, and it is deliberately conservative: an unrecognised verb
+ * counts as a write.
+ */
+function isWrite(theRequestDetails) {
+  var op = tryAccessor(theRequestDetails, 'getRestOperationType');
+  if (op) {
+    var normalised = op.toUpperCase();
+    if (READ_OPERATIONS[normalised] === true) {
+      return false;
+    }
+    if (WRITE_OPERATIONS[normalised] === true) {
+      return true;
+    }
+    // An extended operation ($everything, $validate, $expunge, ...). Fall
+    // through to the verb: the read-only ones are GET or POST, and POST here
+    // stays conservative.
+  }
+
+  var verb = tryAccessor(theRequestDetails, 'getRequestType')
+    || tryAccessor(theRequestDetails, 'getHttpMethod');
+  if (verb && READ_VERBS[verb.toUpperCase()] === true) {
+    return false;
+  }
+  return true;
 }
 
-function willSeeResource(theRequestDetails, theResource, theContextServices) {
-  return theContextServices.proceed();
+/** True if this principal is allowed to write the protected partition. */
+function isCurator(theUserSession) {
+  if (!theUserSession || typeof theUserSession.hasAuthority !== 'function') {
+    return false;
+  }
+  for (var i = 0; i < CURATOR_AUTHORITIES.length; i++) {
+    try {
+      if (theUserSession.hasAuthority(CURATOR_AUTHORITIES[i])) {
+        return true;
+      }
+    } catch (e) {
+      // Accessor shape differs on this build; treat as not a curator and keep
+      // checking the remaining authorities.
+    }
+  }
+  return false;
+}
+
+/** Short principal description for the log line. Never throws. */
+function describePrincipal(theUserSession, theClientSession) {
+  var user = tryAccessor(theUserSession, 'getUsername')
+    || tryAccessor(theUserSession, 'getUserId');
+  var client = tryAccessor(theClientSession, 'getClientId')
+    || tryAccessor(theClientSession, 'getClientName');
+  if (user && client) {
+    return user + ' via ' + client;
+  }
+  return user || client || 'anonymous';
+}
+
+// ---------------------------------------------------------------------------
+// Callbacks
+// ---------------------------------------------------------------------------
+
+/**
+ * Runs once at the start of every operation.
+ *
+ * Every path ends in authorized() or reject(), never proceed(). authorized()
+ * short-circuits the per-resource consent callbacks, which the Smile CDR docs
+ * call out as a significant performance cost; this node serves bulk reads of
+ * the curated dataset, so skipping them matters. That is also why
+ * consentCanSeeResource and consentWillSeeResource are not defined here: all
+ * five callbacks are optional, and they would be unreachable.
+ */
+function consentStartOperation(theRequestDetails, theUserSession, theContextServices, theClientSession) {
+  var partition;
+  var write;
+  var curator;
+
+  try {
+    partition = resolvePartition(theRequestDetails);
+    write = isWrite(theRequestDetails);
+    curator = isCurator(theUserSession);
+  } catch (e) {
+    // Defensive: nothing above should throw, but a script error here would
+    // otherwise take out every request on the node.
+    Log.warn(TAG + ' evaluation failed, allowing request: ' + e);
+    theContextServices.authorized();
+    return;
+  }
+
+  if (partition === null) {
+    // Fail open, loudly. The accessors did not resolve on this build. Failing
+    // closed would reject every write on every tenant, including the curated
+    // data loaders; failing open restores exactly the behaviour that existed
+    // before this script, which is a state we already live with.
+    Log.warn(TAG + ' could not resolve the request partition, allowing request. '
+      + 'This script is not protecting anything until that is fixed.');
+    theContextServices.authorized();
+    return;
+  }
+
+  if (partition !== PROTECTED_PARTITION || !write || curator) {
+    theContextServices.authorized();
+    return;
+  }
+
+  var summary = TAG + ' write to ' + PROTECTED_PARTITION + ' by '
+    + describePrincipal(theUserSession, theClientSession);
+
+  if (!ENFORCE) {
+    Log.info(summary + ' WOULD BE REJECTED (observe mode)');
+    theContextServices.authorized();
+    return;
+  }
+
+  // reject() takes no message, so the reason only exists in the log. A
+  // participant sees a bare 403; docs/consent-service-rollout.md records that.
+  Log.info(summary + ' rejected');
+  theContextServices.reject();
 }
