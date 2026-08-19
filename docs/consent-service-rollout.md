@@ -176,6 +176,20 @@ loader run.
 Set `ENFORCE = true` in `module-config/consent-default-readonly.js`, apply, and
 re-run the matrix expecting the enforcing column.
 
+**Done 2026-08-19.** Observe mode ran on live `aucore` from the 03:40 deploy. The
+gate was an `au-patient-summary` load through `loader.sparked-fhir.com` as
+`ADMIN`: one create and eight deletes against `DEFAULT`, all succeeding, and the
+consent service logged nothing for any of them, so the curator exemption holds.
+Confirmed the service was still evaluating afterwards rather than silently
+inert, by firing another anonymous `DEFAULT` write and watching a fresh
+`WOULD BE REJECTED` line appear. Zero `could not resolve the request partition`
+warnings and zero evaluation failures over the whole observe window.
+
+Note for anyone reading the load output: the eight `422` bundle failures in that
+run were profile validation errors on `au-ps-organization`, unrelated to this
+service. Validation runs *before* the consent service, so those requests never
+reached it.
+
 ## Rollback
 
 Set `consent_service.enabled: false` on the `fhir_endpoint` module and apply.
