@@ -86,22 +86,28 @@ terraform plan -out main.tfplan     # expect an in-place helm_release change, ze
 terraform apply main.tfplan
 ```
 
-**The apply does not restart the pod.** The chart puts no config checksum
-annotation on the Deployment (only `checksum/predeploy`), so an updated
-ConfigMap leaves the running pod alone, and Smile CDR reads module properties at
-boot. The change is inert until the pod is rolled:
+**The apply restarts the pod on its own.** The chart runs with `autoDeploy`
+(its default, not overridden here), which suffixes ConfigMap names with a hash
+of their content: the live node config is `smilecdr-scdrnode-aucore-<hash>` and
+the mapped scripts are `smilecdr-scdr-<file>-<hash>`. The Deployment mounts them
+by those exact names, so changing module config or adding a script renames the
+ConfigMap, changes the pod template, and rolls the Deployment. Watch it rather
+than triggering it:
 
 ```bash
-kubectl --context sparkey -n smile rollout restart deployment \
-  -l app.kubernetes.io/name=smilecdr
-kubectl --context sparkey -n smile rollout status deployment \
-  -l app.kubernetes.io/name=smilecdr --timeout=30m
+kubectl --context sparkey -n smile rollout status deployment/smilecdr-scdrnode-aucore \
+  --timeout=30m
 ```
 
 The Deployment is `RollingUpdate` with `maxSurge: 1` and `maxUnavailable: 0`, so
 the old pod keeps serving until the new one passes its readiness probe. Smile
 CDR's startup probe allows up to 30 minutes, so allow for a slow boot rather
 than assuming a hang.
+
+If a rollout does not start, that means helm rendered an identical pod template,
+which means the config change did not reach the release. Check the plan before
+reaching for `kubectl rollout restart`, which would restart the pod without
+applying anything new.
 
 Two things about that restart are worth knowing before choosing a window, and
 neither is specific to this change. This node runs `PROPERTIES_UNLOCKED`, so on
@@ -176,11 +182,12 @@ Set `consent_service.enabled: false` on the `fhir_endpoint` module and apply.
 That is one key and it takes the script out of the request path entirely.
 Reverting `ENFORCE` to `false` is the softer option and keeps the logging.
 
-Both go through the same route as the deploy: apply, then restart the pod.
-`values-sparkey.yaml` sets `database: false`, so this node runs
-`PROPERTIES_UNLOCKED` and the properties file is re-read and overwrites module
-config on every boot. That is what makes a config-only change take effect at
-all; in `DATABASE` mode these keys would be ignored on an existing node.
+Both go through the same route as the deploy: apply, and the content-hashed
+ConfigMap rolls the pod. `values-sparkey.yaml` sets `database: false`, so this
+node runs `PROPERTIES_UNLOCKED` and the properties file is re-read and
+overwrites module config on every boot. That is what makes a config-only change
+take effect at all; in `DATABASE` mode these keys would be ignored on an
+existing node.
 
 Nothing here can be rolled back over the admin API. A console change to
 `consent_service.enabled` would be reverted by the properties file on the next
