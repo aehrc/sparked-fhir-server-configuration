@@ -37,6 +37,36 @@ a seeding step.
   What belongs in it depends on the scenario being demonstrated, so it is loaded
   as an operational act (see `aehrc/sparked-test-data-loader`), not held here.
 
+## Where the password lives
+
+`PLATYPUS-DEMO-PATIENT`'s password is in AWS Secrets Manager under
+`smilecdr-user-passwords`, key `smilecdr-platypus-demo-patient-password`, next to
+the admin and devtester passwords:
+
+```bash
+aws secretsmanager get-secret-value --secret-id smilecdr-user-passwords \
+  --query SecretString --output text \
+  | jq -r '."smilecdr-platypus-demo-patient-password"'
+```
+
+It is stored rather than derivable. Smile CDR keeps it hashed, so it cannot be
+read back off the server, and `manage_smart_users.py` is idempotent: it skips an
+existing account rather than resetting it, and prints a generated password only
+once at creation. Lose the stored copy and the only route is a reset, which
+breaks whoever is currently using the account.
+
+That happened. The password was reset on 2026-08-19 precisely because no copy
+survived: it was in neither Secrets Manager nor `smilecdr-users-json` nor this
+repo, and the value in a local shell env file no longer authenticated, while the
+account's `lastConnected` showed a successful login eight days earlier. Keep the
+Secrets Manager entry current if the password is ever changed again.
+
+Note that this account authenticates over HTTP Basic as well as through SMART,
+because `security.http.basic.enabled` is true on the `fhir_endpoint` module. A
+Basic login carries no client and no scopes, so the client's read-only scope set
+does not constrain it. What keeps it out of the curated dataset is the consent
+service, verified against this exact account: a `DEFAULT` write returns 403.
+
 ## Why this user has a `DEFAULT` grant, when ADR 0001 says vendor tenants should not
 
 `platypus-demo-patient` carries `FHIR_ACCESS_PARTITION_NAME PLATYPUS,DEFAULT`.
