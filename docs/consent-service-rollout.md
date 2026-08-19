@@ -74,8 +74,41 @@ writes the curated dataset over REST.
 
 ### Step 1: deploy in observe mode
 
-Apply per [sparkey-deploy-runbook.md](sparkey-deploy-runbook.md). Nothing else
-in this change alters runtime behaviour.
+Merging changes nothing on the server. Terraform is applied locally only
+(`smile-application.yml` is disabled: plan output in a public repo leaks
+infrastructure detail), so this needs a deliberate apply per
+[terraform-local-deploy.md](terraform-local-deploy.md): snapshot Aurora, then
+
+```bash
+cd terraform
+terraform init -backend-config=backend.hcl
+terraform plan -out main.tfplan     # expect an in-place helm_release change, zero destroys
+terraform apply main.tfplan
+```
+
+**The apply does not restart the pod.** The chart puts no config checksum
+annotation on the Deployment (only `checksum/predeploy`), so an updated
+ConfigMap leaves the running pod alone, and Smile CDR reads module properties at
+boot. The change is inert until the pod is rolled:
+
+```bash
+kubectl --context sparkey -n smile rollout restart deployment \
+  -l app.kubernetes.io/name=smilecdr
+kubectl --context sparkey -n smile rollout status deployment \
+  -l app.kubernetes.io/name=smilecdr --timeout=30m
+```
+
+The Deployment is `RollingUpdate` with `maxSurge: 1` and `maxUnavailable: 0`, so
+the old pod keeps serving until the new one passes its readiness probe. Smile
+CDR's startup probe allows up to 30 minutes, so allow for a slow boot rather
+than assuming a hang.
+
+Two things about that restart are worth knowing before choosing a window, and
+neither is specific to this change. This node runs `PROPERTIES_UNLOCKED`, so on
+boot the properties file overwrites module config, and any console-only change
+made to `aucore` since the last restart is reverted. And whatever else is
+currently unapplied in the repo lands in the same apply, which is the reason to
+read the plan rather than trust the resource count.
 
 ### Step 2: confirm the script loaded
 
@@ -143,10 +176,15 @@ Set `consent_service.enabled: false` on the `fhir_endpoint` module and apply.
 That is one key and it takes the script out of the request path entirely.
 Reverting `ENFORCE` to `false` is the softer option and keeps the logging.
 
-Note that `config.database: true` means seeded properties apply on first boot
-only, so a change to these keys against an existing node goes through the same
-route as any other module config change; see
-[smart-auth-config.md](smart-auth-config.md).
+Both go through the same route as the deploy: apply, then restart the pod.
+`values-sparkey.yaml` sets `database: false`, so this node runs
+`PROPERTIES_UNLOCKED` and the properties file is re-read and overwrites module
+config on every boot. That is what makes a config-only change take effect at
+all; in `DATABASE` mode these keys would be ignored on an existing node.
+
+Nothing here can be rolled back over the admin API. A console change to
+`consent_service.enabled` would be reverted by the properties file on the next
+restart, so the rollback has to go through git and an apply.
 
 ## Known limitations
 
