@@ -116,6 +116,28 @@ const participant = userSession('platypus-demo-patient', [
 const superuser = userSession('admin', ['ROLE_SUPERUSER']);
 const partitionAdmin = userSession('loader', ['ROLE_FHIR_CLIENT', 'FHIR_ACCESS_PARTITION_ALL']);
 
+// The four team accounts ADR 0001 exempts, as they are actually provisioned on
+// the live aucore node (audited 2026-08-19). They share no single marker, which
+// is why CURATOR_AUTHORITIES lists capabilities rather than one role.
+const adminUser = userSession('ADMIN', ['ROLE_SUPERUSER']);
+const fillerUser = userSession('FILLER', [
+  'ROLE_FHIR_CLIENT', 'ROLE_FHIR_CLIENT_SUPERUSER', 'FHIR_ACCESS_PARTITION_NAME',
+  'FHIR_ALL_READ', 'FHIR_TRANSACTION', 'FHIR_UPLOAD_EXTERNAL_TERMINOLOGY',
+  'FHIR_MODIFY_SEARCH_PARAMETERS', 'ACCESS_FHIRWEB',
+]);
+const devTester = userSession('DEVTESTER', [
+  'ROLE_FHIR_CLIENT', 'FHIR_ACCESS_PARTITION_NAME', 'FHIR_ALL_READ',
+  'FHIR_CAPABILITIES', 'FHIR_TRANSACTION', 'FHIR_MANUAL_VALIDATION',
+  'FHIR_MODIFY_SEARCH_PARAMETERS', 'FHIR_UPLOAD_EXTERNAL_TERMINOLOGY',
+  'FHIR_OP_PACKAGE', 'ACCESS_FHIRWEB',
+]);
+// The live participant that can currently reach a DEFAULT write. Must NOT be
+// exempt: closing this is the entire point of the consent service.
+const platypusUser = userSession('PLATYPUS-DEMO-PATIENT', [
+  'ROLE_FHIR_CLIENT', 'FHIR_ACCESS_PARTITION_NAME', 'FHIR_ALL_READ',
+  'FHIR_ALL_WRITE', 'FHIR_CAPABILITIES', 'FHIR_TRANSACTION',
+]);
+
 check('anonymous read of DEFAULT is allowed',
   decide(load(true), requestDetails({ getTenantId: 'DEFAULT', getRestOperationType: 'SEARCH_TYPE', getRequestType: 'GET' }), null, null),
   'authorized');
@@ -171,6 +193,38 @@ check('backend client with no user session writing its own tenant is allowed',
 check('backend client with no user session writing DEFAULT is rejected',
   decide(load(true), requestDetails({ getTenantId: 'DEFAULT', getRestOperationType: 'CREATE', getRequestType: 'POST' }), null, clientSession('frog-runner')),
   'rejected');
+
+// ---------------------------------------------------------------------------
+// The team accounts ADR 0001 exempts, as actually provisioned
+// ---------------------------------------------------------------------------
+
+console.log('--- live curator accounts ---');
+
+const defaultWrite = { getTenantId: 'DEFAULT', getRestOperationType: 'CREATE', getRequestType: 'POST' };
+
+check('ADMIN (ROLE_SUPERUSER) may write DEFAULT',
+  decide(load(true), requestDetails(defaultWrite), adminUser, null), 'authorized');
+
+check('FILLER (ROLE_FHIR_CLIENT_SUPERUSER) may write DEFAULT',
+  decide(load(true), requestDetails(defaultWrite), fillerUser, null), 'authorized');
+
+check('DEVTESTER may write DEFAULT despite holding no superuser role',
+  decide(load(true), requestDetails(defaultWrite), devTester, null), 'authorized');
+
+check('DEVTESTER may write conformance to DEFAULT via transaction',
+  decide(load(true), requestDetails({ getTenantId: 'DEFAULT', getRestOperationType: 'TRANSACTION', getRequestType: 'POST' }), devTester, null),
+  'authorized');
+
+check('PLATYPUS-DEMO-PATIENT is NOT exempt and is refused on DEFAULT',
+  decide(load(true), requestDetails(defaultWrite), platypusUser, null), 'rejected');
+
+check('PLATYPUS-DEMO-PATIENT keeps its DEFAULT read',
+  decide(load(true), requestDetails({ getTenantId: 'DEFAULT', getRestOperationType: 'SEARCH_TYPE', getRequestType: 'GET' }), platypusUser, null),
+  'authorized');
+
+check('PLATYPUS-DEMO-PATIENT keeps writing its own tenant',
+  decide(load(true), requestDetails({ getTenantId: 'PLATYPUS', getRestOperationType: 'CREATE', getRequestType: 'POST' }), platypusUser, null),
+  'authorized');
 
 // ---------------------------------------------------------------------------
 // Accessor fallbacks

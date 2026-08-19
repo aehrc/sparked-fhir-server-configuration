@@ -46,17 +46,33 @@ var TAG = '[consent-default-readonly]';
 /**
  * Authorities that identify a principal allowed to write DEFAULT.
  *
- * FHIR_ACCESS_PARTITION_ALL is the load-bearing one, and the reason this list is
- * not just the superuser roles: participants are provisioned with
- * FHIR_ACCESS_PARTITION_NAME:<TENANT>, while curator and admin principals get
- * partition-wide access. That makes it the discriminator that actually tracks
- * how accounts are provisioned in this repo, rather than one that happens to
- * match today's admin account.
+ * ADR 0001 names four team-internal accounts as exempt: ADMIN, DevTester,
+ * placer and filler. Audited against the live aucore node on 2026-08-19, they
+ * do not share a single marker:
+ *
+ *   ADMIN, XUN            ROLE_SUPERUSER
+ *   FILLER, PLACER        ROLE_FHIR_CLIENT_SUPERUSER
+ *   DEVTESTER             neither, and no FHIR_ACCESS_PARTITION_ALL
+ *
+ * DEVTESTER curates the shared conformance resources with
+ * FHIR_WRITE_ALL_OF_TYPE on CodeSystem, ConceptMap, StructureDefinition and
+ * ValueSet, all of which live in DEFAULT. The superuser roles alone would
+ * therefore have rejected exactly the account whose whole job is writing
+ * DEFAULT.
+ *
+ * FHIR_UPLOAD_EXTERNAL_TERMINOLOGY and FHIR_MODIFY_SEARCH_PARAMETERS cover it.
+ * Both change server-wide behaviour rather than tenant data, no participant
+ * account holds either (the one non-curator that can currently write DEFAULT,
+ * PLATYPUS-DEMO-PATIENT, has neither), and matching on capability keeps this
+ * from becoming a username list that the next curator account has to be added
+ * to by hand.
  */
 var CURATOR_AUTHORITIES = [
   'ROLE_SUPERUSER',
   'ROLE_FHIR_CLIENT_SUPERUSER',
   'FHIR_ACCESS_PARTITION_ALL',
+  'FHIR_UPLOAD_EXTERNAL_TERMINOLOGY',
+  'FHIR_MODIFY_SEARCH_PARAMETERS',
 ];
 
 /**

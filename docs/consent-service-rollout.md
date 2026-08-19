@@ -157,10 +157,14 @@ Two things to establish before enforcing:
   means the accessors did not work on this build and the script is protecting
   nothing. Fix `resolvePartition` before going further.
 - **No curator or loader traffic appears as `WOULD BE REJECTED`.** The line names
-  the principal. If `sparked-test-data-loader` or an admin account shows up,
-  enforcing would break the curated data pipeline, and
-  `CURATOR_AUTHORITIES` in the script needs to match how that principal is
-  actually provisioned.
+  the principal. If `sparked-test-data-loader` or a team account shows up,
+  enforcing would break the curated data pipeline, and `CURATOR_AUTHORITIES` in
+  the script needs to match how that principal is actually provisioned. The
+  2026-08-19 audit already caught one of these before it could bite:
+  `DEVTESTER` holds no superuser role and no `FHIR_ACCESS_PARTITION_ALL`, so the
+  original marker list would have rejected the very account whose job is writing
+  conformance resources to `DEFAULT`. Re-audit rather than assume if the account
+  set changes.
 
 Leave it here for at least one full data load. A quiet hour proves less than one
 loader run.
@@ -201,19 +205,41 @@ loaders. Failing open restores the pre-existing behaviour and logs a warning.
 The consequence is that a build change that breaks the accessors silently
 disables enforcement, which is why step 4 checks for that line explicitly.
 
-**Existing accounts still hold write on DEFAULT.** Enforcing changes what they
-can do, not what they are granted. As of this change:
+**Who can actually write DEFAULT.** Audited against live `aucore` on
+2026-08-19. There are seven `local_security` users, and exactly one non-curator
+among them can reach a `DEFAULT` write:
 
-- `platypus-demo-patient` is `read-write` on `PLATYPUS,DEFAULT`.
-- `connectathon-user-05` and `connectathon-user-06` are `read-write` with no
-  tenant set, which resolves to `DEFAULT`. Whether those accounts still exist on
-  the server is unconfirmed; the connectathon *clients* are already gone, and
-  `module-config/connectathon-clients.json` is drifted from the live node.
+| Account | Marker | Exempt |
+| --- | --- | --- |
+| `ADMIN`, `XUN` | `ROLE_SUPERUSER` | yes |
+| `FILLER`, `PLACER` | `ROLE_FHIR_CLIENT_SUPERUSER` | yes |
+| `DEVTESTER` | `FHIR_UPLOAD_EXTERNAL_TERMINOLOGY`, `FHIR_MODIFY_SEARCH_PARAMETERS` | yes |
+| `ANONYMOUS` | read only, no write permission | n/a |
+| `PLATYPUS-DEMO-PATIENT` | `FHIR_ALL_WRITE` + `FHIR_ACCESS_PARTITION_NAME: PLATYPUS,DEFAULT` | **no** |
 
-What stops those accounts writing the curated dataset today is that the clients
-they log in through hold read-only scopes. That is a scope string away from
-being a real hole, and it is the reason for shipping this rather than leaving it
-on the shelf.
+`PLATYPUS-DEMO-PATIENT` is the account this change exists to constrain. Its
+`DEFAULT` grant is deliberate and stays: without it a `QuestionnaireResponse`
+write to `PLATYPUS` fails, because Smile CDR authorises the write against the
+referenced `Questionnaire` type and conformance resources live in `DEFAULT`
+(see [platypus-demo-tenant.md](platypus-demo-tenant.md)). Enforcing removes only
+the `DEFAULT` write it was never intended to have, exactly as ADR 0001 point 6
+describes. Its writes target `PLATYPUS`, which the consent service does not
+touch, so nothing about the demo should change.
+
+The connectathon accounts do not exist. `connectathon-user-01` through `-06`,
+`intervise-user` and `charles-papp` are all absent from the live node, so
+`module-config/connectathon-users.json` is drifted in the same way
+`connectathon-clients.json` is. Neither is a live `DEFAULT` write exposure, and
+both files want a separate cleanup.
+
+Note what the audit corrected. The earlier claim here was that read-only client
+scopes are what prevent a `DEFAULT` write. That only holds for OAuth sessions:
+`module.fhir_endpoint.config.security.http.basic.enabled` is `true` on the live
+node, and HTTP Basic involves no client and no scopes, so the scope intersection
+never applies to that path. Confirmed that Basic auth works against the FHIR
+endpoint (`ADMIN` returns 200). The `PLATYPUS_DEMO_PATIENT_PASS` in
+`~/.sparked-env` returns 401, so the exposure is established by configuration
+rather than demonstrated by test.
 
 **Backend service clients are covered, users are not fully.** `FHIR_ALL_DELETE`
 is now granted alongside write by `register_smart_client.py`, but
