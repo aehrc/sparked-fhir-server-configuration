@@ -243,6 +243,47 @@ decide(observedAllowed, requestDetails({ getTenantId: 'FHIRFROG', getRestOperati
 checkLog('observe mode stays quiet for allowed writes', observedAllowed.logs, 'WOULD BE REJECTED', false);
 
 // ---------------------------------------------------------------------------
+// Logging cannot fail a request
+// ---------------------------------------------------------------------------
+
+console.log('--- logging is guarded ---');
+
+/** Load the script into a sandbox with no Log global at all. */
+function loadWithoutLog(enforce) {
+  const context = {};
+  vm.createContext(context);
+  vm.runInContext(SOURCE, context, { filename: SCRIPT });
+  if (enforce) {
+    vm.runInContext('ENFORCE = true;', context);
+  }
+  return { context, logs: [] };
+}
+
+check('a rejection still happens with no Log global',
+  decide(loadWithoutLog(true), requestDetails({ getTenantId: 'DEFAULT', getRestOperationType: 'CREATE' }), participant, null),
+  'rejected');
+
+check('observe mode still allows with no Log global',
+  decide(loadWithoutLog(false), requestDetails({ getTenantId: 'DEFAULT', getRestOperationType: 'CREATE' }), participant, null),
+  'authorized');
+
+check('the fail-open path survives no Log global',
+  decide(loadWithoutLog(true), requestDetails({ getRequestType: 'POST' }), participant, null),
+  'authorized');
+
+const brokenLog = (() => {
+  const context = { Log: { info: () => { throw new Error('appender down'); },
+                           warn: () => { throw new Error('appender down'); } } };
+  vm.createContext(context);
+  vm.runInContext(SOURCE, context, { filename: SCRIPT });
+  vm.runInContext('ENFORCE = true;', context);
+  return { context, logs: [] };
+})();
+check('a Log implementation that throws does not fail the request',
+  decide(brokenLog, requestDetails({ getTenantId: 'DEFAULT', getRestOperationType: 'CREATE' }), participant, null),
+  'rejected');
+
+// ---------------------------------------------------------------------------
 // Shipping state
 // ---------------------------------------------------------------------------
 

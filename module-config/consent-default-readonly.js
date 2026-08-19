@@ -105,6 +105,28 @@ var WRITE_OPERATIONS = {
 // of every REST call on the node.
 // ---------------------------------------------------------------------------
 
+/**
+ * Log without ever being able to fail a request.
+ *
+ * Log is provided by Smile CDR's JavaScript environment and smart-post-authorize.js
+ * relies on it, but this script runs in front of every REST call on the module,
+ * and the whole design is that nothing in it can take the endpoint down. An
+ * unguarded Log call inside a catch block would do exactly that if the global
+ * were ever absent or renamed.
+ */
+function logLine(theLevel, theMessage) {
+  try {
+    if (typeof Log === 'undefined' || !Log) {
+      return;
+    }
+    if (typeof Log[theLevel] === 'function') {
+      Log[theLevel](theMessage);
+    }
+  } catch (e) {
+    // Nothing useful left to do: logging is the thing that failed.
+  }
+}
+
 /** Call a no-arg accessor by name, returning null rather than throwing. */
 function tryAccessor(theObject, theName) {
   try {
@@ -240,7 +262,7 @@ function consentStartOperation(theRequestDetails, theUserSession, theContextServ
   } catch (e) {
     // Defensive: nothing above should throw, but a script error here would
     // otherwise take out every request on the node.
-    Log.warn(TAG + ' evaluation failed, allowing request: ' + e);
+    logLine('warn', TAG + ' evaluation failed, allowing request: ' + e);
     theContextServices.authorized();
     return;
   }
@@ -250,8 +272,8 @@ function consentStartOperation(theRequestDetails, theUserSession, theContextServ
     // closed would reject every write on every tenant, including the curated
     // data loaders; failing open restores exactly the behaviour that existed
     // before this script, which is a state we already live with.
-    Log.warn(TAG + ' could not resolve the request partition, allowing request. '
-      + 'This script is not protecting anything until that is fixed.');
+    logLine('warn', TAG + ' could not resolve the request partition, allowing '
+      + 'request. This script is not protecting anything until that is fixed.');
     theContextServices.authorized();
     return;
   }
@@ -265,13 +287,13 @@ function consentStartOperation(theRequestDetails, theUserSession, theContextServ
     + describePrincipal(theUserSession, theClientSession);
 
   if (!ENFORCE) {
-    Log.info(summary + ' WOULD BE REJECTED (observe mode)');
+    logLine('info', summary + ' WOULD BE REJECTED (observe mode)');
     theContextServices.authorized();
     return;
   }
 
   // reject() takes no message, so the reason only exists in the log. A
   // participant sees a bare 403; docs/consent-service-rollout.md records that.
-  Log.info(summary + ' rejected');
+  logLine('info', summary + ' rejected');
   theContextServices.reject();
 }
