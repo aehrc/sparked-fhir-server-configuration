@@ -39,9 +39,9 @@ function load(enforce) {
   };
   vm.createContext(context);
   vm.runInContext(SOURCE, context, { filename: SCRIPT });
-  if (enforce) {
-    vm.runInContext('ENFORCE = true;', context);
-  }
+  // Set both ways, never just on: otherwise the observe-mode tests silently
+  // inherit whatever the committed ENFORCE default happens to be.
+  vm.runInContext(`ENFORCE = ${enforce ? 'true' : 'false'};`, context);
   return { context, logs };
 }
 
@@ -253,9 +253,7 @@ function loadWithoutLog(enforce) {
   const context = {};
   vm.createContext(context);
   vm.runInContext(SOURCE, context, { filename: SCRIPT });
-  if (enforce) {
-    vm.runInContext('ENFORCE = true;', context);
-  }
+  vm.runInContext(`ENFORCE = ${enforce ? 'true' : 'false'};`, context);
   return { context, logs: [] };
 }
 
@@ -289,9 +287,10 @@ check('a Log implementation that throws does not fail the request',
 
 console.log('--- shipping state ---');
 
-const shipped = load(false);
-check('the committed script ships in observe mode',
-  vm.runInContext('ENFORCE', shipped.context), false);
+const pristine = vm.createContext({ Log: { info() {}, warn() {}, error() {} } });
+vm.runInContext(SOURCE, pristine, { filename: SCRIPT });
+check('the committed script ships enforcing',
+  vm.runInContext('ENFORCE', pristine), true);
 
 console.log(`\n${passes}/${passes + failures} checks passed`);
 process.exit(failures > 0 ? 1 : 0);

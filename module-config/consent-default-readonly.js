@@ -22,12 +22,13 @@
  *
  * Docs: https://smilecdr.com/docs/security/consent_service_javascript.html
  *
- * OBSERVE MODE. `ENFORCE` below is false on first deploy. The script then logs
- * every decision it would have made and rejects nothing, which is how the
- * accessor probing and the curator exemption get verified against the deployed
- * build before they can break anything. Read the logs, confirm the partition
- * resolves and that no curator or loader traffic appears as a would-reject, then
- * flip ENFORCE to true and redeploy. See docs/consent-service-rollout.md.
+ * ENFORCING. `ENFORCE` is true: writes to DEFAULT from non-curator principals
+ * are rejected with a bare 403 and logged. It shipped in observe mode first and
+ * ran that way on live aucore from 2026-08-19, which is how the accessor probing
+ * and the curator exemption were verified against the deployed build. Set
+ * ENFORCE back to false to return to logging without blocking, or
+ * consent_service.enabled to false to take the script out of the request path
+ * entirely. See docs/consent-service-rollout.md.
  */
 
 // ---------------------------------------------------------------------------
@@ -35,7 +36,7 @@
 // ---------------------------------------------------------------------------
 
 /** false: log decisions, reject nothing. true: enforce. */
-var ENFORCE = false;
+var ENFORCE = true;
 
 /** Partition whose writes are protected. Reads are never blocked. */
 var PROTECTED_PARTITION = 'DEFAULT';
