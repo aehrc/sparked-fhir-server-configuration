@@ -49,6 +49,7 @@ import copy
 import json
 import os
 import secrets
+import stat
 import sys
 import time
 from dataclasses import dataclass, field
@@ -132,6 +133,7 @@ class RegistrationResult:
     already_exists: bool = False
     updated: bool = False
     dry_run: bool = False
+    tenant: str = DEFAULT_PARTITION
 
 
 @dataclass
@@ -146,6 +148,7 @@ class RegistrationSummary:
     results: List[RegistrationResult] = field(default_factory=list)
     base_url: str = DEFAULT_BASE_URL
     target_node: str = DEFAULT_NODE
+    tenant: str = DEFAULT_PARTITION
 
 
 # =============================================================================
@@ -191,8 +194,48 @@ def scopes_to_authorities(scopes: List[str], tenant: str = DEFAULT_PARTITION) ->
     if has_write:
         authorities.append({"permission": "FHIR_ALL_WRITE"})
         authorities.append({"permission": "FHIR_TRANSACTION"})
+        # FHIR_ALL_WRITE covers create and update only. DELETE is a separate
+        # permission in Smile CDR, so without this a client with system/*.* gets
+        # 403 on every delete, which breaks any create-test-teardown workflow.
+        # A SMART v1 ".write" scope covers create, update and delete.
+        # This is only safe because a write-capable backend client can no longer
+        # be registered against DEFAULT (see default_write_refusal): delete
+        # authority is always confined to the client's own tenant.
+        authorities.append({"permission": "FHIR_ALL_DELETE"})
 
     return authorities
+
+
+def default_write_refusal(client_type: str, scopes: List[str], tenant: str) -> Optional[str]:
+    """Return a refusal reason if this registration would grant DEFAULT write.
+
+    DEFAULT holds the curated shared dataset and is read-only for participants
+    under ADR 0001. Smile CDR's FHIR_ACCESS_PARTITION_NAME gates reads and writes
+    together, so a client granted DEFAULT plus FHIR_ALL_WRITE can write the shared
+    data. The consent service that would otherwise reject those writes
+    (ADR 0001 point 6) is not wired on any node, so this is the only guard.
+
+    Only backend-service clients are checked: SMART App Launch clients carry no
+    permissions of their own and inherit them from the user who logs in.
+    """
+    if client_type != "backend-service":
+        return None
+
+    partitions = {p.strip().upper() for p in tenant.split(",") if p.strip()}
+    if DEFAULT_PARTITION not in partitions:
+        return None
+
+    grants_write = any(
+        a["permission"] == "FHIR_ALL_WRITE" for a in scopes_to_authorities(scopes)
+    )
+    if not grants_write:
+        return None
+
+    return (
+        f"scopes {scopes} grant write on the shared {DEFAULT_PARTITION} tenant, which is "
+        "read-only for participants under ADR 0001. Give the client its own tenant "
+        "(--tenant VENDOR-X), or pass --allow-default-write if this is a curator client."
+    )
 
 
 # =============================================================================
@@ -314,7 +357,9 @@ class SmartClientRegistrar:
 
     def __init__(self, base_url: str, auth_header: str, node_id: str = DEFAULT_NODE,
                  dry_run: bool = False, skip_existing: bool = True,
-                 update_existing: bool = False, tenant: str = DEFAULT_PARTITION):
+                 update_existing: bool = False, tenant: str = DEFAULT_PARTITION,
+                 allow_default_write: bool = False,
+                 replacement_secret: Optional[str] = None):
         self.base_url = base_url.rstrip("/")
         self.node_id = node_id
         self.tenant = tenant
@@ -322,6 +367,8 @@ class SmartClientRegistrar:
         self.dry_run = dry_run
         self.skip_existing = skip_existing
         self.update_existing = update_existing
+        self.allow_default_write = allow_default_write
+        self.replacement_secret = replacement_secret
         self.session = create_session(auth_header)
 
     def _client_url(self, client_id: Optional[str] = None) -> str:
@@ -462,6 +509,29 @@ class SmartClientRegistrar:
 
         existing["permissions"] = existing_perms_list
 
+        # The admin API masks secrets on read, returning {"secret": "***"}. PUTting
+        # that straight back sets the client's secret to the literal string "***"
+        # and locks the real one out, so refuse rather than silently destroy it.
+        masked = [
+            s for s in existing.get("clientSecrets") or []
+            if set(str(s.get("secret", ""))) == {"*"}
+        ]
+        if masked:
+            if not self.replacement_secret:
+                return RegistrationResult(
+                    client_id=client_id,
+                    client_name=existing.get("clientName", client_id),
+                    client_type="backend-service" if is_backend else "smart-app-launch",
+                    success=False,
+                    tenant=self.tenant,
+                    error_message=(
+                        "the admin API masks this client's secret, so updating it in place "
+                        "would overwrite the secret with '***'. Re-run with --client-secret "
+                        "to set a known secret at the same time."
+                    ),
+                )
+            existing["clientSecrets"] = [{"secret": self.replacement_secret}]
+
         # Note: pid MUST be kept in the payload — SmileCDR requires it for PUT.
         # Remove only truly read-only timestamp fields if present.
         for field_name in ("createdDate", "lastUpdatedDate"):
@@ -548,6 +618,19 @@ class SmartClientRegistrar:
         (used by bulk files with a per-client "tenant" key).
         """
         effective_tenant = tenant or self.tenant
+
+        refusal = default_write_refusal(client_type, scopes, effective_tenant)
+        if refusal and not self.allow_default_write:
+            print(f"  [REFUSED] {client_id}: {refusal}")
+            return RegistrationResult(
+                client_id=client_id,
+                client_name=client_name,
+                client_type=client_type,
+                success=False,
+                error_message=refusal,
+                tenant=effective_tenant,
+            )
+
         if client_type == "smart-app-launch":
             payload = build_smart_app_launch_payload(client_id, client_name, redirect_uris, scopes, node_id=self.node_id)
         elif client_type == "backend-service":
@@ -560,7 +643,9 @@ class SmartClientRegistrar:
                 success=False,
                 error_message=f"Unknown client type: {client_type}",
             )
-        return self.register_client(payload)
+        result = self.register_client(payload)
+        result.tenant = effective_tenant
+        return result
 
     def register_bulk(self, clients_file: str) -> RegistrationSummary:
         """Register multiple clients from a JSON file."""
@@ -626,8 +711,8 @@ def generate_summary_markdown(summary: RegistrationSummary) -> str:
 
     if summary.results:
         lines.append("### Results\n")
-        lines.append("| Client ID | Type | Status |")
-        lines.append("|-----------|------|--------|")
+        lines.append("| Client ID | Type | Tenant | Status |")
+        lines.append("|-----------|------|--------|--------|")
         for r in summary.results:
             if r.dry_run and r.updated:
                 status = "Would update"
@@ -641,14 +726,19 @@ def generate_summary_markdown(summary: RegistrationSummary) -> str:
                 status = "Registered"
             else:
                 status = f"Failed: {r.error_message or 'Unknown error'}"
-            lines.append(f"| `{r.client_id}` | {r.client_type} | {status} |")
+            lines.append(f"| `{r.client_id}` | {r.client_type} | `{r.tenant}` | {status} |")
 
     lines.append("")
     lines.append("### Endpoints\n")
     lines.append("| Endpoint | URL |")
     lines.append("|----------|-----|")
     node = summary.target_node
-    lines.append(f"| FHIR Base | `{summary.base_url}/{fhir_base_suffix(node)}` |")
+    # In bulk mode each client can carry its own tenant, so there is no single
+    # FHIR base. List one row per distinct tenant actually registered.
+    tenants = sorted({r.tenant for r in summary.results}) or [summary.tenant]
+    for t in tenants:
+        label = "FHIR Base" if len(tenants) == 1 else f"FHIR Base ({t})"
+        lines.append(f"| {label} | `{summary.base_url}/{fhir_base_suffix(node, t)}` |")
     lines.append(f"| Well-Known | `{summary.base_url}/{well_known_suffix(node)}` |")
     lines.append(f"| Authorize | `{summary.base_url}/{authorize_suffix(node)}` |")
     lines.append(f"| Token | `{summary.base_url}/{token_suffix(node)}` |")
@@ -668,11 +758,12 @@ def generate_single_client_markdown(result: RegistrationResult, base_url: str,
         f"| Client ID | `{result.client_id}` |",
         f"| Client Name | {result.client_name} |",
         f"| Client Type | {type_label} |",
+        f"| Tenant | `{result.tenant}` |",
         "",
         "### Endpoints\n",
         "| Endpoint | URL |",
         "|----------|-----|",
-        f"| FHIR Base | `{base_url}/{fhir_base_suffix(target_node)}` |",
+        f"| FHIR Base | `{base_url}/{fhir_base_suffix(target_node, result.tenant)}` |",
         f"| Well-Known | `{base_url}/{well_known_suffix(target_node)}` |",
         f"| Authorize | `{base_url}/{authorize_suffix(target_node)}` |",
         f"| Token | `{base_url}/{token_suffix(target_node)}` |",
@@ -703,6 +794,30 @@ def generate_single_client_markdown(result: RegistrationResult, base_url: str,
         ])
 
     return "\n".join(lines)
+
+
+def write_secret_file(path: Optional[str], summary: RegistrationSummary) -> None:
+    """Write generated backend-service secrets to a 0600 file.
+
+    Secrets are deliberately kept out of stdout and out of the JSON summary,
+    because both end up in CI logs and issue comments. Without this file the
+    generated secret is unrecoverable once the process exits: the server stores
+    it hashed, so it cannot be read back and has to be reset instead.
+    """
+    if not path:
+        return
+
+    secrets_found = [(r.client_id, r.client_secret) for r in summary.results if r.client_secret]
+    if not secrets_found:
+        return
+
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, stat.S_IRUSR | stat.S_IWUSR)
+    with os.fdopen(fd, "w") as f:
+        for client_id, secret in secrets_found:
+            f.write(f"{client_id}: {secret}\n")
+
+    print(f"\n  Wrote {len(secrets_found)} client secret(s) to {path} (mode 0600)")
+    print("  Distribute securely and delete the file; the server cannot reissue it.")
 
 
 def generate_summary_json(summary: RegistrationSummary) -> str:
@@ -798,6 +913,19 @@ def main():
     parser.add_argument("--github-step-summary",
                         default=os.getenv("GITHUB_STEP_SUMMARY"),
                         help="Write markdown to GitHub step summary file")
+    parser.add_argument("--secret-file", default=None,
+                        help="Write generated backend-service client secrets to this file "
+                             "(mode 0600, one 'client_id: secret' line per client). Without "
+                             "this the generated secret is unrecoverable once the run ends.")
+    parser.add_argument("--client-secret", default=os.getenv("SMART_CLIENT_SECRET"),
+                        help="Secret to set when updating an existing backend-service client "
+                             "(or set SMART_CLIENT_SECRET). Required with --update-existing on "
+                             "such a client, because the admin API masks secrets on read and "
+                             "writing the mask back would destroy the real one.")
+    parser.add_argument("--allow-default-write", action="store_true", default=False,
+                        help="Permit registering a write-capable client against the shared "
+                             "DEFAULT tenant. Refused by default: DEFAULT holds the curated "
+                             "dataset and is read-only for participants under ADR 0001.")
 
     args = parser.parse_args()
 
@@ -813,6 +941,8 @@ def main():
         skip_existing=args.skip_existing,
         update_existing=args.update_existing,
         tenant=args.tenant,
+        allow_default_write=args.allow_default_write,
+        replacement_secret=args.client_secret,
     )
 
     if args.bulk:
@@ -822,6 +952,8 @@ def main():
 
         summary = registrar.register_bulk(args.clients_file)
         summary.target_node = args.node
+        summary.tenant = args.tenant
+        write_secret_file(args.secret_file, summary)
 
         # Write outputs
         md = generate_summary_markdown(summary)
@@ -869,7 +1001,9 @@ def main():
             results=[result],
             base_url=args.base_url,
             target_node=args.node,
+            tenant=result.tenant,
         )
+        write_secret_file(args.secret_file, summary)
 
         md = generate_single_client_markdown(result, args.base_url, args.node) if result.success else generate_summary_markdown(summary)
         print(f"\n{md}")

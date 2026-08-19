@@ -89,6 +89,9 @@ body:
 
         **Common Backend Service scopes:**
         `system/*.read` or `system/*.*`
+
+        Enter the scopes on their own, without backticks or surrounding prose.
+        Write scopes require your own tenant; see the Tenant field below.
       placeholder: "launch/patient patient/*.read openid fhirUser offline_access"
     validations:
       required: true
@@ -107,12 +110,26 @@ body:
     attributes:
       label: Tenant (optional)
       description: |
-        The tenant (data partition) your client should be scoped to.
-        Leave blank for the shared `DEFAULT` tenant, which is **read-only** for participant clients.
-        If you need write access (loading your own test data), request a vendor or scenario
-        tenant here, e.g. `VENDOR-ACME`.
-        Your FHIR base URL becomes `https://smile.sparked-fhir.com/<node>/fhir/<TENANT>`.
-        If the tenant does not exist yet, we create it as part of this request.
+        The tenant (data partition) your client is scoped to.
+
+        **Enter the tenant name on its own, nothing else** (letters, digits, `-` and `_`),
+        for example `VENDOR-ACME`. This value is read by automation and used verbatim as a
+        URL segment, so a sentence here stops the registration and sends it for manual
+        handling. Put any explanation in *Business Justification* instead.
+
+        Leave blank for the shared `DEFAULT` tenant, which holds the curated AU Core
+        dataset and is **read-only** for participants.
+
+        **If you need to write anything, you need your own tenant.** Requesting write
+        scopes (`system/*.*`, `system/*.write`, `patient/*.write`) against `DEFAULT` will
+        be refused, because writes there would alter the shared data everyone else reads.
+        Your own tenant gives you full read/write in an isolated partition, and your FHIR
+        base URL becomes `https://smile.sparked-fhir.com/aucore/fhir/<TENANT>`.
+
+        If the tenant does not exist yet, we create it as part of this request. Note that
+        a new tenant starts **empty**: it does not contain a copy of the AU Core data, and
+        cross-partition references are not permitted, so test data must be self-contained.
+        `DEFAULT` stays readable anonymously if you need to read the curated dataset.
       placeholder: "VENDOR-ACME"
     validations:
       required: false

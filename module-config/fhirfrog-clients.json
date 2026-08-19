@@ -1,0 +1,15 @@
+{
+  "description": "Backend Service client for the FHIRFrog conformance test runner on the aucore node. Register with: python scripts/register_smart_client.py --bulk --clients-file module-config/fhirfrog-clients.json --node aucore",
+  "version": "1.0.0",
+  "notes": "Partition access is FHIRFROG only, deliberately NOT 'FHIRFROG,DEFAULT'. Smile CDR's FHIR_ACCESS_PARTITION_NAME gates reads and writes together, and the consent service that would write-protect DEFAULT (ADR 0001 point 6) is not wired on any node, so a DEFAULT grant here would confer DEFAULT write. See docs/fhirfrog-tenant.md.",
+  "clients": [
+    {
+      "clientId": "frog-runner",
+      "clientName": "FHIRFrog Runner (frog-runner)",
+      "clientType": "backend-service",
+      "scopes": ["system/*.*"],
+      "redirectUris": [],
+      "tenant": "FHIRFROG"
+    }
+  ]
+}
