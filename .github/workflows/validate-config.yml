@@ -5,12 +5,16 @@ on:
     paths:
       - 'module-config/**'
       - 'terraform/**'
+      - 'scripts/test_consent_default_readonly.js'
+      - '.github/workflows/validate-config.yml'
   push:
     branches:
       - main
     paths:
       - 'module-config/**'
       - 'terraform/**'
+      - 'scripts/test_consent_default_readonly.js'
+      - '.github/workflows/validate-config.yml'
 
 # These jobs use NO secrets, so they are safe to run on PRs from forks (community
 # contributions). Runner selection enforces one invariant: untrusted fork code
@@ -41,16 +45,53 @@ jobs:
         run: |
           echo "Checking for common configuration issues..."
 
-          # Check if package files referenced in terraform/main.tf exist
-          echo "📦 Verifying package file references..."
-          grep -o '\.\./module-config/packages/[^"]*' terraform/main.tf | sed 's|\.\./||' | while read filepath; do
+          # Every module-config file referenced by terraform/main.tf must exist.
+          # Covers the package specs and the scripts mapped into config_seeding
+          # (smart-post-authorize.js, consent-default-readonly.js): a module that
+          # points at a missing script file fails at module startup, not at apply.
+          #
+          # Not a `while read` over a pipe: that runs the loop in a subshell, so
+          # its exit only leaves the subshell and the step still passes.
+          echo "📦 Verifying module-config file references..."
+          missing=0
+          for filepath in $(grep -oE '\.\./module-config/[A-Za-z0-9._/-]+' terraform/main.tf | sed 's|\.\./||' | sort -u); do
             if [ -f "$filepath" ]; then
               echo "  ✅ Found: $filepath"
             else
               echo "  ❌ Missing: $filepath"
-              exit 1
+              missing=1
             fi
           done
+
+          # Every script referenced by a consent_service.script.file or
+          # post_authorize_script.file classpath must also be mapped in by
+          # terraform, or the node boots pointing at a file that is not there.
+          echo "📜 Verifying config_seeding script references..."
+          for script in $(grep -hoE 'classpath:/?config_seeding/[A-Za-z0-9._-]+\.js([^a-z]|$)' module-config/*.yaml | sed -e 's|.*/||' -e 's|\.js.*|.js|' | sort -u); do
+            if grep -q "module-config/$script" terraform/main.tf; then
+              echo "  ✅ Mapped by terraform: $script"
+            else
+              echo "  ❌ Referenced in module config but not mapped in terraform/main.tf: $script"
+              missing=1
+            fi
+          done
+
+          exit $missing
+
+  validate-consent-script:
+    name: Test Consent Service Script
+    # The consent service runs in front of every REST request on the node, so
+    # its decision matrix is unit tested before it can be deployed. Node 24 is
+    # the current LTS; the test has no dependencies.
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || vars.CI_RUNNER || 'ubuntu-latest' }}
+    container:
+      image: node:24-slim
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run consent service tests
+        run: node scripts/test_consent_default_readonly.js
 
   validate-terraform:
     name: Validate Terraform

@@ -11,11 +11,15 @@ ADMINJSON="https://smile.sparked-fhir.com/$NODE/admin-json"
 PART_ID=9001
 PART_NAME="MTTEST"
 TESTUSER="mt-phase0-vendor"
+# T10's user, scoped to "$PART_NAME,DEFAULT" so the consent service is the only
+# thing standing between it and a DEFAULT write.
+CONSENTUSER="mt-phase0-consent"
 RESULTS="${PHASE0_RESULTS:-$(dirname "$0")/phase0-results.md}"
 
 ADMIN_PASS=$(aws secretsmanager get-secret-value --secret-id smilecdr-user-passwords --query SecretString --output text | jq -r '."smilecdr-admin-password"')
 if [ -z "$ADMIN_PASS" ] || [ "$ADMIN_PASS" = "null" ]; then echo "FATAL: could not fetch admin password"; exit 1; fi
 TESTUSER_PASS=$(openssl rand -base64 18 | tr -d '/+=' )
+CONSENTUSER_PASS=$(openssl rand -base64 18 | tr -d '/+=' )
 
 echo "# Phase 0 results ($(date -u '+%Y-%m-%d %H:%M UTC'))" > "$RESULTS"
 note() { echo "$1" | tee -a "$RESULTS"; }
@@ -23,6 +27,7 @@ note() { echo "$1" | tee -a "$RESULTS"; }
 # curl helpers: capture status + body, never echo credentials
 acurl() { curl -s --max-time 30 -u "ADMIN:$ADMIN_PASS" -H "Content-Type: application/fhir+json" "$@"; }
 ucurl() { curl -s --max-time 30 -u "$TESTUSER:$TESTUSER_PASS" -H "Content-Type: application/fhir+json" "$@"; }
+ccurl() { curl -s --max-time 30 -u "$CONSENTUSER:$CONSENTUSER_PASS" -H "Content-Type: application/fhir+json" "$@"; }
 anoncurl() { curl -s --max-time 30 -H "Content-Type: application/fhir+json" "$@"; }
 
 note ""
@@ -104,12 +109,59 @@ if [ "$T9a" = "200" ] || [ "$T9a" = "201" ]; then
 fi
 
 note ""
+note "## T10: consent service, read-only DEFAULT (ADR 0001 point 6)"
+# T9's user is scoped to $PART_NAME alone, so authorization refuses DEFAULT
+# before the consent service is ever consulted. This one holds
+# "$PART_NAME,DEFAULT", which is the grant ADR 0001 prescribes and the only
+# shape where the consent service is what makes the difference.
+#
+# Expectations depend on the script's ENFORCE flag in
+# module-config/consent-default-readonly.js. Observe mode (how it ships) allows
+# the write and only logs; enforcing mode returns 403. Both are recorded below.
+T10a=$(curl -s --max-time 30 -u "ADMIN:$ADMIN_PASS" -H "Content-Type: application/json" -o /tmp/t10a.json -w "%{http_code}" -X POST "$ADMINJSON/user-management/$NODE/local_security" -d "{\"username\":\"$CONSENTUSER\",\"password\":\"$CONSENTUSER_PASS\",\"givenName\":\"MTConsent\",\"familyName\":\"Phase0\",\"authorities\":[{\"permission\":\"ROLE_FHIR_CLIENT\"},{\"permission\":\"FHIR_CAPABILITIES\"},{\"permission\":\"FHIR_ALL_READ\"},{\"permission\":\"FHIR_ALL_WRITE\"},{\"permission\":\"FHIR_TRANSACTION\"},{\"permission\":\"FHIR_ACCESS_PARTITION_NAME\",\"argument\":\"$PART_NAME,DEFAULT\"}]}")
+T10pid=$(jq -r '.pid // empty' /tmp/t10a.json 2>/dev/null)
+note "- create user with $PART_NAME,DEFAULT: HTTP $T10a (pid: ${T10pid:-unknown})"
+if [ "$T10a" = "200" ] || [ "$T10a" = "201" ]; then
+  T10b=$(ccurl -o /dev/null -w "%{http_code}" "$BASE/DEFAULT/Patient?_count=1")
+  note "- authenticated GET /DEFAULT/Patient: HTTP $T10b (expect 200 in both modes; this is what the DEFAULT grant buys)"
+
+  T10c=$(ccurl -o /dev/null -w "%{http_code}" -X POST "$BASE/DEFAULT/Patient/_search" -H "Content-Type: application/x-www-form-urlencoded" -d "_count=1")
+  note "- authenticated POSTed search /DEFAULT/Patient/_search: HTTP $T10c (expect 200 in both modes; a POST that must NOT be read as a write)"
+
+  T10d=$(ccurl -o /tmp/t10d.json -w "%{http_code}" -X POST "$BASE/DEFAULT/Patient" -d '{"resourceType":"Patient","name":[{"family":"ConsentShouldBlock"}]}')
+  T10did=$(jq -r '.id // empty' /tmp/t10d.json 2>/dev/null)
+  note "- participant POST /DEFAULT/Patient: HTTP $T10d (expect 403 enforcing, 201 observing; id ${T10did:-none})"
+
+  T10e=$(ccurl -o /tmp/t10e.json -w "%{http_code}" -X POST "$BASE/$PART_NAME/Patient" -d '{"resourceType":"Patient","name":[{"family":"ConsentAllowsOwnTenant"}]}')
+  T10eid=$(jq -r '.id // empty' /tmp/t10e.json 2>/dev/null)
+  note "- participant POST /$PART_NAME/Patient: HTTP $T10e (expect 201 in both modes; the consent service must not touch other tenants)"
+
+  T10f=$(acurl -o /tmp/t10f.json -w "%{http_code}" -X POST "$BASE/DEFAULT/Patient" -d '{"resourceType":"Patient","name":[{"family":"CuratorExemption"}]}')
+  T10fid=$(jq -r '.id // empty' /tmp/t10f.json 2>/dev/null)
+  note "- curator (admin) POST /DEFAULT/Patient: HTTP $T10f (expect 201 in both modes; the data loaders depend on this)"
+fi
+
+note ""
 note "## Cleanup"
 for u in "$PART_NAME/Patient/mt-phase0-scratch1" "$PART_NAME/Patient/mt-phase0-collision" "DEFAULT/Patient/mt-phase0-collision" "DEFAULT/Patient/mt-phase0-reftarget"; do
   C=$(acurl -o /dev/null -w "%{http_code}" -X DELETE "$BASE/$u"); note "- DELETE $u: HTTP $C"
 done
 if [ -n "${T8id:-}" ]; then C=$(acurl -o /dev/null -w "%{http_code}" -X DELETE "$BASE/DEFAULT/Patient/$T8id"); note "- DELETE DEFAULT/Patient/$T8id (conditional-create artifact): HTTP $C"; fi
 if [ -n "${T9cid:-}" ]; then C=$(acurl -o /dev/null -w "%{http_code}" -X DELETE "$BASE/$PART_NAME/Patient/$T9cid"); note "- DELETE $PART_NAME/Patient/$T9cid (vendor write artifact): HTTP $C"; fi
+# T10 artifacts. T10d only exists if the consent service is in observe mode (or
+# absent), in which case the participant write landed in DEFAULT and has to go.
+for v in "${T10did:-}:DEFAULT/Patient" "${T10fid:-}:DEFAULT/Patient" "${T10eid:-}:$PART_NAME/Patient"; do
+  id="${v%%:*}"; loc="${v#*:}"
+  if [ -n "$id" ]; then C=$(acurl -o /dev/null -w "%{http_code}" -X DELETE "$BASE/$loc/$id"); note "- DELETE $loc/$id (T10 artifact): HTTP $C"; fi
+done
+if [ -n "${T10pid:-}" ]; then
+  C=$(curl -s --max-time 30 -u "ADMIN:$ADMIN_PASS" -o /dev/null -w "%{http_code}" -X DELETE "$ADMINJSON/user-management/$NODE/local_security/$T10pid")
+  note "- DELETE consent test user pid $T10pid: HTTP $C"
+  if [ "$C" != "200" ] && [ "$C" != "204" ]; then
+    C2=$(curl -s --max-time 30 -u "ADMIN:$ADMIN_PASS" -H "Content-Type: application/json" -o /dev/null -w "%{http_code}" -X PUT "$ADMINJSON/user-management/$NODE/local_security/$T10pid" -d "{\"username\":\"$CONSENTUSER\",\"accountDisabled\":true,\"accountLocked\":true,\"authorities\":[]}")
+    note "- user delete unsupported; disabled+locked instead: HTTP $C2"
+  fi
+fi
 if [ -n "${T9pid:-}" ]; then
   C=$(curl -s --max-time 30 -u "ADMIN:$ADMIN_PASS" -o /tmp/t9del.json -w "%{http_code}" -X DELETE "$ADMINJSON/user-management/$NODE/local_security/$T9pid")
   note "- DELETE test user pid $T9pid: HTTP $C"

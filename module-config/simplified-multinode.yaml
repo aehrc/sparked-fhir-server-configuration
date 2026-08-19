@@ -197,6 +197,23 @@ cdrNodes:
           # chart ever gains a way to declare an externally-managed hostname.
           base_url.mismatch_allowed: true
           security.oic.enabled: true
+          # Consent service enforcing ADR 0001: DEFAULT is readable by everyone
+          # and writable by nobody except curators. FHIR_ACCESS_PARTITION_NAME
+          # gates read and write together, so a tenant principal that needs an
+          # authenticated DEFAULT read has to be granted DEFAULT access outright;
+          # this script supplies the missing half by rejecting DEFAULT writes.
+          #
+          # On the endpoint, NOT on persistence. Package registry seeding and IG
+          # installs write into DEFAULT below the REST layer, so an endpoint
+          # mount cannot stop the node coming up, while a storage mount would put
+          # this script in the startup path. Participant traffic is all REST.
+          #
+          # SHIPS IN OBSERVE MODE: the script's ENFORCE flag is false, so it logs
+          # what it would reject and rejects nothing. Verify the logs on the node
+          # before flipping it. docs/consent-service-rollout.md has the procedure
+          # and the rollback (set consent_service.enabled false, redeploy).
+          consent_service.enabled: true
+          consent_service.script.file: "classpath:config_seeding/consent-default-readonly.js"
       package_registry:
         config:
           context_path: "aucore/package"
