@@ -62,15 +62,23 @@ cdrNodes:
           # DiagnosticReport/DocumentReference/MedicationDispense/Endpoint/Bundle
           # types that were already enabled live but never written back to the seed.
           #
-          # Binary added 2026-08-24: the AU Core test data has two PDF reports,
-          # Binary/rh-status-pdf-report-1 and
-          # Binary/creatinine-clearance-pdf-report-1, and
+          # Binary is deliberately NOT whitelisted. It was added on 2026-08-24 so
+          # the two AU Core PDF reports would load, and reverted the same day:
+          # Smile CDR's package registry stores its own content as Binary in this
+          # partition, so whitelisting the type exposed 28036 Binary resources to
+          # anonymous read, 28019 application/fhir+json package fragments and 15
+          # application/gzip package tarballs up to 4.5 MB each, against the 2
+          # PDFs actually wanted. It also makes a loader wipe-all dangerous: the
+          # sweep list is type-driven, so any change that derives it from the
+          # server's CapabilityStatement would delete the package registry and
+          # take the installed IGs with it.
+          #
+          # The cost of leaving it off is that
           # DiagnosticReport/rh-status-report-1 and
-          # DiagnosticReport/creatinine-clearance-report-1 point at them from
-          # presentedForm[0].url. Without Binary on the whitelist the load fails
-          # both with "HAPI-0302: Unknown resource type" and those two
-          # presentedForm links resolve to 404 on an otherwise complete node.
-          resource_types.supported.whitelist: "Binary,CarePlan,Goal,CareTeam,Endpoint,DocumentReference,MedicationDispense,DiagnosticReport,Bundle,MedicationStatement,CommunicationRequest,Task,Consent,ServiceRequest,Device,Composition,StructureDefinition,SearchParameter,Questionnaire,StructureMap,AllergyIntolerance,Condition,Encounter,Immunization,Location,Observation,Organization,Patient,Practitioner,PractitionerRole,Procedure,Medication,MedicationRequest,Coverage,Specimen,RelatedPerson,HealthcareService,QuestionnaireResponse"
+          # DiagnosticReport/creatinine-clearance-report-1 have a
+          # presentedForm[0].url that 404s. Fixing that properly means keeping
+          # package storage off the FHIR Binary surface, not whitelisting Binary.
+          resource_types.supported.whitelist: "CarePlan,Goal,CareTeam,Endpoint,DocumentReference,MedicationDispense,DiagnosticReport,Bundle,MedicationStatement,CommunicationRequest,Task,Consent,ServiceRequest,Device,Composition,StructureDefinition,SearchParameter,Questionnaire,StructureMap,AllergyIntolerance,Condition,Encounter,Immunization,Location,Observation,Organization,Patient,Practitioner,PractitionerRole,Procedure,Medication,MedicationRequest,Coverage,Specimen,RelatedPerson,HealthcareService,QuestionnaireResponse"
           metadata.resource_counts.enabled: false
           validator.local_reference_policy: "NOT_VALIDATED"
           validator.unknown_codesystem_validation_policy: "GENERATE_WARNING"
