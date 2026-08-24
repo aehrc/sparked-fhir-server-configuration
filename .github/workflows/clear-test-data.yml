@@ -327,6 +327,7 @@ jobs:
           script: |
             const issueNumber = parseInt('${{ steps.inputs.outputs.issue_number }}');
             const runUrl = `${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}`;
+            const dryRun = '${{ steps.inputs.outputs.dry_run }}' === 'true' ? ' (dry run)' : '';
 
             let summaryText = '';
             try {
@@ -344,16 +345,16 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: issueNumber,
-              body: `## Test Data Clear Complete
+              body: `## Test Data Clear Complete${dryRun}
 
-            The test data has been successfully cleared.
+            ${dryRun ? 'No resources were deleted. This run only reported what a real clear would remove.' : 'The test data has been successfully cleared.'}
 
             **Results:**
             ${summaryText}
 
             - Workflow Run: [View Logs](${runUrl})
 
-            The node is ready for fresh data loading.`
+            ${dryRun ? 'Re-run without dry run to clear the node.' : 'The node is ready for fresh data loading.'}`
             });
 
             await github.rest.issues.addLabels({

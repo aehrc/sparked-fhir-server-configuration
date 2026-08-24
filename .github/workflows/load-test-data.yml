@@ -326,6 +326,7 @@ jobs:
           script: |
             const issueNumber = parseInt('${{ steps.inputs.outputs.issue_number }}');
             const runUrl = `${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}`;
+            const dryRun = '${{ steps.inputs.outputs.dry_run }}' === 'true' ? ' (dry run)' : '';
 
             let summaryText = '';
             try {
@@ -342,16 +343,16 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: issueNumber,
-              body: `## Test Data Load Complete
+              body: `## Test Data Load Complete${dryRun}
 
-            The test data has been successfully loaded.
+            ${dryRun ? 'No resources were uploaded. This run only parsed the files a real load would send.' : 'The test data has been successfully loaded.'}
 
             **Results:**
             ${summaryText}
 
             - Workflow Run: [View Logs](${runUrl})
 
-            Please verify the data has been loaded as expected.`
+            ${dryRun ? 'Re-run without dry run to load the node.' : 'Please verify the data has been loaded as expected.'}`
             });
 
             await github.rest.issues.addLabels({
