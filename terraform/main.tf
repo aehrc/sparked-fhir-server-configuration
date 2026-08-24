@@ -358,29 +358,28 @@ locals {
 # classpath at pod startup. Managing the upload here keeps the deployed artifact version codified
 # and reproducible via terraform apply, rather than relying on a manual out-of-band upload.
 #
-# Every jar committed under module-config/lib/ is uploaded, so shipping a new version is a matter of
-# dropping the jar in and pointing a node's copyFiles path at it, with no edit needed here. That
-# matters: when this resource named a single version, 1.0.1 was uploaded out of band instead, which
-# left terraform believing 1.0.0 was the deployed artifact while the aucore node ran something
-# terraform had never seen. Enumerating the directory removes the reason to reach for the console.
+# One resource per version, and the version is spelled out rather than interpolated, so the
+# Validate YAML Configuration check can confirm every module-config path named here resolves to a
+# file that is actually committed. A fileset() over module-config/lib would make adding a version a
+# one-file commit, but it would also defeat that check, so versions are enumerated instead.
 #
-# 1.0.1 stays in the bucket unmanaged and unreferenced once aucore moves to 1.0.2. Adopting it would
-# mean committing a jar nothing uses; deleting it would remove the rollback target. Drop it once
-# 1.0.2 is confirmed on the node.
+# 1.0.0 is retained: the hl7au node still names it, disabled though that node is.
 resource "aws_s3_object" "aups_generator" {
-  for_each = fileset("../module-config/lib", "hapi-aups-generator-*.jar")
-
   bucket = var.s3_bucket_name
-  key    = "smile/${each.value}"
-  source = "../module-config/lib/${each.value}"
-  etag   = filemd5("../module-config/lib/${each.value}")
+  key    = "smile/hapi-aups-generator-1.0.0.jar"
+  source = "../module-config/lib/hapi-aups-generator-1.0.0.jar"
+  etag   = filemd5("../module-config/lib/hapi-aups-generator-1.0.0.jar")
   tags   = local.tags
 }
 
-# The resource above used to manage exactly one object, addressed without a key. Without this the
-# 1.0.0 object would be destroyed and recreated, and a destroy of a jar a disabled node still
-# references is not something to do by accident.
-moved {
-  from = aws_s3_object.aups_generator
-  to   = aws_s3_object.aups_generator["hapi-aups-generator-1.0.0.jar"]
+# Current aucore release. 1.0.1, which aucore ran until now, was uploaded out of band and never
+# recorded here, so terraform believed 1.0.0 was the deployed artifact while the node ran a jar
+# terraform had never seen. It stays in the bucket unmanaged as the rollback target; drop it once
+# 1.0.2 is confirmed on the node.
+resource "aws_s3_object" "aups_generator_1_0_2" {
+  bucket = var.s3_bucket_name
+  key    = "smile/hapi-aups-generator-1.0.2.jar"
+  source = "../module-config/lib/hapi-aups-generator-1.0.2.jar"
+  etag   = filemd5("../module-config/lib/hapi-aups-generator-1.0.2.jar")
+  tags   = local.tags
 }
