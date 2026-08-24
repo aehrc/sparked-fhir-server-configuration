@@ -352,17 +352,35 @@ locals {
   }
 }
 
-# AU Patient Summary generator jar, consumed by the aucore node's
-# ig_support.ips.generation_strategy_class (au.org.hl7.fhir.ps.strategy.AupsGenerationStrategy).
-# Sourced from aehrc/sparked-fhir-operations release v1.0.0. The chart's
-# copyFiles.customerlib block in module-config/values-common.yaml pulls this object
-# from S3 into the smilecdr customerlib classpath at pod startup. Managing the upload
-# here keeps the deployed artifact version codified and reproducible via terraform apply,
-# rather than relying on a manual out-of-band upload.
+# AU Patient Summary generator jars, from aehrc/sparked-fhir-operations releases, consumed by a
+# node's ig_support.ips.generation_strategy_class (au.org.hl7.fhir.ps.strategy.AupsGenerationStrategy).
+# The chart's copyFiles.customerlib block pulls the object from S3 into the smilecdr customerlib
+# classpath at pod startup. Managing the upload here keeps the deployed artifact version codified
+# and reproducible via terraform apply, rather than relying on a manual out-of-band upload.
+#
+# Every jar committed under module-config/lib/ is uploaded, so shipping a new version is a matter of
+# dropping the jar in and pointing a node's copyFiles path at it, with no edit needed here. That
+# matters: when this resource named a single version, 1.0.1 was uploaded out of band instead, which
+# left terraform believing 1.0.0 was the deployed artifact while the aucore node ran something
+# terraform had never seen. Enumerating the directory removes the reason to reach for the console.
+#
+# 1.0.1 stays in the bucket unmanaged and unreferenced once aucore moves to 1.0.2. Adopting it would
+# mean committing a jar nothing uses; deleting it would remove the rollback target. Drop it once
+# 1.0.2 is confirmed on the node.
 resource "aws_s3_object" "aups_generator" {
+  for_each = fileset("../module-config/lib", "hapi-aups-generator-*.jar")
+
   bucket = var.s3_bucket_name
-  key    = "smile/hapi-aups-generator-1.0.0.jar"
-  source = "../module-config/lib/hapi-aups-generator-1.0.0.jar"
-  etag   = filemd5("../module-config/lib/hapi-aups-generator-1.0.0.jar")
+  key    = "smile/${each.value}"
+  source = "../module-config/lib/${each.value}"
+  etag   = filemd5("../module-config/lib/${each.value}")
   tags   = local.tags
+}
+
+# The resource above used to manage exactly one object, addressed without a key. Without this the
+# 1.0.0 object would be destroyed and recreated, and a destroy of a jar a disabled node still
+# references is not something to do by accident.
+moved {
+  from = aws_s3_object.aups_generator
+  to   = aws_s3_object.aups_generator["hapi-aups-generator-1.0.0.jar"]
 }
