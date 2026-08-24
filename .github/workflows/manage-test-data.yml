@@ -17,6 +17,17 @@ on:
         default: "aucore"
         options:
           - aucore
+      exclude_patterns:
+        description: "Directory patterns to exclude from the load"
+        required: false
+        # au-erequesting is excluded by default: every file in it claims an
+        # au-erequesting profile, and hl7.fhir.au.ereq is seeded only on the
+        # decommissioned ereq node, so aucore rejects all 46 with
+        # VALIDATION_VAL_PROFILE_UNKNOWN_NOT_POLICY. Attempting them turns a
+        # clean load into 46 failures that hide any real one. Clear this input to
+        # load them once aucore carries the package.
+        default: "vendor-demonstrator,au-erequesting"
+        type: string
       dry_run:
         description: "Dry run (preview without making changes)"
         required: false
@@ -57,6 +68,7 @@ jobs:
     with:
       upload_method: direct
       target_node: aucore
+      exclude_patterns: ${{ inputs.exclude_patterns }}
       dry_run: ${{ inputs.dry_run }}
       continue_on_error: true
       issue_number: ${{ inputs.issue_number && fromJSON(inputs.issue_number) || 0 }}
