@@ -289,6 +289,16 @@ jobs:
             ARGS="$ARGS --dry-run"
           fi
 
+          # The loader refuses a real wipe-all without --yes ("wipe-all deletes
+          # every resource on <url>; pass --yes to confirm"). Nothing in CI can
+          # answer that interactively, so every non-dry wipe-all exited 2 at the
+          # guard having deleted nothing, while dry runs passed because
+          # --dry-run skips it. The dispatch is the confirmation here: reaching
+          # this line means an operator selected wipe-all and cleared dry_run.
+          if [ "${{ steps.inputs.outputs.delete_mode }}" = "wipe-all" ]; then
+            ARGS="$ARGS --yes"
+          fi
+
           if [ "${{ steps.inputs.outputs.continue_on_error }}" != "true" ]; then
             ARGS="$ARGS --fail-on-error"
           fi
