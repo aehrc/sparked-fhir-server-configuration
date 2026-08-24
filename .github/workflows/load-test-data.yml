@@ -191,8 +191,19 @@ jobs:
           echo "continue_on_error=$CONTINUE_ON_ERROR" >> $GITHUB_OUTPUT
           echo "issue_number=$ISSUE_NUMBER" >> $GITHUB_OUTPUT
 
+          # `manage-test-data.yml` cannot pass an empty number through
+          # `workflow_call`, so it sends 0 to mean "no issue". Treat 0 and empty
+          # alike: a comment on issue 0 is a 404 that fails the job before any
+          # work happens, which is how a dry run of `clear-and-load-aucore`
+          # failed with nothing attempted.
+          if [ -n "$ISSUE_NUMBER" ] && [ "$ISSUE_NUMBER" != "0" ]; then
+            echo "has_issue=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_issue=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Comment on issue - Starting
-        if: steps.inputs.outputs.issue_number != ''
+        if: steps.inputs.outputs.has_issue == 'true'
         uses: actions/github-script@v7
         with:
           script: |
@@ -300,7 +311,7 @@ jobs:
           exit $EXIT_CODE
 
       - name: Post results to issue - Success
-        if: always() && steps.inputs.outputs.issue_number != '' && steps.upload.outputs.status == 'success'
+        if: always() && steps.inputs.outputs.has_issue == 'true' && steps.upload.outputs.status == 'success'
         uses: actions/github-script@v7
         with:
           script: |
@@ -351,7 +362,7 @@ jobs:
             } catch (e) {}
 
       - name: Post results to issue - Failure
-        if: always() && steps.inputs.outputs.issue_number != '' && steps.upload.outputs.status == 'failure'
+        if: always() && steps.inputs.outputs.has_issue == 'true' && steps.upload.outputs.status == 'failure'
         uses: actions/github-script@v7
         with:
           script: |
