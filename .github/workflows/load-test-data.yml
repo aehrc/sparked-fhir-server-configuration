@@ -191,8 +191,19 @@ jobs:
           echo "continue_on_error=$CONTINUE_ON_ERROR" >> $GITHUB_OUTPUT
           echo "issue_number=$ISSUE_NUMBER" >> $GITHUB_OUTPUT
 
+          # `manage-test-data.yml` cannot pass an empty number through
+          # `workflow_call`, so it sends 0 to mean "no issue". Treat 0 and empty
+          # alike: a comment on issue 0 is a 404 that fails the job before any
+          # work happens, which is how a dry run of `clear-and-load-aucore`
+          # failed with nothing attempted.
+          if [ -n "$ISSUE_NUMBER" ] && [ "$ISSUE_NUMBER" != "0" ]; then
+            echo "has_issue=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_issue=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Comment on issue - Starting
-        if: steps.inputs.outputs.issue_number != ''
+        if: steps.inputs.outputs.has_issue == 'true'
         uses: actions/github-script@v7
         with:
           script: |
@@ -251,6 +262,15 @@ jobs:
           FHIR_USERNAME: ${{ secrets.FHIR_USERNAME }}
           FHIR_PASSWORD: ${{ secrets.FHIR_PASSWORD }}
         run: |
+          # The loader image runs as a non-root user that cannot write into the
+          # bind-mounted $RUNNER_TEMP itself, so both summary files were lost to
+          # "permission denied" and the run summary and issue comment came back
+          # with no numbers. Write them into a world-writable subdirectory
+          # instead. The exit code, not the summary, decides success, so this was
+          # silent.
+          OUT_DIR="$RUNNER_TEMP/loader-out"
+          rm -rf "$OUT_DIR" && mkdir -p "$OUT_DIR" && chmod 777 "$OUT_DIR"
+
           # Paths are as seen inside the loader container ($RUNNER_TEMP -> /work)
           ARGS="--method ${{ steps.inputs.outputs.upload_method }}"
           ARGS="$ARGS --fhir-url ${{ steps.inputs.outputs.fhir_url }}"
@@ -258,8 +278,8 @@ jobs:
           ARGS="$ARGS --upload-mode ${{ steps.inputs.outputs.upload_mode }}"
           ARGS="$ARGS --batch-size ${{ steps.inputs.outputs.batch_size }}"
           ARGS="$ARGS --exclude-patterns ${{ steps.inputs.outputs.exclude_patterns }}"
-          ARGS="$ARGS --summary-file /work/upload-summary.json"
-          ARGS="$ARGS --github-step-summary /work/step-summary.md"
+          ARGS="$ARGS --summary-file /work/loader-out/upload-summary.json"
+          ARGS="$ARGS --github-step-summary /work/loader-out/step-summary.md"
 
           if [ "${{ steps.inputs.outputs.dry_run }}" = "true" ]; then
             ARGS="$ARGS --dry-run"
@@ -278,8 +298,8 @@ jobs:
           set -e
 
           # Surface the loader's markdown summary written inside the mount
-          if [ -f "$RUNNER_TEMP/step-summary.md" ]; then
-            cat "$RUNNER_TEMP/step-summary.md" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f "$OUT_DIR/step-summary.md" ]; then
+            cat "$OUT_DIR/step-summary.md" >> "$GITHUB_STEP_SUMMARY"
           fi
 
           if [ $EXIT_CODE -eq 0 ]; then
@@ -289,10 +309,10 @@ jobs:
           fi
 
           # Read summary as single-line JSON for output
-          if [ -f "$RUNNER_TEMP/upload-summary.json" ]; then
+          if [ -f "$OUT_DIR/upload-summary.json" ]; then
             DELIMITER="SUMMARY_$(date +%s%N)"
             echo "summary<<${DELIMITER}" >> $GITHUB_OUTPUT
-            cat "$RUNNER_TEMP/upload-summary.json" | tr -d '\n' >> $GITHUB_OUTPUT
+            cat "$OUT_DIR/upload-summary.json" | tr -d '\n' >> $GITHUB_OUTPUT
             echo "" >> $GITHUB_OUTPUT
             echo "${DELIMITER}" >> $GITHUB_OUTPUT
           fi
@@ -300,12 +320,13 @@ jobs:
           exit $EXIT_CODE
 
       - name: Post results to issue - Success
-        if: always() && steps.inputs.outputs.issue_number != '' && steps.upload.outputs.status == 'success'
+        if: always() && steps.inputs.outputs.has_issue == 'true' && steps.upload.outputs.status == 'success'
         uses: actions/github-script@v7
         with:
           script: |
             const issueNumber = parseInt('${{ steps.inputs.outputs.issue_number }}');
             const runUrl = `${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}`;
+            const dryRun = '${{ steps.inputs.outputs.dry_run }}' === 'true' ? ' (dry run)' : '';
 
             let summaryText = '';
             try {
@@ -322,16 +343,16 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: issueNumber,
-              body: `## Test Data Load Complete
+              body: `## Test Data Load Complete${dryRun}
 
-            The test data has been successfully loaded.
+            ${dryRun ? 'No resources were uploaded. This run only parsed the files a real load would send.' : 'The test data has been successfully loaded.'}
 
             **Results:**
             ${summaryText}
 
             - Workflow Run: [View Logs](${runUrl})
 
-            Please verify the data has been loaded as expected.`
+            ${dryRun ? 'Re-run without dry run to load the node.' : 'Please verify the data has been loaded as expected.'}`
             });
 
             await github.rest.issues.addLabels({
@@ -351,7 +372,7 @@ jobs:
             } catch (e) {}
 
       - name: Post results to issue - Failure
-        if: always() && steps.inputs.outputs.issue_number != '' && steps.upload.outputs.status == 'failure'
+        if: always() && steps.inputs.outputs.has_issue == 'true' && steps.upload.outputs.status == 'failure'
         uses: actions/github-script@v7
         with:
           script: |
