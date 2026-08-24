@@ -32,13 +32,13 @@ cdrNodes:
     name: aucore
     enabled: true
     # AU Patient Summary generator jar (consumed by ig_support.ips.generation_strategy_class
-    # below). aucore runs the current 1.0.1 release; ereq pins the older 0.1.0-alpha.
+    # below). aucore runs the current 1.0.2 release; ereq pins the older 0.1.0-alpha.
     copyFiles:
       customerlib:
         sources:
         - type: s3
           bucket: ${s3_bucket} # Rendered from var.s3_bucket_name via templatefile() in terraform/main.tf
-          path: /smile/hapi-aups-generator-1.0.1.jar
+          path: /smile/hapi-aups-generator-1.0.2.jar
     config:
       locked: false
       database: true

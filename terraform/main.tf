@@ -352,17 +352,34 @@ locals {
   }
 }
 
-# AU Patient Summary generator jar, consumed by the aucore node's
-# ig_support.ips.generation_strategy_class (au.org.hl7.fhir.ps.strategy.AupsGenerationStrategy).
-# Sourced from aehrc/sparked-fhir-operations release v1.0.0. The chart's
-# copyFiles.customerlib block in module-config/values-common.yaml pulls this object
-# from S3 into the smilecdr customerlib classpath at pod startup. Managing the upload
-# here keeps the deployed artifact version codified and reproducible via terraform apply,
-# rather than relying on a manual out-of-band upload.
+# AU Patient Summary generator jars, from aehrc/sparked-fhir-operations releases, consumed by a
+# node's ig_support.ips.generation_strategy_class (au.org.hl7.fhir.ps.strategy.AupsGenerationStrategy).
+# The chart's copyFiles.customerlib block pulls the object from S3 into the smilecdr customerlib
+# classpath at pod startup. Managing the upload here keeps the deployed artifact version codified
+# and reproducible via terraform apply, rather than relying on a manual out-of-band upload.
+#
+# One resource per version, and the version is spelled out rather than interpolated, so the
+# Validate YAML Configuration check can confirm every module-config path named here resolves to a
+# file that is actually committed. A fileset() over module-config/lib would make adding a version a
+# one-file commit, but it would also defeat that check, so versions are enumerated instead.
+#
+# 1.0.0 is retained: the hl7au node still names it, disabled though that node is.
 resource "aws_s3_object" "aups_generator" {
   bucket = var.s3_bucket_name
   key    = "smile/hapi-aups-generator-1.0.0.jar"
   source = "../module-config/lib/hapi-aups-generator-1.0.0.jar"
   etag   = filemd5("../module-config/lib/hapi-aups-generator-1.0.0.jar")
+  tags   = local.tags
+}
+
+# Current aucore release. 1.0.1, which aucore ran until now, was uploaded out of band and never
+# recorded here, so terraform believed 1.0.0 was the deployed artifact while the node ran a jar
+# terraform had never seen. It stays in the bucket unmanaged as the rollback target; drop it once
+# 1.0.2 is confirmed on the node.
+resource "aws_s3_object" "aups_generator_1_0_2" {
+  bucket = var.s3_bucket_name
+  key    = "smile/hapi-aups-generator-1.0.2.jar"
+  source = "../module-config/lib/hapi-aups-generator-1.0.2.jar"
+  etag   = filemd5("../module-config/lib/hapi-aups-generator-1.0.2.jar")
   tags   = local.tags
 }
