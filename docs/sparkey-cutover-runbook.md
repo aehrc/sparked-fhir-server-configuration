@@ -600,13 +600,31 @@ Two to four weeks is the suggested soak. Then, in order:
    `gateway/main-gateway` and the controller withdraws the Service itself. The two
    nginx Services are plain Helm resources and can be deleted directly.
 
+   **What is actually load-bearing here.** It is tempting to skip all of this and
+   just delete the cluster. That does not work, and the reason is worth stating
+   plainly: deleting an EKS cluster does not delete the AWS resources the cluster
+   CREATED. Three classes are owned by neither the EKS control plane nor terraform.
+
+   | Left behind by a bare cluster delete | Count on the old cluster |
+   |---|---|
+   | Load balancers from `type: LoadBalancer` Services | 3 |
+   | Karpenter EC2 instances | 4 |
+   | EBS volumes from PVCs, CSI-provisioned | 4 (45 GB) |
+
+   Beyond the bill, these hold ENIs in the subnets, so the VPC destroy FAILS and
+   terraform errors out halfway leaving a half-torn stack. Cleaning up the AWS-side
+   resources first is not fastidiousness, it is what makes the destroy complete.
+
+   In-cluster hygiene is the opposite: it does not matter at all. Nothing needs a
+   graceful drain, no PDB deserves respect, no pod needs to finish. Draining
+   politely is what produced the two deadlocks below, both of which cost time and
+   bought nothing. On the next teardown, delete the LoadBalancer Services and then
+   terminate the instances bluntly.
+
    **Karpenter nodes are NOT in terraform state, and the cluster destroy will
    strand them.** Four instances were running under `on-demand` and `spot`
-   NodePools. Terraform knows about the managed core node group only, so a destroy
-   leaves the Karpenter EC2 instances running and billing in a VPC that is about to
-   disappear. Delete the NodePools first, so nothing is re-provisioned, then the
-   NodeClaims, and let Karpenter drain and terminate while its controller is still
-   alive:
+   NodePools. Terraform knows about the managed core node group only. Delete the
+   NodePools first, so nothing is re-provisioned, then the NodeClaims:
 
    ```bash
    kubectl delete nodepool --all
@@ -618,9 +636,46 @@ Two to four weeks is the suggested soak. Then, in order:
    **A single-replica Deployment behind a `minAvailable: 1` PDB deadlocks that
    drain.** `envoy-gateway-system/envoy-gateway` had one replica and a PDB
    permitting zero disruptions, so its NodeClaim hung indefinitely while the other
-   three terminated normally. Delete the PDB or scale the Deployment to zero. Worth
-   checking `kubectl get pdb -A` for `ALLOWED DISRUPTIONS: 0` before starting, since
-   any such PDB will do the same thing.
+   three terminated normally. Delete the PDB or scale the Deployment to zero. Check
+   `kubectl get pdb -A` for `ALLOWED DISRUPTIONS: 0` before starting; any such PDB
+   does the same thing. Or terminate the instances directly and skip the drain.
+
+   **Removing every node deadlocks the `karpenter-config` uninstall.** Once the
+   Karpenter instances are gone AND terraform has destroyed the managed core node
+   group, the cluster has no compute at all, so the Karpenter controller sits
+   Pending. Its `ec2nodeclass/default` carries a `karpenter.k8s.aws/termination`
+   finalizer that only that controller can clear, so helm waits on a deletion that
+   can never complete and the destroy fails with:
+
+   ```
+   Error: Error uninstalling release
+   Unable to uninstall Helm release karpenter-config: uninstallation completed
+   with 1 error(s): context deadline exceeded
+   ```
+
+   Confirm no instances remain, then clear the finalizer by hand and re-run the
+   destroy. It is safe precisely because the instances the finalizer exists to
+   clean up are already gone:
+
+   ```bash
+   aws ec2 describe-instances --filters "Name=vpc-id,Values=<old-vpc>" \
+     "Name=instance-state-name,Values=running,pending" \
+     --query 'length(Reservations[].Instances[])' --output text   # expect 0
+   kubectl patch ec2nodeclass default --type=merge -p '{"metadata":{"finalizers":null}}'
+   ```
+
+   Avoid it next time by letting terraform destroy the `karpenter-config` release
+   BEFORE the node group goes, or by deleting the EC2NodeClass along with the
+   NodePools while a node still exists to run the controller.
+
+   **Delete the orphaned EBS volumes afterwards.** The monitoring stack's PVCs
+   (loki, tempo, prometheus, grafana) leave four CSI-provisioned volumes that no
+   stack owns. They survive the cluster and bill indefinitely:
+
+   ```bash
+   aws ec2 describe-volumes --filters "Name=tag:KubernetesCluster,Values=sparked-smilecdr" \
+     --query 'Volumes[].{id:VolumeId,size:Size,state:State}' --output table
+   ```
 
    **`terraform plan -destroy` on the app stack fails once the LoadBalancer
    Services are gone.** The module resolves `data.aws_lb.ingress-nginx` by name
