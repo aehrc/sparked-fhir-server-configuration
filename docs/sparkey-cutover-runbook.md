@@ -513,13 +513,34 @@ Two to four weeks is the suggested soak. Then, in order:
    Losing the rollback target is the accepted consequence of this step. Do not
    start it while the rollback path above still matters.
 
-   **Held until after the 25 to 26 August event.** The old stack is retained as
-   the fallback while the new one takes event load, which is the first real
-   stress test it will get. Final snapshot
-   `smile-old-cluster-final-retain-20260803` is already taken and tagged
-   `Retain=true`, so that prerequisite is done whenever teardown resumes.
+   **Hold lifted 2026-08-27.** The old stack was retained as the fallback through
+   the 25 to 26 August event. That event ran on sparkey with no issues, so the
+   fallback is no longer worth its cost and teardown proceeds. Final snapshot
+   `smile-old-cluster-final-retain-20260803` is taken and tagged `Retain=true`.
 
-   Four things were checked on 2026-08-03 and must be handled when it does.
+   Findings from 2026-08-03, re-verified against live AWS on 2026-08-27.
+
+   **The two states share an S3 object. `state rm` it before destroying.** This is
+   the one that bites silently. Both `infra/smile-app/prod.tfstate` and
+   `infra/smile-app/sparkey.tfstate` manage
+   `s3://examplebucket-fhir-aws/smile/hapi-aups-generator-1.0.0.jar` as
+   `aws_s3_object.aups_generator`, because both deployments are rendered from the
+   same root module against the same `s3_bucket_name`. A destroy of the prod state
+   deletes that object from the bucket, and sparkey's hl7au node names it in
+   `copyFiles.customerlib`. Running pods already hold the jar on disk, so nothing
+   breaks immediately; the next pod restart on sparkey fails to pull it. Remove it
+   from the prod state first so the destroy leaves it alone and sparkey keeps
+   ownership:
+
+   ```bash
+   terraform state rm aws_s3_object.aups_generator
+   ```
+
+   It is the ONLY genuinely shared AWS resource. Comparing every ARN and id across
+   the two states turns up three matches: this object, `local_file.archive_plan`
+   (a local temp file, not AWS) and `helm_release.smilecdr` (the same release name
+   in two different clusters). Re-run that comparison if either stack gains
+   resources.
 
    **`terraform destroy` on the app stack DELETES the Aurora cluster, it does not
    stop it.** `aws_rds_cluster.this` and `aws_rds_cluster_instance.this` are both
@@ -532,38 +553,52 @@ Two to four weeks is the suggested soak. Then, in order:
    **Delete the LoadBalancer Services before destroying the cluster.** Three exist
    and each holds an AWS load balancer:
 
-   | Service | Type |
-   |---|---|
-   | `ingress-nginx/ingress-nginx-controller` | NLB, the one that served production |
-   | `envoy-gateway-system/envoy-default-main-gateway-0c7e158b` | NLB |
-   | `argocd/argocd-ingress-nginx-controller` | Classic ELB |
+   | Service | Load balancer | Type |
+   |---|---|---|
+   | `ingress-nginx/ingress-nginx-controller` | `k8s-ingressn-ingressn-f807c43cbc` | NLB, the one that served production |
+   | `envoy-gateway-system/envoy-default-main-gateway-0c7e158b` | `k8s-envoygat-envoydef-7dffe4642b` | NLB |
+   | `argocd/argocd-ingress-nginx-controller` | `a7657757fff8f4fc1a873d285ce5fc41` | NLB |
 
    Destroying the cluster with these in place strands the load balancers. That is
-   exactly how `a461e4fb43cdd45fba222e1e4dd0e9c5` was orphaned, still billing
-   months later.
+   exactly how `a461e4fb43cdd45fba222e1e4dd0e9c5` was orphaned and left billing for
+   months. Correction to the 2026-08-03 note: the argocd load balancer is an NLB,
+   not a Classic ELB. No Classic ELB remains in the old VPC
+   (`vpc-08eae1344eaa94768`); `a461e4fb43cdd45fba222e1e4dd0e9c5` has since been
+   deleted, so step 5 below is already done.
 
    **Remove two Route53 records first, or they dangle.**
-   `smile-argo.sparked-fhir.com` and `smile-monitoring.sparked-fhir.com` are
-   aliases to the argocd Classic ELB on this cluster. An alias left pointing at a
-   deleted load balancer is not merely broken, it is a subdomain-takeover
-   surface. Delete the records in the same change as the cluster.
+   `smile-argo.sparked-fhir.com` and `smile-monitoring.sparked-fhir.com` are alias
+   A records to `a7657757fff8f4fc1a873d285ce5fc41` on this cluster. An alias left
+   pointing at a deleted load balancer is not merely broken, it is a
+   subdomain-takeover surface. Delete the records in the same change as the
+   cluster. They are the only records in `sparked-fhir.com` that resolve to the old
+   cluster; `smile` and `smile-next` both alias sparkey's
+   `a2b9c446adb8c4018b3af1baf7850434`.
 
-   **Repoint or retire the monitor.** `152.83.96.24` polls
-   `/aucore/console/`, `/ereq/console/` and `/hl7au/console/` on the old cluster
-   every few minutes. Two of those nodes no longer exist on sparkey, so it cannot
-   simply be aimed at the new cluster; decide what it should check first,
-   otherwise teardown converts it into a standing alert.
+   **Retire the monitor.** `152.83.96.24` polls `/aucore/console/`,
+   `/ereq/console/` and `/hl7au/console/` on the old cluster every few minutes. Two
+   of those nodes no longer exist on sparkey, so it cannot simply be repointed.
+   Decision 2026-08-27: retire it. Sparkey has its own Grafana, so the checks are
+   redundant rather than worth porting. Left running, teardown turns it into a
+   standing alert.
 
    The EKS cluster itself is a separate stack, `smilecdr/smile-eks`, state key
    `infra/smile/prod.tfstate`.
 3. **Archive `aehrc/sparked-smile-argo`.** Its Envoy config and smilecdr-routes
-   chart have moved to sparked-argo; its dashboards should move to sparkey's
-   Grafana before this.
+   chart have moved to sparked-argo.
+
+   Its six Grafana dashboards were checked against the live cluster on
+   2026-08-27 and every one is byte-identical to the committed ConfigMap under
+   `apps/common/monitoring/dashboards/`, so nothing is lost by destroying the
+   cluster, and archiving keeps the repo readable. Porting them to sparkey's
+   Grafana is a separate piece of work, not a precondition. sparked-argo already
+   carries equivalents for four of them (`jvm-dashboard`, `logs-overview`,
+   `traces-services`, `app-golden-signals`); the two with no counterpart are
+   `smile-fhir-db` and `smile-fhir-resources`.
 4. **Remove `smilecdr/` from sparked-infrastructure** and close the phase 4
    re-CIDR item as superseded.
 5. **Delete the orphaned Classic ELB** `a461e4fb43cdd45fba222e1e4dd0e9c5` in the
-   old VPC if it has not gone with the cluster. It has zero registered instances
-   and is roughly $20/mo of nothing.
+   old VPC. Already done: it no longer exists as of 2026-08-27.
 
 ## Things to fix that this migration surfaced but did not fix
 
