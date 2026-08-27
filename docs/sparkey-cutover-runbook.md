@@ -482,6 +482,14 @@ Rollback is lossless for reads. Any writes accepted by the new server between th
 flip and the rollback stay only on the new server's Aurora, so keep the window
 short and prefer flipping outside an event.
 
+**The fallback decays.** Holding the old stack to 25 to 26 August keeps a way
+back, but by then its data is three weeks stale: everything written to sparkey
+since 2026-08-03 exists only there. So the retained old cluster is a way to keep
+serving, not a way to recover recent state. If rollback is ever used after a long
+gap, the writes on sparkey's Aurora have to be reconciled by hand or accepted as
+lost. That argues for deciding quickly if something is wrong, rather than
+treating a months-old fallback as equivalent.
+
 ## After the soak
 
 Two to four weeks is the suggested soak. Then, in order:
@@ -504,14 +512,209 @@ Two to four weeks is the suggested soak. Then, in order:
 
    Losing the rollback target is the accepted consequence of this step. Do not
    start it while the rollback path above still matters.
+
+   **Hold lifted 2026-08-27.** The old stack was retained as the fallback through
+   the 25 to 26 August event. That event ran on sparkey with no issues, so the
+   fallback is no longer worth its cost and teardown proceeds. Final snapshot
+   `smile-old-cluster-final-retain-20260803` is taken and tagged `Retain=true`.
+
+   Findings from 2026-08-03, re-verified against live AWS on 2026-08-27.
+
+   **The two states share an S3 object. `state rm` it before destroying.** This is
+   the one that bites silently. Both `infra/smile-app/prod.tfstate` and
+   `infra/smile-app/sparkey.tfstate` manage
+   `s3://examplebucket-fhir-aws/smile/hapi-aups-generator-1.0.0.jar` as
+   `aws_s3_object.aups_generator`, because both deployments are rendered from the
+   same root module against the same `s3_bucket_name`. A destroy of the prod state
+   deletes that object from the bucket, and sparkey's hl7au node names it in
+   `copyFiles.customerlib`. Running pods already hold the jar on disk, so nothing
+   breaks immediately; the next pod restart on sparkey fails to pull it. Remove it
+   from the prod state first so the destroy leaves it alone and sparkey keeps
+   ownership:
+
+   ```bash
+   terraform state rm aws_s3_object.aups_generator
+   ```
+
+   It is the ONLY genuinely shared AWS resource. Comparing every ARN and id across
+   the two states turns up three matches: this object, `local_file.archive_plan`
+   (a local temp file, not AWS) and `helm_release.smilecdr` (the same release name
+   in two different clusters). Re-run that comparison if either stack gains
+   resources.
+
+   **`terraform destroy` on the app stack DELETES the Aurora cluster, it does not
+   stop it.** `aws_rds_cluster.this` and `aws_rds_cluster_instance.this` are both
+   in `infra/smile-app/prod.tfstate`. If the intent is to keep the database, stop
+   it out of band with `aws rds stop-db-cluster` and leave that stack alone.
+   Note a stopped Aurora cluster **restarts itself after 7 days**, so stopping is
+   a pause, not a resting state. It is Serverless v2 (0.5 to 4.0 ACU), so idle
+   cost is already modest and storage bills either way.
+
+   **Delete the LoadBalancer Services before destroying the cluster.** Three exist
+   and each holds an AWS load balancer:
+
+   | Service | Load balancer | Type |
+   |---|---|---|
+   | `ingress-nginx/ingress-nginx-controller` | `k8s-ingressn-ingressn-f807c43cbc` | NLB, the one that served production |
+   | `envoy-gateway-system/envoy-default-main-gateway-0c7e158b` | `k8s-envoygat-envoydef-7dffe4642b` | NLB |
+   | `argocd/argocd-ingress-nginx-controller` | `a7657757fff8f4fc1a873d285ce5fc41` | NLB |
+
+   Destroying the cluster with these in place strands the load balancers. That is
+   exactly how `a461e4fb43cdd45fba222e1e4dd0e9c5` was orphaned and left billing for
+   months. Correction to the 2026-08-03 note: the argocd load balancer is an NLB,
+   not a Classic ELB. No Classic ELB remains in the old VPC
+   (`vpc-08eae1344eaa94768`); `a461e4fb43cdd45fba222e1e4dd0e9c5` has since been
+   deleted, so step 5 below is already done.
+
+   **Remove two Route53 records first, or they dangle.**
+   `smile-argo.sparked-fhir.com` and `smile-monitoring.sparked-fhir.com` are alias
+   A records to `a7657757fff8f4fc1a873d285ce5fc41` on this cluster. An alias left
+   pointing at a deleted load balancer is not merely broken, it is a
+   subdomain-takeover surface. Delete the records in the same change as the
+   cluster. They are the only records in `sparked-fhir.com` that resolve to the old
+   cluster; `smile` and `smile-next` both alias sparkey's
+   `a2b9c446adb8c4018b3af1baf7850434`.
+
+   **Retire the monitor.** `152.83.96.24` polls `/aucore/console/`,
+   `/ereq/console/` and `/hl7au/console/` on the old cluster every few minutes. Two
+   of those nodes no longer exist on sparkey, so it cannot simply be repointed.
+   Decision 2026-08-27: retire it. Sparkey has its own Grafana, so the checks are
+   redundant rather than worth porting. Left running, teardown turns it into a
+   standing alert.
+
+   Four more things surfaced during the actual teardown on 2026-08-27. All four
+   are ordering problems, and all four are invisible until you hit them.
+
+   **Stop ArgoCD before deleting anything it manages.** All eleven Applications on
+   the old cluster ran `selfHeal: true`, so a deleted Service came straight back.
+   Scale the reconcilers to zero first:
+
+   ```bash
+   kubectl scale sts argocd-application-controller -n argocd --replicas=0
+   kubectl scale deploy argocd-applicationset-controller -n argocd --replicas=0
+   ```
+
+   **Delete the envoy `Gateway` CR, not its Service.** The Service is generated by
+   the envoy-gateway controller from the Gateway resource, so deleting the Service
+   alone just makes the controller rebuild it, new load balancer and all. Delete
+   `gateway/main-gateway` and the controller withdraws the Service itself. The two
+   nginx Services are plain Helm resources and can be deleted directly.
+
+   **What is actually load-bearing here.** It is tempting to skip all of this and
+   just delete the cluster. That does not work, and the reason is worth stating
+   plainly: deleting an EKS cluster does not delete the AWS resources the cluster
+   CREATED. Three classes are owned by neither the EKS control plane nor terraform.
+
+   | Left behind by a bare cluster delete | Count on the old cluster |
+   |---|---|
+   | Load balancers from `type: LoadBalancer` Services | 3 |
+   | Karpenter EC2 instances | 4 |
+   | EBS volumes from PVCs, CSI-provisioned | 4 (45 GB) |
+
+   Beyond the bill, these hold ENIs in the subnets, so the VPC destroy FAILS and
+   terraform errors out halfway leaving a half-torn stack. Cleaning up the AWS-side
+   resources first is not fastidiousness, it is what makes the destroy complete.
+
+   In-cluster hygiene is the opposite: it does not matter at all. Nothing needs a
+   graceful drain, no PDB deserves respect, no pod needs to finish. Draining
+   politely is what produced the two deadlocks below, both of which cost time and
+   bought nothing. On the next teardown, delete the LoadBalancer Services and then
+   terminate the instances bluntly.
+
+   **Karpenter nodes are NOT in terraform state, and the cluster destroy will
+   strand them.** Four instances were running under `on-demand` and `spot`
+   NodePools. Terraform knows about the managed core node group only. Delete the
+   NodePools first, so nothing is re-provisioned, then the NodeClaims:
+
+   ```bash
+   kubectl delete nodepool --all
+   kubectl delete nodeclaim --all
+   ```
+
+   Wait for both to reach zero before running terraform.
+
+   **A single-replica Deployment behind a `minAvailable: 1` PDB deadlocks that
+   drain.** `envoy-gateway-system/envoy-gateway` had one replica and a PDB
+   permitting zero disruptions, so its NodeClaim hung indefinitely while the other
+   three terminated normally. Delete the PDB or scale the Deployment to zero. Check
+   `kubectl get pdb -A` for `ALLOWED DISRUPTIONS: 0` before starting; any such PDB
+   does the same thing. Or terminate the instances directly and skip the drain.
+
+   **Removing every node deadlocks the `karpenter-config` uninstall.** Once the
+   Karpenter instances are gone AND terraform has destroyed the managed core node
+   group, the cluster has no compute at all, so the Karpenter controller sits
+   Pending. Its `ec2nodeclass/default` carries a `karpenter.k8s.aws/termination`
+   finalizer that only that controller can clear, so helm waits on a deletion that
+   can never complete and the destroy fails with:
+
+   ```
+   Error: Error uninstalling release
+   Unable to uninstall Helm release karpenter-config: uninstallation completed
+   with 1 error(s): context deadline exceeded
+   ```
+
+   Confirm no instances remain, then clear the finalizer by hand and re-run the
+   destroy. It is safe precisely because the instances the finalizer exists to
+   clean up are already gone:
+
+   ```bash
+   aws ec2 describe-instances --filters "Name=vpc-id,Values=<old-vpc>" \
+     "Name=instance-state-name,Values=running,pending" \
+     --query 'length(Reservations[].Instances[])' --output text   # expect 0
+   kubectl patch ec2nodeclass default --type=merge -p '{"metadata":{"finalizers":null}}'
+   ```
+
+   Avoid it next time by letting terraform destroy the `karpenter-config` release
+   BEFORE the node group goes, or by deleting the EC2NodeClass along with the
+   NodePools while a node still exists to run the controller.
+
+   **Delete the orphaned EBS volumes afterwards.** The monitoring stack's PVCs
+   (loki, tempo, prometheus, grafana) leave four CSI-provisioned volumes that no
+   stack owns. They survive the cluster and bill indefinitely:
+
+   ```bash
+   aws ec2 describe-volumes --filters "Name=tag:KubernetesCluster,Values=sparked-smilecdr" \
+     --query 'Volumes[].{id:VolumeId,size:Size,state:State}' --output table
+   ```
+
+   **`terraform plan -destroy` on the app stack fails once the LoadBalancer
+   Services are gone.** The module resolves `data.aws_lb.ingress-nginx` by name
+   whenever `manage_ingress` is true, which it is by default on this deployment, and
+   the lookup errors with "Search returned 0 results" against a load balancer that
+   no longer exists. Pass the variable off for the destroy. There is no managed
+   `route53_record` in this state, so nothing else depends on it:
+
+   ```bash
+   terraform plan -destroy -var=manage_ingress=false -out=destroy.tfplan
+   ```
+
+   **Verify the plan before applying it.** Both destroys were checked with the same
+   three assertions, which is what makes a destroy of this size safe to run:
+
+   ```bash
+   terraform show -json destroy.tfplan > plan.json
+   jq -r '[.resource_changes[].change.actions[]]|group_by(.)|map({(.[0]):length})|add' plan.json   # delete only
+   jq -r '.resource_changes[]|select((.address+(.change.before|tostring))|test("sparkey"))|.address' plan.json   # must be empty
+   jq -r '.resource_changes[]|select(.type|test("s3_object|route53_record"))|.address' plan.json   # must be empty
+   ```
+
+   The EKS cluster itself is a separate stack, `smilecdr/smile-eks`, state key
+   `infra/smile/prod.tfstate`.
 3. **Archive `aehrc/sparked-smile-argo`.** Its Envoy config and smilecdr-routes
-   chart have moved to sparked-argo; its dashboards should move to sparkey's
-   Grafana before this.
+   chart have moved to sparked-argo.
+
+   Its six Grafana dashboards were checked against the live cluster on
+   2026-08-27 and every one is byte-identical to the committed ConfigMap under
+   `apps/common/monitoring/dashboards/`, so nothing is lost by destroying the
+   cluster, and archiving keeps the repo readable. Porting them to sparkey's
+   Grafana is a separate piece of work, not a precondition. sparked-argo already
+   carries equivalents for four of them (`jvm-dashboard`, `logs-overview`,
+   `traces-services`, `app-golden-signals`); the two with no counterpart are
+   `smile-fhir-db` and `smile-fhir-resources`.
 4. **Remove `smilecdr/` from sparked-infrastructure** and close the phase 4
    re-CIDR item as superseded.
 5. **Delete the orphaned Classic ELB** `a461e4fb43cdd45fba222e1e4dd0e9c5` in the
-   old VPC if it has not gone with the cluster. It has zero registered instances
-   and is roughly $20/mo of nothing.
+   old VPC. Already done: it no longer exists as of 2026-08-27.
 
 ## Things to fix that this migration surfaced but did not fix
 
