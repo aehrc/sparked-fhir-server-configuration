@@ -128,6 +128,12 @@ if [ "$T10a" = "200" ] || [ "$T10a" = "201" ]; then
   T10c=$(ccurl -o /dev/null -w "%{http_code}" -X POST "$BASE/DEFAULT/Patient/_search" -H "Content-Type: application/x-www-form-urlencoded" -d "_count=1")
   note "- authenticated POSTed search /DEFAULT/Patient/_search: HTTP $T10c (expect 200 in both modes; a POST that must NOT be read as a write)"
 
+  # $validate is a POST that reads. It stores nothing, so the consent service
+  # must let it through on DEFAULT in both modes; classifying it by its verb is
+  # what broke the standards check in aehrc/platypus#999.
+  T10c2=$(ccurl -o /dev/null -w "%{http_code}" -X POST "$BASE/DEFAULT/Patient/\$validate" -d '{"resourceType":"Patient","name":[{"family":"ConsentAllowsValidate"}]}')
+  note "- authenticated POST /DEFAULT/Patient/\$validate: HTTP $T10c2 (expect 200 in both modes; a read-only extended operation that must NOT be read as a write)"
+
   T10d=$(ccurl -o /tmp/t10d.json -w "%{http_code}" -X POST "$BASE/DEFAULT/Patient" -d '{"resourceType":"Patient","name":[{"family":"ConsentShouldBlock"}]}')
   T10did=$(jq -r '.id // empty' /tmp/t10d.json 2>/dev/null)
   note "- participant POST /DEFAULT/Patient: HTTP $T10d (expect 403 enforcing, 201 observing; id ${T10did:-none})"
