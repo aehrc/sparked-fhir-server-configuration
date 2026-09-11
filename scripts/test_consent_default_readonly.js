@@ -198,12 +198,16 @@ check('write is inferred from the verb when the operation type is unknown',
   decide(load(true), requestDetails({ getTenantId: 'DEFAULT', getRequestType: 'PATCH' }), participant, null),
   'rejected');
 
-check('an extended operation POSTed to DEFAULT is treated as a write',
+check('a POSTed extended operation whose name will not resolve is treated as a write',
   decide(load(true), requestDetails({ getTenantId: 'DEFAULT', getRestOperationType: 'EXTENDED_OPERATION_TYPE', getRequestType: 'POST' }), participant, null),
   'rejected');
 
 check('an extended operation GET on DEFAULT is treated as a read',
   decide(load(true), requestDetails({ getTenantId: 'DEFAULT', getRestOperationType: 'EXTENDED_OPERATION_TYPE', getRequestType: 'GET' }), participant, null),
+  'authorized');
+
+check('an operation type in its wire-code spelling is still read as a read',
+  decide(load(true), requestDetails({ getTenantId: 'DEFAULT', getRestOperationType: 'search-type', getRequestType: 'POST' }), participant, null),
   'authorized');
 
 const unresolvable = load(true);
@@ -224,6 +228,124 @@ check('a user session whose hasAuthority throws is treated as a participant',
     { getUsername: () => 'odd', hasAuthority: () => { throw new Error('unsupported'); } },
     null),
   'rejected');
+
+// ---------------------------------------------------------------------------
+// Read-only extended operations
+//
+// $validate is defined by FHIR as a read: it runs the validator over a body the
+// caller supplied and returns an OperationOutcome, storing nothing. Classifying
+// it by its POST verb rejected it on DEFAULT, which took out the whole
+// "check against standards" path for anonymous and participant clients
+// (aehrc/platypus#999). The operation NAME is what separates a read-only
+// extended operation from a writing one, so that is what the script asks for.
+// ---------------------------------------------------------------------------
+
+console.log('--- read-only extended operations ---');
+
+check('POST $validate on DEFAULT is allowed for a participant',
+  decide(load(true), requestDetails({ getTenantId: 'DEFAULT', getRestOperationType: 'VALIDATE', getOperation: '$validate', getRequestType: 'POST' }), participant, null),
+  'authorized');
+
+check('POST $validate on DEFAULT is allowed anonymously',
+  decide(load(true), requestDetails({ getTenantId: 'DEFAULT', getRestOperationType: 'VALIDATE', getOperation: '$validate', getRequestType: 'POST' }), null, null),
+  'authorized');
+
+check('POST $validate on DEFAULT is allowed for a curator',
+  decide(load(true), requestDetails({ getTenantId: 'DEFAULT', getRestOperationType: 'VALIDATE', getOperation: '$validate', getRequestType: 'POST' }), superuser, null),
+  'authorized');
+
+// The build reports $validate as VALIDATE today. A build that folds it in with
+// the extended operations instead has to reach the same answer by name.
+check('POST $validate reported as an extended operation is allowed',
+  decide(load(true), requestDetails({ getTenantId: 'DEFAULT', getRestOperationType: 'EXTENDED_OPERATION_TYPE', getOperation: '$validate', getRequestType: 'POST' }), participant, null),
+  'authorized');
+
+check('POST $validate is allowed when only getRestOperationType says VALIDATE',
+  decide(load(true), requestDetails({ getTenantId: 'DEFAULT', getRestOperationType: 'VALIDATE', getRequestType: 'POST' }), participant, null),
+  'authorized');
+
+check('POST $expand on DEFAULT is allowed',
+  decide(load(true), requestDetails({ getTenantId: 'DEFAULT', getRestOperationType: 'EXTENDED_OPERATION_TYPE', getOperation: '$expand', getRequestType: 'POST' }), participant, null),
+  'authorized');
+
+check('POST $summary on DEFAULT is allowed',
+  decide(load(true), requestDetails({ getTenantId: 'DEFAULT', getRestOperationType: 'EXTENDED_OPERATION_INSTANCE', getOperation: '$summary', getRequestType: 'POST' }), participant, null),
+  'authorized');
+
+check('an operation name reported without its leading $ is still matched',
+  decide(load(true), requestDetails({ getTenantId: 'DEFAULT', getRestOperationType: 'EXTENDED_OPERATION_TYPE', getOperation: 'validate', getRequestType: 'POST' }), participant, null),
+  'authorized');
+
+check('an operation name reported in upper case is still matched',
+  decide(load(true), requestDetails({ getTenantId: 'DEFAULT', getRestOperationType: 'EXTENDED_OPERATION_TYPE', getOperation: '$VALIDATE-CODE', getRequestType: 'POST' }), participant, null),
+  'authorized');
+
+check('the name is read from getExtendedOperationName when getOperation is absent',
+  decide(load(true), requestDetails({ getTenantId: 'DEFAULT', getRestOperationType: 'EXTENDED_OPERATION_TYPE', getExtendedOperationName: '$lookup', getRequestType: 'POST' }), participant, null),
+  'authorized');
+
+check('a getOperation that throws falls back to the conservative default',
+  decide(load(true),
+    { getTenantId: () => 'DEFAULT', getRestOperationType: () => 'EXTENDED_OPERATION_TYPE',
+      getOperation: () => { throw new Error('no such method'); }, getRequestType: () => 'POST' },
+    participant, null),
+  'rejected');
+
+// ---------------------------------------------------------------------------
+// What the allowlist must still reject
+//
+// The allowlist is an allowlist: an operation that is not on it is a write,
+// including one nobody has heard of. These are the rows that would fail if it
+// were ever inverted into a denylist.
+// ---------------------------------------------------------------------------
+
+console.log('--- writes the allowlist must not exempt ---');
+
+check('POST create on DEFAULT is still rejected for a non-curator',
+  decide(load(true), requestDetails({ getTenantId: 'DEFAULT', getRestOperationType: 'CREATE', getRequestType: 'POST' }), participant, null),
+  'rejected');
+
+check('POST $expunge on DEFAULT is still rejected for a non-curator',
+  decide(load(true), requestDetails({ getTenantId: 'DEFAULT', getRestOperationType: 'EXTENDED_OPERATION_TYPE', getOperation: '$expunge', getRequestType: 'POST' }), participant, null),
+  'rejected');
+
+check('POST $whatever on DEFAULT is still rejected: unknown means write',
+  decide(load(true), requestDetails({ getTenantId: 'DEFAULT', getRestOperationType: 'EXTENDED_OPERATION_TYPE', getOperation: '$whatever', getRequestType: 'POST' }), participant, null),
+  'rejected');
+
+check('POST $meta-add on DEFAULT is still rejected, though $meta is allowed',
+  decide(load(true), requestDetails({ getTenantId: 'DEFAULT', getRestOperationType: 'EXTENDED_OPERATION_INSTANCE', getOperation: '$meta-add', getRequestType: 'POST' }), participant, null),
+  'rejected');
+
+check('a META_ADD operation type is a write without consulting the name',
+  decide(load(true), requestDetails({ getTenantId: 'DEFAULT', getRestOperationType: 'META_ADD', getOperation: '$meta', getRequestType: 'POST' }), participant, null),
+  'rejected');
+
+check('POST $meta on DEFAULT is allowed',
+  decide(load(true), requestDetails({ getTenantId: 'DEFAULT', getRestOperationType: 'EXTENDED_OPERATION_INSTANCE', getOperation: '$meta', getRequestType: 'POST' }), participant, null),
+  'authorized');
+
+check('POST $export on DEFAULT is still rejected: it writes a job',
+  decide(load(true), requestDetails({ getTenantId: 'DEFAULT', getRestOperationType: 'EXTENDED_OPERATION_TYPE', getOperation: '$export', getRequestType: 'POST' }), participant, null),
+  'rejected');
+
+check('POST $partition-management-create-partition on DEFAULT is still rejected',
+  decide(load(true), requestDetails({ getTenantId: 'DEFAULT', getRestOperationType: 'EXTENDED_OPERATION_SERVER', getOperation: '$partition-management-create-partition', getRequestType: 'POST' }), participant, null),
+  'rejected');
+
+// The ordering property: an operation type that already identified a write is
+// never overturned by a name on the allowlist.
+check('a CREATE carrying a read-only operation name is still a write',
+  decide(load(true), requestDetails({ getTenantId: 'DEFAULT', getRestOperationType: 'CREATE', getOperation: '$validate', getRequestType: 'POST' }), participant, null),
+  'rejected');
+
+check('a write to a tenant partition other than DEFAULT is still allowed',
+  decide(load(true), requestDetails({ getTenantId: 'MTTEST', getRestOperationType: 'CREATE', getRequestType: 'POST' }), participant, null),
+  'authorized');
+
+check('$expunge against a tenant partition other than DEFAULT is not this script\'s business',
+  decide(load(true), requestDetails({ getTenantId: 'MTTEST', getRestOperationType: 'EXTENDED_OPERATION_TYPE', getOperation: '$expunge', getRequestType: 'POST' }), participant, null),
+  'authorized');
 
 // ---------------------------------------------------------------------------
 // Observe mode

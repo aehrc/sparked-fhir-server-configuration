@@ -141,6 +141,7 @@ consulted). Expected results:
 | --- | --- | --- |
 | Authenticated `GET /DEFAULT/Patient` | 200 | 200 |
 | Authenticated `POST /DEFAULT/Patient/_search` | 200 | 200 |
+| Authenticated `POST /DEFAULT/Patient/$validate` | 200 | 200 |
 | Participant `POST /DEFAULT/Patient` | 201 | **403** |
 | Participant `POST /MTTEST/Patient` | 201 | 201 |
 | Curator `POST /DEFAULT/Patient` | 201 | 201 |
@@ -148,7 +149,9 @@ consulted). Expected results:
 
 The POSTed search row is not padding. A FHIR search can arrive as `POST`, and
 reading it as a write would break the authenticated `DEFAULT` read this whole
-change exists to enable.
+change exists to enable. The `$validate` row is there for the same reason and
+was added after it turned out not to hold; see *Read-only extended operations*
+below.
 
 ### Step 4: read the observe log
 
@@ -189,6 +192,102 @@ Note for anyone reading the load output: the eight `422` bundle failures in that
 run were profile validation errors on `au-ps-organization`, unrelated to this
 service. Validation runs *before* the consent service, so those requests never
 reached it.
+
+## Read-only extended operations
+
+The verb is not enough to tell a read from a write, and for the first three
+weeks of enforcement this script assumed it was.
+
+`isWrite` asked for the REST operation type, matched it against a list of reads
+and a list of writes, and for anything else fell through to the HTTP verb, where
+everything but `GET`, `HEAD` and `OPTIONS` counted as a write. An extended
+operation lands in that fall-through. So did `$validate`, which FHIR defines as
+a read: it runs the validator over a body the caller hands it and returns an
+`OperationOutcome`, storing nothing. Arriving as a `POST`, it was classified as
+a write to `DEFAULT` and rejected.
+
+Measured on the live node on 2026-09-11, before the fix:
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' \
+  https://smile.sparked-fhir.com/aucore/fhir/DEFAULT/metadata
+# 200
+
+curl -s -X POST -H 'Content-Type: application/fhir+json' \
+  --data '{"resourceType":"Patient","id":"x"}' \
+  https://smile.sparked-fhir.com/aucore/fhir/DEFAULT/Patient/'$validate'
+# 403 {"resourceType":"OperationOutcome","issue":[{"severity":"error",
+#      "code":"processing","diagnostics":"Rejected by consent service"}]}
+```
+
+Every anonymous and participant client hit it, which is the whole population
+this partition exists for, and it took the "check against standards" feature in
+the Platypus app out entirely
+([aehrc/platypus#999](https://github.com/aehrc/platypus/issues/999)).
+
+Worth recording because it cost time diagnosing: a `$validate` POST carrying an
+*invalid* body returns `422`, not `403`, because the request-validating
+interceptor runs before the consent service and answers first. A bare
+`{"resourceType":"Observation"}` therefore looks like it works. Only a body that
+passes validation reaches the consent service and shows the `403`.
+
+`GET` extended operations were never affected, which is why `Patient/$summary`
+has been serving the app all along. Note that a `403` on a `GET` extended
+operation is a different thing entirely: `GET /DEFAULT/ValueSet/$expand` and
+`GET /DEFAULT/Patient/<id>/$everything` answer `"Access denied"`, which is the
+authorization layer's anonymous-access rules, not this script, whose refusal
+always reads `"Rejected by consent service"`.
+
+### The fix: classify by operation name, from an allowlist
+
+An extended operation is a read or a write depending on which operation it is
+and nothing else. `$expand` and `$expunge` arrive over the same verb at the same
+operation type and differ only by name, so the name is what the script now asks
+for, through the same defensive accessor probing the partition already uses
+(`getOperation`, then `getOperationType`, then `getExtendedOperationName`,
+normalised for case and for a leading `$` that a build may or may not include).
+
+`READ_OPERATION_NAMES` is an **allowlist, not a denylist**, and the distinction
+is the point. An operation absent from it is treated as a write. Smile CDR and
+HAPI ship operations this node does not serve today, an IG install can add more,
+and a later release can add one that writes; naming the writers instead would
+mean every operation nobody thought of defaults to allowed, which is how the
+curated dataset ends up edited by something that was never reviewed. The
+conservative default the script shipped with is intact: an operation whose name
+does not resolve, or resolves to something not on the list, is still judged by
+its verb and a `POST` is still a write.
+
+Allowed: `$validate`, `$expand`, `$lookup`, `$validate-code`, `$translate`,
+`$subsumes`, `$everything`, `$summary`, `$docref`, `$meta`, `$graphql`, `$diff`,
+`$last-n`, `$stats`, `$binary-access-read`.
+
+Still rejected on `DEFAULT` for a non-curator, and each one because it writes:
+`$expunge`, `$reindex`, `$mark-all-resources-for-reindexing`,
+`$perform-reindexing-pass`, `$meta-add`, `$meta-delete`,
+`$apply-codesystem-delta-add`, `$apply-codesystem-delta-remove`, the
+`$partition-management-*` family, `$import`, `$export` (which writes a bulk
+job), `$process-message`, `$submit-data`, and anything not listed at all.
+
+Three smaller changes ride along. `VALIDATE` joins `READ_OPERATIONS`, because
+HAPI gives `$validate` its own operation type rather than folding it in with the
+extended operations, and on a build that reports it that way the name check is
+never reached. `META_ADD` and `META_DELETE` join `WRITE_OPERATIONS` for the
+mirror-image reason: they have their own types too, and naming them means a
+build that reports the type catches them without the name check ever running, so
+`$meta` being an allowed read can never be confused with its two writing
+siblings. And the operation type is now folded for case *and* for hyphens, so a
+build reporting the wire code (`search-type`) is read the same as one reporting
+the enum constant (`SEARCH_TYPE`); the build running today reports the constant,
+which is the only reason the POSTed-search exemption has been working.
+
+The ordering matters and is tested: the name is consulted only after
+`WRITE_OPERATIONS` has had its say, so a request whose operation type already
+says `CREATE` stays a write whatever name arrives with it. The allowlist can
+exempt a request the operation type left undecided; it can never overturn a
+write the type identified.
+
+`scripts/test_consent_default_readonly.js` covers all of this, including the
+rows that must still be rejected, and runs in CI.
 
 ## Rollback
 
@@ -235,6 +334,13 @@ What stops those accounts writing the curated dataset today is that the clients
 they log in through hold read-only scopes. That is a scope string away from
 being a real hole, and it is the reason for shipping this rather than leaving it
 on the shelf.
+
+**A new read-only operation has to be added to the allowlist by hand.** Serving
+one that is not in `READ_OPERATION_NAMES` means participants get a bare 403 on
+`DEFAULT` for something that only reads, and the symptom looks like an
+authorization problem rather than a consent one. That is the cost of an
+allowlist and it is the right way round, but it makes the list something to
+check whenever a new operation is enabled on `aucore`.
 
 **Backend service clients are covered, users are not fully.** `FHIR_ALL_DELETE`
 is now granted alongside write by `register_smart_client.py`, but
