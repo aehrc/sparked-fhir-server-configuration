@@ -79,7 +79,27 @@ cdrNodes:
           # presentedForm[0].url that 404s. Fixing that properly means keeping
           # package storage off the FHIR Binary surface, not whitelisting Binary.
           resource_types.supported.whitelist: "CarePlan,Goal,CareTeam,Endpoint,DocumentReference,MedicationDispense,DiagnosticReport,Bundle,MedicationStatement,CommunicationRequest,Task,Consent,ServiceRequest,Device,Composition,StructureDefinition,SearchParameter,Questionnaire,StructureMap,AllergyIntolerance,Condition,Encounter,Immunization,Location,Observation,Organization,Patient,Practitioner,PractitionerRole,Procedure,Medication,MedicationRequest,Coverage,Specimen,RelatedPerson,HealthcareService,QuestionnaireResponse"
-          metadata.resource_counts.enabled: false
+          # Put per-type resource counts on the CapabilityStatement, which is
+          # where sparked-test-data-loader reads them from (aehrc/sparked-test-data-loader#29):
+          # one /metadata request for the whole node instead of a count query per
+          # resource type. Counting per type is not an option here, because this
+          # server refuses both routes to a search total, HAPI-2038 for
+          # _summary=count and HAPI-2037 for _total=accurate, deliberately: they
+          # force a full count on demand and this endpoint is readable without
+          # authentication.
+          #
+          # cache.minutes is not optional and not a tuning knob. /metadata is
+          # unauthenticated and fetched by every client for conformance, so
+          # without a cache each request would count all 38 supported types,
+          # which is a heavier lever than the one the refusals above close off.
+          #
+          # One minute rather than longer: the counts are read straight after a
+          # load or clear, and a server-computed cache cannot be busted by a
+          # client Cache-Control header, so the cache duration is exactly how
+          # stale a freshly loaded count can look. One minute keeps /metadata
+          # cheap without making the dashboard lie for long.
+          metadata.resource_counts.enabled: true
+          metadata.resource_counts.cache.minutes: 1
           validator.local_reference_policy: "NOT_VALIDATED"
           validator.unknown_codesystem_validation_policy: "GENERATE_WARNING"
           remote_term_svc.enabled: true
