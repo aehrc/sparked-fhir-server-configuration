@@ -62,6 +62,9 @@ the Sparked FHIR Server nodes.
 - **SLA:** 1 to 2 weeks end-to-end (calendar lead time); roughly 20 minutes of hands-on time
   once `ready-for-automation` is applied. Add 1 to 2 weeks if an ADR is required.
 - **Example:** "Deploy IPS 2.0.1 to aucore, deploy immediately."
+- **Beyond the server:** this offering covers the FHIR server only. The maintainers track
+  each published IG version through tx.dev, test data and the Inferno test kits with an
+  IG Release Tracking issue, following the [IG release runbook](runbooks/ig-release.md).
 
 ### Configuration Change
 
