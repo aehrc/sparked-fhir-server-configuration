@@ -221,8 +221,6 @@ output) into the issue.
 
 ### Phase 1: tx.dev terminology server
 
-> Status: the tx.dev feeder was running on 2026-09-25 but has been described as decommissioned for now; confirm its status with the release lead first.
-
 <a id="step-1-1"></a>
 #### 1.1 Let the feeder pick up the release (or edit the AU PS pin)
 
@@ -232,27 +230,48 @@ output) into the issue.
   `aehrc/sparked-argo`), and the feeder polls `https://hl7.org.au/fhir/package-feed.xml`
   every 5 minutes, pushing matches into the Atomio feed `hl7au-dev`.
 - **Do:**
-  - **AU Base, AU Core, AU eRequesting:** nothing. They are `versionMode: latest-any` with
-    statuses `[ballot, preview, draft, trial-use]`, so the single newest version is taken
-    automatically. (`latest-any` is missing from the mode table in
-    [terminology-servers/readme.md](../../terminology-servers/readme.md); it means "the one
-    newest version across all listed statuses".)
-  - **AU PS:** `versionMode: pinned`, `versions: [1.0.0]`, `statuses: [trial-use]`. Add the
-    new version to `versions`, and add its status to `statuses` if it is not `trial-use`,
-    or it will never match. Do it through a PR (a
-    [Terminology Content Change](https://github.com/aehrc/sparked-fhir-server-configuration/issues/new?template=04-tx-content-change.yml)
-    request, or `scripts/update_tx_helm_values.py --action modify-watch --server tx-dev --package-id hl7.fhir.au.ps --version-mode pinned --versions <list>`).
-    The 1.0.0 bump was committed straight to `main` (0944fa2); do not repeat that.
-- **Verify:** within a poll cycle the feeder reports the entry. Its UI is at
-  `https://tx-dev.feeder.sparked-fhir.com` (OIDC login). With cluster read access:
+  1. **Check the feeder is running.** It has been described as decommissioned for now,
+     but on 2026-09-25 it was deployed and pushing (verified). With cluster read access:
+
+     ```bash
+     kubectl --context sparkey -n argocd get application fhir-ig-feeder-tx-dev \
+       -o jsonpath='{.status.sync.status} {.status.health.status}{"\n"}'    # expect: Synced Healthy
+     kubectl --context sparkey -n fhir-ig-feeder-tx-dev get deploy fhir-ig-feeder-tx-dev-fhir-ig-feeder \
+       -o jsonpath='{.status.readyReplicas}/{.spec.replicas} ready{"\n"}'  # expect: 1/1 ready
+     ```
+
+     If either command says `NotFound`, or the deployment shows `0/`, nothing in this
+     step reaches tx.dev. Stop and ask the release lead. The pre-feeder fallback is adding
+     the entry by hand in the Atomio UI at `https://synd.ontoserver.csiro.au`, feed
+     `hl7au-dev` **(unverified: not exercised since the feeder went live on 2026-07-05)**.
+  2. **AU Base, AU Core, AU eRequesting:** nothing more. They are `versionMode: latest-any`
+     with statuses `[ballot, preview, draft, trial-use]`, so the single newest version is
+     taken automatically. (`latest-any` is missing from the mode table in
+     [terminology-servers/readme.md](../../terminology-servers/readme.md); it means "the one
+     newest version across all listed statuses".)
+  3. **AU PS:** `versionMode: pinned`, `versions: [1.0.0]`, `statuses: [trial-use]`. In a
+     PR, add the new version under `versions`, and add its status under `statuses` if it
+     is not `trial-use`, or it will never match. Edit the YAML by hand. Do not use
+     `scripts/update_tx_helm_values.py` or a
+     [Terminology Content Change](https://github.com/aehrc/sparked-fhir-server-configuration/issues/new?template=04-tx-content-change.yml)
+     request for this: both run that script, which reads `feeds` at the top level of the
+     file while the feeder layout nests them under `targets[].feeds`, so it exits with
+     `Error: Feed 'hl7au-dev' not found in values file` (verified with `--dry-run` on
+     2026-09-25). The 1.0.0 bump was committed straight to `main` (0944fa2); do not repeat
+     that.
+- **Verify:** within a poll cycle (5 minutes) the feeder logs the package. With cluster
+  read access:
 
   ```bash
   kubectl --context sparkey -n fhir-ig-feeder-tx-dev logs deploy/fhir-ig-feeder-tx-dev-fhir-ig-feeder --since=15m \
     | grep "$PKG"
   ```
 
-  A new package shows as added on its first cycle and then `"entry already exists,
-  skipping"` on every later one (the second form verified).
+  A new package is logged as added on its first cycle (exact message unverified) and then
+  as `"entry already exists, skipping"` with its `version` on every later one (verified).
+  The feeder also has a web UI at `https://tx-dev.feeder.sparked-fhir.com`, but its TLS
+  certificate expires on 2026-10-03 and its renewal has been stuck since 2026-09-03, so do
+  not rely on it.
 - **What goes wrong:** the AU PS pin is the known silent miss: the next AU PS release
   never reaches tx.dev unless someone edits it.
 

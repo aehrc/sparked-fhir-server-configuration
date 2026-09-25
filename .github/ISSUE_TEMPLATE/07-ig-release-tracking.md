@@ -13,8 +13,9 @@ https://github.com/aehrc/sparked-fhir-server-configuration/blob/main/docs/runboo
 Tick each box as it is done and paste the evidence (link or command output) as a comment.
 Strike through (~~text~~) and write "n/a" beside any step that does not apply to this IG;
 the scope table in section 1 of the runbook says which targets each IG reaches.
-This issue does NOT trigger any automation. The Smile server request (step 2.1) is a
-separate Implementation Guide Release Request issue.
+This issue triggers no validation, PR or deployment automation (only the welcome comment
+every new issue gets). The Smile server request (step 2.1) is a separate Implementation
+Guide Release Request issue.
 -->
 
 ## Release
@@ -45,7 +46,7 @@ separate Implementation Guide Release Request issue.
 
 ## Phase 1: tx.dev
 
-- [ ] 1.1 Feeder picked the version up. AU PS only: pin edited in [`tx-dev-helm-values.yaml`](https://github.com/aehrc/sparked-fhir-server-configuration/blob/main/terminology-servers/tx-dev-helm-values.yaml) through a PR ([runbook](https://github.com/aehrc/sparked-fhir-server-configuration/blob/main/docs/runbooks/ig-release.md#step-1-1))
+- [ ] 1.1 Feeder confirmed running and logged the version. AU PS only: pin edited by hand in [`tx-dev-helm-values.yaml`](https://github.com/aehrc/sparked-fhir-server-configuration/blob/main/terminology-servers/tx-dev-helm-values.yaml) through a PR ([runbook](https://github.com/aehrc/sparked-fhir-server-configuration/blob/main/docs/runbooks/ig-release.md#step-1-1))
 - [ ] 1.2 tx.dev returns the new version's StructureDefinition (after the daily 15:00 UTC sync) ([runbook](https://github.com/aehrc/sparked-fhir-server-configuration/blob/main/docs/runbooks/ig-release.md#step-1-2))
 
 ## Phase 2: Sparked Dev FHIR Server (`aucore`)
