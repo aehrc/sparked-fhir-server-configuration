@@ -131,8 +131,8 @@ Each of these has been broken at least once, or would silently break a later ste
    (`validator.terminologyServer`) validate terminology against
    `https://tx.dev.hl7.org.au/fhir`. tx.dev only ingests once a day (15:00 UTC).
 3. **On Smile, dependencies install before the IG, and coupled IGs ship in one PR.** AU
-   Core 3.0.0-ballot1 declares AU Base 7.0.0-ballot1, `hl7.terminology.r4` 7.3.0 and
-   `smart-app-launch` 2.2.0; they went out together in #91 and #92. Separate IG PRs also
+   Core 3.0.0-ballot1 declares, among others, AU Base 7.0.0-ballot1, `hl7.terminology.r4`
+   7.3.0 and `smart-app-launch` 2.2.0; those went out together in #91 and #92. Separate IG PRs also
    conflict on the same three files.
 4. **The kit gem must be on RubyGems before the platform's `Gemfile` changes.** Staging and
    production build from `Gemfile`; only preview environments build from `Gemfile.dev`.
@@ -310,7 +310,8 @@ what that guide leaves implicit.
 - **Where:** [Implementation Guide Release Request](https://github.com/aehrc/sparked-fhir-server-configuration/issues/new?template=01-ig-release-request.yml)
   (`01-ig-release-request.yml`). One request per package; link each from the tracking issue.
 - **Do:** request type *Update*, target node `aucore`, and **tick "Request package be
-  installed automatically (STORE_AND_INSTALL)"**. Leave "fetch dependencies" unticked.
+  installed automatically (STORE_AND_INSTALL)"**. Leave "Request dependencies be fetched
+  automatically" unticked.
 - **Verify:** within a minute `issue-opened.yml` posts "Automated Validation & Preview" with
   **Install Mode: STORE_AND_INSTALL** and a dry-run that shows the old version being
   replaced.
@@ -465,7 +466,8 @@ what that guide leaves implicit.
   `clear-and-load-aucore`. (An Operational Request with `approved` runs a load without the
   clear.)
 - **Do:** run with `dry_run: true`, read the summary, then run for real with the tracking
-  issue number in `issue_number`.
+  issue number in `issue_number`. `dry_run` defaults to **false** on this workflow, so set
+  it explicitly: the real run wipes the node's data.
 - **Verify:** the posted summary shows the file count and 0 failed (or the failures are
   triaged on the issue); `curl -s "$FHIR/Patient/hennessy-billy" -o /dev/null -w '%{http_code}\n'`
   returns 200.
@@ -511,8 +513,10 @@ AU Core: `hl7au/au-fhir-core-inferno`. AU PS: `hl7au/au-ps-inferno`. Both defaul
   - `Gemfile` / `Gemfile.lock` (generator revision) and `CHANGELOG.md`.
 
   Then run `make generate` (Docker) or `make generate_local`.
-- **Do (AU PS):** per the kit README, put the `.tgz` in `lib/au_ps_inferno/igs/`, point the
-  `Rakefile` (`generator:generate`) at it and run `Generate Suite` (`generate-suite.yaml`).
+- **Do (AU PS):** put the `.tgz` in `lib/au_ps_inferno/igs/`, point `ig.package_archive_path`
+  in `inferno_suite_generator.config.json` at it, and run `Generate Suite`
+  (`generate-suite.yaml`). The kit README says to edit the path in the `Rakefile`, but the
+  `generator:generate` task no longer holds one; the generator reads the config file.
   The suite names its IG from `IG_VERSION` in `lib/au_ps_inferno/version.rb`
   (`igs "hl7.fhir.au.ps##{AUPSTestKit::IG_VERSION}"`), which the generator updates. A newer
   `Sync IG Package` workflow (`sync-ig-package.yaml`) fetches the latest package from the
@@ -627,8 +631,8 @@ AU Core: `hl7au/au-fhir-core-inferno`. AU PS: `hl7au/au-ps-inferno`. Both defaul
     the platform ref moved, and the moved ref must still work with the other kit's released
     gem. Prove it on the preview.
   - **Orphan SHA pins.** If `Gemfile.dev` has to pin an unreleased kit commit, use a commit
-    on a branch that will survive. #130 pinned `9790c863`, reachable from no branch, and
-    the git gem fetch broke.
+    on a branch that will survive. #130 pinned `9790c863`, reachable from no branch,
+    which made the git gem fetch fragile and had to be repinned.
   - **The kit page and warmer are hand-maintained.** The gem keeps registering replaced
     suites (production still lists `au_core_v210_draft`); only the page and the warmer
     decide what testers see and what stays warm.
@@ -639,8 +643,8 @@ AU Core: `hl7au/au-fhir-core-inferno`. AU PS: `hl7au/au-ps-inferno`. Both defaul
 - **Who:** platform reviewer merges.
 - **Where:** `master` push runs `build-and-release-package.yaml`, which builds one image;
   ArgoCD Image Updater writes the tag into `aehrc/sparked-argo`
-  `apps/inferno-dev/image-values.yaml` (the "build: automatic update of inferno-dev"
-  commits) and the `inferno-dev` app syncs it.
+  `apps/inferno-dev/image-values.yaml` through an auto-merged PR titled "build: automatic
+  update of inferno-dev", and the `inferno-dev` app syncs it.
 - **Do:** nothing after the merge.
 - **Verify:**
 
@@ -793,6 +797,9 @@ Each item removes checklist lines, which is better than documenting them.
    itself.
 8. **Decide AU PS on tx.dev:** `latest-any` like the others, or keep the pin as a
    documented choice. Removes step 1.1's manual branch.
+9. **Fix `scripts/update_tx_helm_values.py` for the feeder layout**: read feeds under
+   `targets[].feeds` and accept `versionMode: latest-any`. Until then the Terminology
+   Content Change request cannot produce a tx.dev PR, and step 1.1 is a hand edit.
 
 ## History
 
