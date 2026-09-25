@@ -2,7 +2,8 @@
 # Blank issues are disabled so every request enters through a catalogue offering.
 # The "General / Bug / Question" template (06) is the safety net for anything that
 # does not match a specific offering, including bug reports, questions, enhancement
-# ideas, and rollback requests.
+# ideas, and rollback requests. The IG Release Tracking template (07) is for maintainers:
+# one issue per published IG version, following docs/runbooks/ig-release.md.
 blank_issues_enabled: false
 contact_links:
   - name: Service Catalogue (browse all request types)
@@ -11,6 +12,9 @@ contact_links:
   - name: Request workflow & lifecycle reference
     url: https://github.com/aehrc/sparked-fhir-server-configuration/blob/main/docs/WORKFLOWS.md
     about: How requests are reviewed, automated, deployed, and verified.
+  - name: IG release runbook (maintainers)
+    url: https://github.com/aehrc/sparked-fhir-server-configuration/blob/main/docs/runbooks/ig-release.md
+    about: How a published IG version reaches the FHIR server, tx.dev, test data and Inferno.
   - name: Chat & announcements (FHIR Zulip)
     url: https://chat.fhir.org/
     about: For quick questions, help choosing a request type, or release announcements.
