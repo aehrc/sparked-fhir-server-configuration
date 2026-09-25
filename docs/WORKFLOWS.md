@@ -202,7 +202,8 @@ well, with the step each one bites in.
   `startup_installation_specs`; a restart before that reseeds the old versions.
 - **AU PS is pinned on tx.dev** (`versionMode: pinned` in
   `terminology-servers/tx-dev-helm-values.yaml`), unlike AU Base, AU Core and AU
-  eRequesting, so each AU PS release needs an edit there.
+  eRequesting, so each AU PS release needs a hand edit there in a PR
+  ([runbook step 1.1](runbooks/ig-release.md#step-1-1) says why not the script).
 
 ---
 
