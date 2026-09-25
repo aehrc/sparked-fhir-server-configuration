@@ -73,6 +73,7 @@ Test data management is powered by the [`sparked-test-data-loader`](https://gith
 | **[SMART App Registration](docs/SMART-APP-REGISTRATION.md)** | Register SMART on FHIR / OIDC clients | Developers/Participants |
 | **[Scripts README](scripts/README.md)** | How to use Python scripts locally | Developers/Admins |
 | **[Terraform Local Deploy](docs/terraform-local-deploy.md)** | Plan/apply the infrastructure from a workstation (terraform is local-only) | Admins |
+| **[IG Release Runbook](docs/runbooks/ig-release.md)** | Take a published IG version through every Sparked target (FHIR server, tx.dev, test data, Inferno), with a per-release tracking issue | Maintainers |
 
 ## Architecture
 
