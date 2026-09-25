@@ -395,19 +395,35 @@ what that guide leaves implicit.
 #### 2.4 Persist the seed config
 
 - **Who:** repo admin.
-- **Where:** Terraform from a workstation, per [sparkey-deploy-runbook.md](../sparkey-deploy-runbook.md).
-- **Do:** `terraform plan` then `apply` the Smile deployment so the new package files
-  become ConfigMaps and `startup_installation_specs` matches the repo. Pick a window: a
-  `module-config/` change rolls the pod, and the first `$validate` after it can answer 504
-  while the validator warms (#111).
-- **Verify:** the plan shows only the package ConfigMaps and the node config changing; after
-  apply, repeat the step 2.3 checks. With cluster read access, the live spec must equal the
-  repo's:
+- **Where:** Terraform from a workstation, on `main` after the PR merged. One-time setup
+  (the gitignored `backend-sparkey.hcl` and `tfvars/sparkey.tfvars`) is in
+  [sparkey-deploy-runbook.md](../sparkey-deploy-runbook.md). Use that document, not
+  `terraform-local-deploy.md`, which describes the decommissioned stack (#111).
+- **Do:** plan and apply the Smile deployment so the new package files become ConfigMaps
+  and `startup_installation_specs` matches the repo. Pick a window: a `module-config/`
+  change rolls the pod, and the first `$validate` after it can answer 504 while the
+  validator warms (#111).
 
   ```bash
-  kubectl --context sparkey -n smile get cm -o name | grep scdrnode-aucore
-  kubectl --context sparkey -n smile get cm <that name> -o jsonpath='{.data.cdr-config-Master\.properties}' \
-    | grep startup_installation_specs
+  cd terraform
+  terraform init -reconfigure -backend-config=backend-sparkey.hcl   # must not prompt for `key`; if it does, stop
+  terraform plan -var-file=../tfvars/sparkey.tfvars -out=sparkey.plan
+  terraform apply sparkey.plan
+  ```
+
+- **Verify:** before applying, the plan changes the Smile Helm release in place and adds,
+  changes or destroys no AWS resources; anything else means stop and ask
+  **(unverified: this plan was not re-run for this runbook)**. After apply, repeat the step
+  2.3 checks. With cluster read access, confirm the live spec equals the repo's (run from
+  the repo root; `aucore` is the first node in the file, so `grep -m1` picks its line):
+
+  ```bash
+  CM=$(kubectl --context sparkey -n smile get cm -o name | grep scdrnode-aucore)
+  diff \
+    <(kubectl --context sparkey -n smile get "$CM" -o jsonpath='{.data.cdr-config-Master\.properties}' \
+        | grep startup_installation_specs | sed 's/.*= *//') \
+    <(grep -m1 startup_installation_specs module-config/simplified-multinode.yaml | sed 's/.*: *"//; s/"$//') \
+    && echo "live matches repo"
   ```
 
 - **What goes wrong:** skipping this leaves a node whose next restart reseeds the previous
