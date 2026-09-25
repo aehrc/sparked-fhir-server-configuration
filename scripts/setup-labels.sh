@@ -11,6 +11,7 @@ gh label create "ig-release" --color "0366d6" --description "Implementation Guid
 gh label create "configuration" --color "1d76db" --description "Configuration change request" --force
 gh label create "operations" --color "5319e7" --description "Operational request (data load, expunge, etc.)" --force
 gh label create "tx-content" --color "006b75" --description "Terminology server content change request" --force
+gh label create "ig-release-tracking" --color "c5def5" --description "Tracks one IG version through every Sparked target (docs/runbooks/ig-release.md)" --force
 
 # Status Labels (flow: needs-review → approved → ready-for-automation → in-progress → deployed → complete)
 gh label create "needs-review" --color "fbca04" --description "Awaiting technical review" --force

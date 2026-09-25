@@ -24,6 +24,12 @@
   color: "006b75"
   description: "Terminology server content change request"
 
+# Maintainer tracking (no automation matches this label; deliberately not "ig-release",
+# which would run the IG Release Request validation against the issue body)
+- name: "ig-release-tracking"
+  color: "c5def5"
+  description: "Tracks one IG version through every Sparked target (docs/runbooks/ig-release.md)"
+
 # Status Labels (flow: needs-review → approved → ready-for-automation → in-progress → deployed → complete)
 - name: "needs-review"
   color: "fbca04"
