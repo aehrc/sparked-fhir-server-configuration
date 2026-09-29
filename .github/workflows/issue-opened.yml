@@ -65,12 +65,20 @@ jobs:
               .map(l => l.name)
               .find(name => ['ig-release', 'configuration', 'operations', 'tx-content'].includes(name));
 
+            // Validation for IG release and TX content requests runs
+            // automatically only for issues from org members and collaborators
+            // (see the validate-ig and validate-tx jobs). For other issues a
+            // maintainer dispatches it after triage.
+            const autoValidated = ['OWNER', 'MEMBER', 'COLLABORATOR'].includes(issue.author_association);
+
             let message = '👋 Thank you for your request!\n\n';
 
             if (issueType === 'ig-release') {
               message += '## Next Steps for IG Release\n\n';
               message += '1. ✅ **Request received** - Your request is now in the queue\n';
-              message += '2. 🔍 **Validation** - Automated validation will run within 1 minute\n';
+              message += autoValidated
+                ? '2. 🔍 **Validation** - Automated validation will run within 1 minute\n'
+                : '2. 🔍 **Validation** - A maintainer will run the automated validation after triaging this request\n';
               message += '3. 📋 **Admin review** - Team will review and approve if validation passes\n';
               message += '4. 🤖 **PR auto-creation** - A pull request will be automatically generated\n';
               message += '5. 🚀 **Deployment** - After PR merge, deployment will occur (immediate or scheduled)\n';
@@ -100,7 +108,9 @@ jobs:
             } else if (issueType === 'tx-content') {
               message += '## Next Steps for Terminology Server Content Change\n\n';
               message += '1. **Request received** - Your request is now in the queue\n';
-              message += '2. **Validation** - Automated validation and dry-run preview will run within 1 minute\n';
+              message += autoValidated
+                ? '2. **Validation** - Automated validation and dry-run preview will run within 1 minute\n'
+                : '2. **Validation** - A maintainer will run the automated validation and dry-run preview after triaging this request\n';
               message += '3. **Admin review** - Team will review and approve if validation passes\n';
               message += '4. **PR auto-creation** - A pull request will be automatically generated\n';
               message += '5. **Merge & deploy** - After PR merge, the atomio-ig-feeder will pick up the change on the next sync cycle\n';
@@ -126,13 +136,17 @@ jobs:
     runs-on: arc-runner-set
     container:
       image: python:3.12-slim
-    # TRUST BOUNDARY (public repo): this job uses the CSIRO_FHIR_AUTH_64 secret to
-    # run a live dry-run against the server, so it must never be triggerable by an
-    # arbitrary member of the public. The label gate below is that boundary: the
-    # 'ig-release' label can only be applied by a user with write access (a
-    # maintainer triaging the issue). An unlabeled community issue skips this job.
+    # This job runs a live dry-run against the server with the
+    # CSIRO_FHIR_AUTH_64 credential. On issue events it runs automatically only
+    # for issues opened by org owners, members and collaborators. The IG release
+    # issue form applies the 'ig-release' label for every author, so the label
+    # alone does not decide this. For other issues a maintainer runs the preview
+    # after triage by dispatching this workflow with the issue number and
+    # job_type=validate-ig.
     if: |
-      (github.event_name == 'issues' && contains(github.event.issue.labels.*.name, 'ig-release')) ||
+      (github.event_name == 'issues' &&
+       contains(github.event.issue.labels.*.name, 'ig-release') &&
+       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.issue.author_association)) ||
       (github.event_name == 'workflow_dispatch' && inputs.job_type == 'validate-ig')
 
     steps:
@@ -145,9 +159,12 @@ jobs:
       - name: Parse issue details
         id: parse
         uses: actions/github-script@v7
+        env:
+          ISSUE_NUMBER: ${{ inputs.issue_number }}
         with:
           script: |
-            const issueNumber = context.payload.issue?.number || parseInt('${{ inputs.issue_number }}') || null;
+            const checks = require(`${process.env.GITHUB_WORKSPACE}/scripts/issue_field_checks.js`);
+            const issueNumber = context.payload.issue?.number || parseInt(process.env.ISSUE_NUMBER, 10) || null;
             const { data: issue } = await github.rest.issues.get({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -218,32 +235,43 @@ jobs:
             core.setOutput('selected_nodes', selectedNodes.join(','));
             core.setOutput('selected_nodes_count', selectedNodes.length);
 
+            const formatErrors = checks.checkIgRequest({ igName, igVersion, packageId, packageUrl });
+            core.setOutput('format_errors', formatErrors.map(e => `- ${e}`).join('\n'));
+
       - name: Validate required fields
         id: validate
+        shell: bash
+        env:
+          IG_NAME: ${{ steps.parse.outputs.ig_name }}
+          IG_VERSION: ${{ steps.parse.outputs.ig_version }}
+          NODES_COUNT: ${{ steps.parse.outputs.selected_nodes_count }}
+          FORMAT_ERRORS: ${{ steps.parse.outputs.format_errors }}
         run: |
-          IG_NAME="${{ steps.parse.outputs.ig_name }}"
-          IG_VERSION="${{ steps.parse.outputs.ig_version }}"
-          NODES_COUNT="${{ steps.parse.outputs.selected_nodes_count }}"
-
-          ERRORS=""
+          ERRORS=()
 
           if [ -z "$IG_NAME" ]; then
-            ERRORS="${ERRORS}- IG Name is required\n"
+            ERRORS+=("- IG Name is required")
           fi
 
           if [ -z "$IG_VERSION" ]; then
-            ERRORS="${ERRORS}- IG Version is required\n"
+            ERRORS+=("- IG Version is required")
           fi
 
           if [ "$NODES_COUNT" = "0" ]; then
-            ERRORS="${ERRORS}- At least one target node must be selected\n"
+            ERRORS+=("- At least one target node must be selected")
           fi
 
-          if [ -n "$ERRORS" ]; then
-            echo "validation_passed=false" >> $GITHUB_OUTPUT
-            echo -e "$ERRORS" > validation_errors.txt
+          # Fields that are present but not in the expected format
+          # (scripts/issue_field_checks.js).
+          if [ -n "$FORMAT_ERRORS" ]; then
+            ERRORS+=("$FORMAT_ERRORS")
+          fi
+
+          if [ "${#ERRORS[@]}" -gt 0 ]; then
+            echo "validation_passed=false" >> "$GITHUB_OUTPUT"
+            printf '%s\n' "${ERRORS[@]}" > validation_errors.txt
           else
-            echo "validation_passed=true" >> $GITHUB_OUTPUT
+            echo "validation_passed=true" >> "$GITHUB_OUTPUT"
             echo "All required fields present" > validation_errors.txt
           fi
 
@@ -254,23 +282,30 @@ jobs:
         env:
           SMILECDR_BASE_URL: https://smile.sparked-fhir.com
           SMILECDR_AUTH_BASIC: ${{ secrets.CSIRO_FHIR_AUTH_64 }}
+          NODES: ${{ steps.parse.outputs.selected_nodes }}
+          PACKAGE_NAME: ${{ steps.parse.outputs.package_id }}
+          PACKAGE_VERSION: ${{ steps.parse.outputs.ig_version }}
+          PACKAGE_URL: ${{ steps.parse.outputs.package_url }}
+          INSTALL_MODE: ${{ steps.parse.outputs.install_mode }}
+          FETCH_DEPENDENCIES: ${{ steps.parse.outputs.fetch_dependencies }}
         run: |
-          NODES="${{ steps.parse.outputs.selected_nodes }}"
-          PACKAGE_NAME="${{ steps.parse.outputs.package_id }}"
-          PACKAGE_VERSION="${{ steps.parse.outputs.ig_version }}"
-          PACKAGE_URL="${{ steps.parse.outputs.package_url }}"
-
           echo "Running dry-run for package: $PACKAGE_NAME@$PACKAGE_VERSION"
           echo "Target nodes: $NODES"
 
-          PACKAGE_URL_FIELD=""
-          if [ -n "$PACKAGE_URL" ]; then
-            PACKAGE_URL_FIELD=", \"packageUrl\": \"$PACKAGE_URL\""
-          fi
-
-          CUSTOM_PACKAGE=$(cat <<EOF
-          [{"name": "$PACKAGE_NAME", "version": "$PACKAGE_VERSION", "installMode": "${{ steps.parse.outputs.install_mode }}", "fetchDependencies": ${{ steps.parse.outputs.fetch_dependencies }}$PACKAGE_URL_FIELD}]
-          EOF
+          # Build the package JSON with json.dumps so each field is encoded as
+          # a JSON string whatever characters it holds.
+          CUSTOM_PACKAGE=$(python - <<'PY'
+          import json, os
+          pkg = {
+              "name": os.environ["PACKAGE_NAME"],
+              "version": os.environ["PACKAGE_VERSION"],
+              "installMode": os.environ["INSTALL_MODE"],
+              "fetchDependencies": os.environ["FETCH_DEPENDENCIES"] == "true",
+          }
+          if os.environ.get("PACKAGE_URL"):
+              pkg["packageUrl"] = os.environ["PACKAGE_URL"]
+          print(json.dumps([pkg]))
+          PY
           )
 
           python scripts/sync_packages.py \
@@ -281,17 +316,35 @@ jobs:
             2>&1 | tee dryrun_output.txt
 
           EXIT_CODE=${PIPESTATUS[0]}
-          echo "dryrun_exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
+          echo "dryrun_exit_code=$EXIT_CODE" >> "$GITHUB_OUTPUT"
 
       - name: Generate preview comment
         if: always()
         uses: actions/github-script@v7
+        env:
+          ISSUE_NUMBER: ${{ steps.parse.outputs.issue_number }}
+          VALIDATION_PASSED: ${{ steps.validate.outputs.validation_passed }}
+          DRYRUN_EXIT_CODE: ${{ steps.dryrun.outputs.dryrun_exit_code }}
+          IG_NAME: ${{ steps.parse.outputs.ig_name }}
+          IG_VERSION: ${{ steps.parse.outputs.ig_version }}
+          PACKAGE_ID: ${{ steps.parse.outputs.package_id }}
+          PACKAGE_ID_PROVIDED: ${{ steps.parse.outputs.package_id_provided }}
+          INSTALL_MODE: ${{ steps.parse.outputs.install_mode }}
+          FETCH_DEPENDENCIES: ${{ steps.parse.outputs.fetch_dependencies }}
+          SELECTED_NODES: ${{ steps.parse.outputs.selected_nodes }}
+          PACKAGE_URL: ${{ steps.parse.outputs.package_url }}
         with:
           script: |
             const fs = require('fs');
-            const issueNumber = ${{ steps.parse.outputs.issue_number }};
-            const validationPassed = '${{ steps.validate.outputs.validation_passed }}' === 'true';
-            const dryrunExitCode = '${{ steps.dryrun.outputs.dryrun_exit_code }}' || '';
+            const env = process.env;
+            const issueNumber = parseInt(env.ISSUE_NUMBER, 10);
+            const validationPassed = env.VALIDATION_PASSED === 'true';
+            const dryrunExitCode = env.DRYRUN_EXIT_CODE || '';
+            // Edits re-run validation automatically only on the issue-event
+            // path; a dispatched run is repeated by a maintainer.
+            const rerunNote = context.eventName === 'issues'
+              ? 'Validation will run automatically after editing'
+              : 'Ask a maintainer to re-run validation after editing';
 
             let comment = '## Automated Validation & Preview\n\n';
 
@@ -301,23 +354,23 @@ jobs:
               const errors = fs.readFileSync('validation_errors.txt', 'utf8');
               comment += errors;
               comment += '\n\n---\n';
-              comment += 'Update the issue with the required information and the validation will run again automatically.\n';
+              comment += `Update the issue with the required information. ${rerunNote}.\n`;
             } else {
               comment += '### Validation Passed\n\n';
               comment += '**IG Details:**\n';
-              comment += `- **Name**: ${{ steps.parse.outputs.ig_name }}\n`;
-              comment += `- **Version**: ${{ steps.parse.outputs.ig_version }}\n`;
-              comment += `- **Package ID**: ${{ steps.parse.outputs.package_id }}`;
+              comment += `- **Name**: ${env.IG_NAME}\n`;
+              comment += `- **Version**: ${env.IG_VERSION}\n`;
+              comment += `- **Package ID**: ${env.PACKAGE_ID}`;
 
-              if ('${{ steps.parse.outputs.package_id_provided }}' === 'false') {
+              if (env.PACKAGE_ID_PROVIDED === 'false') {
                 comment += ' *(auto-generated - please verify)*';
               }
               comment += '\n';
-              comment += `- **Install Mode**: ${{ steps.parse.outputs.install_mode }}\n`;
-              comment += `- **Fetch Dependencies**: ${{ steps.parse.outputs.fetch_dependencies }}\n`;
-              comment += `- **Target Nodes**: ${{ steps.parse.outputs.selected_nodes }}\n`;
+              comment += `- **Install Mode**: ${env.INSTALL_MODE}\n`;
+              comment += `- **Fetch Dependencies**: ${env.FETCH_DEPENDENCIES}\n`;
+              comment += `- **Target Nodes**: ${env.SELECTED_NODES}\n`;
 
-              const previewPackageUrl = '${{ steps.parse.outputs.package_url }}';
+              const previewPackageUrl = env.PACKAGE_URL;
               if (previewPackageUrl) {
                 comment += `- **Custom Package URL**: ${previewPackageUrl}\n`;
               }
@@ -358,7 +411,7 @@ jobs:
               comment += '3. Add the `ready-for-automation` label to trigger PR creation\n\n';
               comment += 'If changes are needed:\n\n';
               comment += '- Edit the issue to update fields\n';
-              comment += '- Validation will run automatically after editing\n';
+              comment += `- ${rerunNote}\n`;
             }
 
             comment += '\n\n---\n';
@@ -412,11 +465,15 @@ jobs:
     runs-on: arc-runner-set
     container:
       image: python:3.12-slim
-    # TRUST BOUNDARY (public repo): uses CSIRO_FHIR_AUTH_64. Same as validate-ig,
-    # the 'tx-content' label (settable only with write access) is the gate that
-    # keeps arbitrary public issues from triggering a credentialed dry-run.
+    # Same rule as validate-ig: on issue events this runs automatically only for
+    # issues opened by org owners, members and collaborators, because the TX
+    # content issue form applies the 'tx-content' label for every author. For
+    # other issues a maintainer dispatches this workflow with the issue number
+    # and job_type=validate-tx after triage.
     if: |
-      (github.event_name == 'issues' && contains(github.event.issue.labels.*.name, 'tx-content')) ||
+      (github.event_name == 'issues' &&
+       contains(github.event.issue.labels.*.name, 'tx-content') &&
+       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.issue.author_association)) ||
       (github.event_name == 'workflow_dispatch' && inputs.job_type == 'validate-tx')
 
     steps:
@@ -429,9 +486,12 @@ jobs:
       - name: Parse issue details
         id: parse
         uses: actions/github-script@v7
+        env:
+          ISSUE_NUMBER: ${{ inputs.issue_number }}
         with:
           script: |
-            const issueNumber = context.payload.issue?.number || parseInt('${{ inputs.issue_number }}') || null;
+            const checks = require(`${process.env.GITHUB_WORKSPACE}/scripts/issue_field_checks.js`);
+            const issueNumber = context.payload.issue?.number || parseInt(process.env.ISSUE_NUMBER, 10) || null;
             const { data: issue } = await github.rest.issues.get({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -510,54 +570,66 @@ jobs:
             core.setOutput('safe_name', safeName);
             core.setOutput('business_justification', businessJustification);
 
+            const formatErrors = checks.checkTxRequest({
+              actionType, packageId, packageListUrl, displayName, versionMode, pinnedVersions, feedName
+            });
+            core.setOutput('format_errors', formatErrors.map(e => `- ${e}`).join('\n'));
+
       - name: Validate required fields
         id: validate
+        shell: bash
+        env:
+          CLI_ACTION: ${{ steps.parse.outputs.cli_action }}
+          PACKAGE_ID: ${{ steps.parse.outputs.package_id }}
+          PACKAGE_LIST_URL: ${{ steps.parse.outputs.package_list_url }}
+          SERVERS_COUNT: ${{ steps.parse.outputs.selected_servers_count }}
+          STATUSES_COUNT: ${{ steps.parse.outputs.selected_statuses_count }}
+          VERSION_MODE: ${{ steps.parse.outputs.version_mode }}
+          PINNED_VERSIONS: ${{ steps.parse.outputs.pinned_versions }}
+          BUSINESS_JUSTIFICATION: ${{ steps.parse.outputs.business_justification }}
+          FORMAT_ERRORS: ${{ steps.parse.outputs.format_errors }}
         run: |
-          ACTION_TYPE="${{ steps.parse.outputs.action_type }}"
-          CLI_ACTION="${{ steps.parse.outputs.cli_action }}"
-          PACKAGE_ID="${{ steps.parse.outputs.package_id }}"
-          PACKAGE_LIST_URL="${{ steps.parse.outputs.package_list_url }}"
-          SERVERS_COUNT="${{ steps.parse.outputs.selected_servers_count }}"
-          STATUSES_COUNT="${{ steps.parse.outputs.selected_statuses_count }}"
-          VERSION_MODE="${{ steps.parse.outputs.version_mode }}"
-          PINNED_VERSIONS="${{ steps.parse.outputs.pinned_versions }}"
-          BUSINESS_JUSTIFICATION="${{ steps.parse.outputs.business_justification }}"
-
-          ERRORS=""
+          ERRORS=()
 
           if [ -z "$CLI_ACTION" ]; then
-            ERRORS="${ERRORS}- Action Type is required\n"
+            ERRORS+=("- Action Type is required")
           fi
 
           if [ -z "$PACKAGE_ID" ]; then
-            ERRORS="${ERRORS}- Package ID is required\n"
+            ERRORS+=("- Package ID is required")
           fi
 
           if [ "$SERVERS_COUNT" = "0" ]; then
-            ERRORS="${ERRORS}- At least one target server must be selected\n"
+            ERRORS+=("- At least one target server must be selected")
           fi
 
           if [ "$CLI_ACTION" = "add-watch" ] && [ -z "$PACKAGE_LIST_URL" ]; then
-            ERRORS="${ERRORS}- Package List URL is required when adding a new watch\n"
+            ERRORS+=("- Package List URL is required when adding a new watch")
           fi
 
           if [ "$CLI_ACTION" = "add-watch" ] && [ "$STATUSES_COUNT" = "0" ]; then
-            ERRORS="${ERRORS}- At least one release status must be selected when adding a watch\n"
+            ERRORS+=("- At least one release status must be selected when adding a watch")
           fi
 
           if [ "$VERSION_MODE" = "pinned" ] && [ -z "$PINNED_VERSIONS" ]; then
-            ERRORS="${ERRORS}- Pinned Versions is required when Version Mode is 'pinned'\n"
+            ERRORS+=("- Pinned Versions is required when Version Mode is 'pinned'")
           fi
 
           if [ -z "$BUSINESS_JUSTIFICATION" ]; then
-            ERRORS="${ERRORS}- Business Justification is required\n"
+            ERRORS+=("- Business Justification is required")
           fi
 
-          if [ -n "$ERRORS" ]; then
-            echo "validation_passed=false" >> $GITHUB_OUTPUT
-            echo -e "$ERRORS" > validation_errors.txt
+          # Fields that are present but not in the expected format
+          # (scripts/issue_field_checks.js).
+          if [ -n "$FORMAT_ERRORS" ]; then
+            ERRORS+=("$FORMAT_ERRORS")
+          fi
+
+          if [ "${#ERRORS[@]}" -gt 0 ]; then
+            echo "validation_passed=false" >> "$GITHUB_OUTPUT"
+            printf '%s\n' "${ERRORS[@]}" > validation_errors.txt
           else
-            echo "validation_passed=true" >> $GITHUB_OUTPUT
+            echo "validation_passed=true" >> "$GITHUB_OUTPUT"
             echo "All required fields present" > validation_errors.txt
           fi
 
@@ -565,59 +637,79 @@ jobs:
         if: steps.validate.outputs.validation_passed == 'true'
         id: dryrun
         shell: bash
+        env:
+          SERVERS: ${{ steps.parse.outputs.selected_servers }}
+          ACTION: ${{ steps.parse.outputs.cli_action }}
+          PACKAGE_ID: ${{ steps.parse.outputs.package_id }}
+          PACKAGE_LIST_URL: ${{ steps.parse.outputs.package_list_url }}
+          DISPLAY_NAME: ${{ steps.parse.outputs.display_name }}
+          STATUSES: ${{ steps.parse.outputs.selected_statuses }}
+          VERSION_MODE: ${{ steps.parse.outputs.version_mode }}
+          PINNED_VERSIONS: ${{ steps.parse.outputs.pinned_versions }}
+          FEED_NAME: ${{ steps.parse.outputs.feed_name }}
         run: |
-          SERVERS="${{ steps.parse.outputs.selected_servers }}"
-          ACTION="${{ steps.parse.outputs.cli_action }}"
-          PACKAGE_ID="${{ steps.parse.outputs.package_id }}"
+          # An array keeps each value a single argument (a display name with
+          # spaces stays one --display-name value).
+          cmd=(python scripts/update_tx_helm_values.py --action "$ACTION" --server "$SERVERS" --package-id "$PACKAGE_ID" --dry-run)
 
-          CMD="python scripts/update_tx_helm_values.py --action $ACTION --server $SERVERS --package-id $PACKAGE_ID --dry-run"
-
-          PACKAGE_LIST_URL="${{ steps.parse.outputs.package_list_url }}"
           if [ -n "$PACKAGE_LIST_URL" ]; then
-            CMD="$CMD --package-list-url $PACKAGE_LIST_URL"
+            cmd+=(--package-list-url "$PACKAGE_LIST_URL")
           fi
 
-          DISPLAY_NAME="${{ steps.parse.outputs.display_name }}"
           if [ -n "$DISPLAY_NAME" ]; then
-            CMD="$CMD --display-name \"$DISPLAY_NAME\""
+            cmd+=(--display-name "$DISPLAY_NAME")
           fi
 
-          STATUSES="${{ steps.parse.outputs.selected_statuses }}"
           if [ -n "$STATUSES" ]; then
-            CMD="$CMD --statuses $STATUSES"
+            cmd+=(--statuses "$STATUSES")
           fi
 
-          VERSION_MODE="${{ steps.parse.outputs.version_mode }}"
           if [ -n "$VERSION_MODE" ]; then
-            CMD="$CMD --version-mode $VERSION_MODE"
+            cmd+=(--version-mode "$VERSION_MODE")
           fi
 
-          PINNED_VERSIONS="${{ steps.parse.outputs.pinned_versions }}"
           if [ -n "$PINNED_VERSIONS" ]; then
-            CLEANED_VERSIONS=$(echo "$PINNED_VERSIONS" | tr -d ' ')
-            CMD="$CMD --versions $CLEANED_VERSIONS"
+            cmd+=(--versions "${PINNED_VERSIONS// /}")
           fi
 
-          FEED_NAME="${{ steps.parse.outputs.feed_name }}"
           if [ -n "$FEED_NAME" ]; then
-            CMD="$CMD --feed-name $FEED_NAME"
+            cmd+=(--feed-name "$FEED_NAME")
           fi
 
-          echo "Running: $CMD"
-          $CMD 2>&1 | tee dryrun_output.txt
+          echo "Running: ${cmd[*]}"
+          "${cmd[@]}" 2>&1 | tee dryrun_output.txt
 
           EXIT_CODE=${PIPESTATUS[0]}
-          echo "dryrun_exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
+          echo "dryrun_exit_code=$EXIT_CODE" >> "$GITHUB_OUTPUT"
 
       - name: Generate preview comment
         if: always()
         uses: actions/github-script@v7
+        env:
+          ISSUE_NUMBER: ${{ steps.parse.outputs.issue_number }}
+          VALIDATION_PASSED: ${{ steps.validate.outputs.validation_passed }}
+          DRYRUN_EXIT_CODE: ${{ steps.dryrun.outputs.dryrun_exit_code }}
+          ACTION_TYPE: ${{ steps.parse.outputs.action_type }}
+          PACKAGE_ID: ${{ steps.parse.outputs.package_id }}
+          SELECTED_SERVERS: ${{ steps.parse.outputs.selected_servers }}
+          PACKAGE_LIST_URL: ${{ steps.parse.outputs.package_list_url }}
+          DISPLAY_NAME: ${{ steps.parse.outputs.display_name }}
+          SELECTED_STATUSES: ${{ steps.parse.outputs.selected_statuses }}
+          VERSION_MODE: ${{ steps.parse.outputs.version_mode }}
+          PINNED_VERSIONS: ${{ steps.parse.outputs.pinned_versions }}
+          FEED_NAME: ${{ steps.parse.outputs.feed_name }}
         with:
           script: |
             const fs = require('fs');
-            const issueNumber = ${{ steps.parse.outputs.issue_number }};
-            const validationPassed = '${{ steps.validate.outputs.validation_passed }}' === 'true';
-            const dryrunExitCode = '${{ steps.dryrun.outputs.dryrun_exit_code }}' || '';
+            const env = process.env;
+            const issueNumber = parseInt(env.ISSUE_NUMBER, 10);
+            const validationPassed = env.VALIDATION_PASSED === 'true';
+            const dryrunExitCode = env.DRYRUN_EXIT_CODE || '';
+            // Edits re-run validation automatically only on the issue-event
+            // path; a dispatched run is repeated by a maintainer.
+            const rerunNote = context.eventName === 'issues'
+              ? 'Validation will run automatically after editing'
+              : 'Ask a maintainer to re-run validation after editing';
 
             let comment = '## Automated Validation & Preview\n\n';
 
@@ -627,37 +719,37 @@ jobs:
               const errors = fs.readFileSync('validation_errors.txt', 'utf8');
               comment += errors;
               comment += '\n\n---\n';
-              comment += 'Edit the issue to fix these fields and validation will run again automatically.\n';
+              comment += `Edit the issue to fix these fields. ${rerunNote}.\n`;
             } else {
               comment += '### Validation Passed\n\n';
               comment += '**Request Details:**\n';
-              comment += `- **Action**: ${{ steps.parse.outputs.action_type }}\n`;
-              comment += `- **Package ID**: ${{ steps.parse.outputs.package_id }}\n`;
-              comment += `- **Target Servers**: ${{ steps.parse.outputs.selected_servers }}\n`;
+              comment += `- **Action**: ${env.ACTION_TYPE}\n`;
+              comment += `- **Package ID**: ${env.PACKAGE_ID}\n`;
+              comment += `- **Target Servers**: ${env.SELECTED_SERVERS}\n`;
 
-              const packageListUrl = '${{ steps.parse.outputs.package_list_url }}';
+              const packageListUrl = env.PACKAGE_LIST_URL;
               if (packageListUrl) {
                 comment += `- **Package List URL**: ${packageListUrl}\n`;
               }
 
-              const displayName = '${{ steps.parse.outputs.display_name }}';
+              const displayName = env.DISPLAY_NAME;
               if (displayName) {
                 comment += `- **Display Name**: ${displayName}\n`;
               }
 
-              const statuses = '${{ steps.parse.outputs.selected_statuses }}';
+              const statuses = env.SELECTED_STATUSES;
               if (statuses) {
                 comment += `- **Statuses**: ${statuses}\n`;
               }
 
-              comment += `- **Version Mode**: ${{ steps.parse.outputs.version_mode }}\n`;
+              comment += `- **Version Mode**: ${env.VERSION_MODE}\n`;
 
-              const pinnedVersions = '${{ steps.parse.outputs.pinned_versions }}';
+              const pinnedVersions = env.PINNED_VERSIONS;
               if (pinnedVersions) {
                 comment += `- **Pinned Versions**: ${pinnedVersions}\n`;
               }
 
-              const feedName = '${{ steps.parse.outputs.feed_name }}';
+              const feedName = env.FEED_NAME;
               if (feedName) {
                 comment += `- **Feed Name**: ${feedName}\n`;
               }
@@ -697,7 +789,7 @@ jobs:
               comment += '2. Add the `ready-for-automation` label to trigger PR creation\n\n';
               comment += 'If changes are needed:\n\n';
               comment += '- Edit the issue to update fields\n';
-              comment += '- Validation will run automatically after editing\n';
+              comment += `- ${rerunNote}\n`;
             }
 
             comment += '\n\n---\n';

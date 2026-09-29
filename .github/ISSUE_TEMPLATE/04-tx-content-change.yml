@@ -165,7 +165,7 @@ body:
       value: |
         ---
         ### What happens next?
-        1. **Automated validation** will check your request within 1 minute
+        1. **Automated validation** will check your request (within 1 minute for org members and collaborators, otherwise once a maintainer has triaged it)
         2. **Repo admins will review** and approve the request
         3. **Automated PR will be created** modifying the terminology server helm values
         4. **After PR merge**, the change will take effect on the next atomio-ig-feeder sync cycle
