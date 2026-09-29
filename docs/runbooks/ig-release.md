@@ -106,7 +106,6 @@ flowchart TD
     T --> TX["Phase 1: tx.dev<br/>manual Atomio feed entry,<br/>scheduled ingest 15:00 UTC"]
     T --> S["Phase 2: Smile aucore<br/>request, PR, deploy, verify, persist"]
     T --> K["Phase 4: kit<br/>generate, preview, release gem"]
-    TX --> S
     S --> D["Phase 3: reload test data"]
     K --> PL["Phase 5: platform bump<br/>Gemfiles, warmer, kit page"]
     PL --> STG["merge: staging auto-deploys"]
@@ -118,7 +117,8 @@ flowchart TD
 ```
 
 Phases 1, 2 and 4 start in parallel once the tracking issue exists. The joins are the
-[ordering constraints](#4-ordering-constraints).
+[ordering constraints](#4-ordering-constraints). tx.dev does not gate starting Phase 2;
+it gates judging validation results (constraint 2), so it joins at the smoke run.
 
 ## 4. Ordering constraints
 
