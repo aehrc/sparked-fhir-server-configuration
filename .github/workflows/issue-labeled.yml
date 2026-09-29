@@ -85,11 +85,16 @@ jobs:
           script: |
             const checks = require(`${process.env.GITHUB_WORKSPACE}/scripts/issue_field_checks.js`);
             const issueNumber = context.payload.issue?.number || parseInt(process.env.ISSUE_NUMBER, 10) || null;
-            const { data: issue } = await github.rest.issues.get({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: issueNumber
-            });
+            // On an issue event, use the issue as it was when the label was
+            // applied, so the automation acts on the fields the maintainer
+            // reviewed. A later edit needs the label applied again.
+            const issue = context.eventName === 'issues'
+              ? context.payload.issue
+              : (await github.rest.issues.get({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: issueNumber
+                })).data;
 
             const body = issue.body || '';
 
@@ -518,11 +523,16 @@ jobs:
           script: |
             const checks = require(`${process.env.GITHUB_WORKSPACE}/scripts/issue_field_checks.js`);
             const issueNumber = context.payload.issue?.number || parseInt(process.env.ISSUE_NUMBER, 10) || null;
-            const { data: issue } = await github.rest.issues.get({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: issueNumber
-            });
+            // On an issue event, use the issue as it was when the label was
+            // applied, so the automation acts on the fields the maintainer
+            // reviewed. A later edit needs the label applied again.
+            const issue = context.eventName === 'issues'
+              ? context.payload.issue
+              : (await github.rest.issues.get({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: issueNumber
+                })).data;
 
             const body = issue.body || '';
 
@@ -1122,11 +1132,16 @@ jobs:
           script: |
             const checks = require(`${process.env.GITHUB_WORKSPACE}/scripts/issue_field_checks.js`);
             const issueNumber = context.payload.issue?.number || parseInt(process.env.ISSUE_NUMBER, 10) || null;
-            const { data: issue } = await github.rest.issues.get({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: issueNumber
-            });
+            // On an issue event, use the issue as it was when the label was
+            // applied, so the automation acts on the fields the maintainer
+            // reviewed. A later edit needs the label applied again.
+            const issue = context.eventName === 'issues'
+              ? context.payload.issue
+              : (await github.rest.issues.get({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: issueNumber
+                })).data;
 
             const body = issue.body || '';
 
