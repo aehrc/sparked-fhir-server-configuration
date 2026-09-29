@@ -9,7 +9,9 @@ body:
     attributes:
       value: |
         ## Terminology Server Content Change Request
-        Use this template to request changes to the IG packages loaded on the Sparked terminology servers via [atomio-ig-feeder](https://github.com/aehrc/atomio-ig-feeder/).
+        Use this template to request changes to the IG packages loaded on the Sparked terminology servers.
+
+        > **No feeder syncs tx.dev any more.** The tx-dev feeder was decommissioned on 2026-09-29, and none is deployed for tx.hl7. A merged change to the terminology helm values no longer reaches tx.dev by itself: each IG version must be added by hand as an entry in the `hl7au-dev` Atomio feed, as described in [IG release runbook step 1.1](https://github.com/aehrc/sparked-fhir-server-configuration/blob/main/docs/runbooks/ig-release.md#step-1-1).
 
         **Examples**: Add a new IG package watch, remove a package, change version mode or status filters.
 
@@ -33,7 +35,7 @@ body:
         Which terminology server(s) should be updated?
 
         **Server Descriptions:**
-        - **tx.dev**: Development server (`synd.ontoserver.csiro.au`) - syncs latest versions of ballot/preview/draft/trial-use packages
+        - **tx.dev**: Development server, fed from the `hl7au-dev` feed on `synd.ontoserver.csiro.au`. Changes need a manual Atomio entry ([runbook step 1.1](https://github.com/aehrc/sparked-fhir-server-configuration/blob/main/docs/runbooks/ig-release.md#step-1-1)).
         - **tx.hl7**: HL7 AU Reference server (`synd.tx.hl7.org.au`) - syncs all versions of trial-use packages
       options:
         - label: tx.dev (Development Server)
@@ -168,5 +170,5 @@ body:
         1. **Automated validation** will check your request within 1 minute
         2. **Repo admins will review** and approve the request
         3. **Automated PR will be created** modifying the terminology server helm values
-        4. **After PR merge**, the change will take effect on the next atomio-ig-feeder sync cycle
+        4. **After PR merge**, a maintainer adds the matching entry to the Atomio feed by hand ([runbook step 1.1](https://github.com/aehrc/sparked-fhir-server-configuration/blob/main/docs/runbooks/ig-release.md#step-1-1)); no feeder syncs it
         5. **You'll be notified** when the change is deployed
