@@ -46,7 +46,7 @@ Guide Release Request issue.
 
 ## Phase 1: tx.dev
 
-- [ ] 1.1 Feeder confirmed running and logged the version. AU PS only: pin edited by hand in [`tx-dev-helm-values.yaml`](https://github.com/aehrc/sparked-fhir-server-configuration/blob/main/terminology-servers/tx-dev-helm-values.yaml) through a PR ([runbook](https://github.com/aehrc/sparked-fhir-server-configuration/blob/main/docs/runbooks/ig-release.md#step-1-1))
+- [ ] 1.1 Entry added by hand to the `hl7au-dev` Atomio feed (nothing feeds tx.dev automatically); entry title and time added: ([runbook](https://github.com/aehrc/sparked-fhir-server-configuration/blob/main/docs/runbooks/ig-release.md#step-1-1))
 - [ ] 1.2 tx.dev returns the new version's StructureDefinition (after the daily 15:00 UTC sync) ([runbook](https://github.com/aehrc/sparked-fhir-server-configuration/blob/main/docs/runbooks/ig-release.md#step-1-2))
 
 ## Phase 2: Sparked Dev FHIR Server (`aucore`)

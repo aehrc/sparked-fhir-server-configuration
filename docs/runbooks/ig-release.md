@@ -7,7 +7,7 @@ platform (staging and production), and the test data on the server.
 | | |
 |---|---|
 | **Track each release in** | one [IG Release Tracking issue](../../.github/ISSUE_TEMPLATE/07-ig-release-tracking.md) per IG version ([open one](https://github.com/aehrc/sparked-fhir-server-configuration/issues/new?template=07-ig-release-tracking.md)) |
-| **Last verified** | 2026-09-25, against `main` of this repo, the default branches of `hl7au/au-fhir-inferno`, `au-fhir-core-inferno`, `au-ps-inferno` and `inferno_suite_generator`, `main` of `aehrc/sparked-argo` (private), and the live services named below. Commands marked "verified" were run that day; anything not verified is marked **(unverified)** inline. |
+| **Last verified** | 2026-09-25, against `main` of this repo, the default branches of `hl7au/au-fhir-inferno`, `au-fhir-core-inferno`, `au-ps-inferno` and `inferno_suite_generator`, `main` of `aehrc/sparked-argo` (private), and the live services named below. Commands marked "verified" were run that day; anything not verified is marked **(unverified)** inline. Phase 1 was rewritten and re-checked on 2026-09-29, after the tx-dev fhir-ig-feeder was decommissioned (`aehrc/sparked-argo` #285). |
 | **Typical elapsed time** | 10 to 12 days from publication to production Inferno for the last two AU Core cycles; the Smile server alone took 1 and 7 days in those cycles, and 18 days for AU Core 2.0.0 (see [History](#history)). |
 
 ## Contents
@@ -46,24 +46,28 @@ check that proves each step worked, and the ways each step has failed before.
 
 | IG (package id) | Smile `aucore` | tx.dev | Inferno kit | Test data |
 |---|---|---|---|---|
-| AU Base (`hl7.fhir.au.base`) | yes | yes, automatic | no kit of its own (AU Core depends on it) | only if AU Core test data changes with it |
-| AU Core (`hl7.fhir.au.core`) | yes | yes, automatic | `hl7au/au-fhir-core-inferno` | yes |
-| AU Patient Summary (`hl7.fhir.au.ps`) | yes | yes, **pinned: manual edit** | `hl7au/au-ps-inferno` | if the AU PS examples change |
+| AU Base (`hl7.fhir.au.base`) | yes | yes, manual feed entry | no kit of its own (AU Core depends on it) | only if AU Core test data changes with it |
+| AU Core (`hl7.fhir.au.core`) | yes | yes, manual feed entry | `hl7au/au-fhir-core-inferno` | yes |
+| AU Patient Summary (`hl7.fhir.au.ps`) | yes | yes, manual feed entry | `hl7au/au-ps-inferno` | if the AU PS examples change |
 | International Patient Summary (`hl7.fhir.uv.ips`) | yes | no | no | no |
-| AU eRequesting (`hl7.fhir.au.ereq`) | **no** (the `ereq` node was decommissioned on 2026-08-02, #85 and #87) | yes, automatic | no | no |
+| AU eRequesting (`hl7.fhir.au.ereq`) | **no** (the `ereq` node was decommissioned on 2026-08-02, #85 and #87) | yes, manual feed entry | no | no |
 
-The authoritative lists are `package_registry.startup_installation_specs` for `aucore` in
-[`module-config/simplified-multinode.yaml`](../../module-config/simplified-multinode.yaml)
-and the `watches` in
-[`terminology-servers/tx-dev-helm-values.yaml`](../../terminology-servers/tx-dev-helm-values.yaml).
-If this table disagrees with those files, the files win; fix the table.
+For Smile the authoritative list is `package_registry.startup_installation_specs` for
+`aucore` in
+[`module-config/simplified-multinode.yaml`](../../module-config/simplified-multinode.yaml);
+if this table disagrees with that file, the file wins, so fix the table. For tx.dev the
+authoritative list is the set of entries in the Atomio feed `hl7au-dev`, which is only
+readable after signing in (step 1.1). The tx.dev column is the set of IGs the
+decommissioned feeder used to push, so treat it as the default rather than a rule.
+[`terminology-servers/tx-dev-helm-values.yaml`](../../terminology-servers/tx-dev-helm-values.yaml)
+is no longer deployed by anything and does not describe tx.dev.
 
 ### Targets
 
 | Target | What it is | Changed through |
 |---|---|---|
 | Sparked Dev FHIR Server | Smile CDR node `aucore`, `https://smile.sparked-fhir.com/aucore/fhir/DEFAULT` | this repo: IG Release request, `Re/load IG Packages` workflow, Terraform |
-| tx.dev | Ontoserver at `https://tx.dev.hl7.org.au/fhir`, fed by the Atomio feed `hl7au-dev` on `synd.ontoserver.csiro.au` | this repo: `terminology-servers/tx-dev-helm-values.yaml`, read by fhir-ig-feeder (`aehrc/fhir-ig-feeder`, private) |
+| tx.dev | Ontoserver at `https://tx.dev.hl7.org.au/fhir`, which syndicates from the Atomio feed `hl7au-dev` on `synd.ontoserver.csiro.au` | an entry added by hand to `hl7au-dev` in the Atomio dashboard; the feed list and schedule are in `aehrc/sparked-argo` `apps/ontoserver/values.yaml` (private) |
 | Inferno test kits | Ruby gems `au_core_test_kit` and `au_ps_inferno` on RubyGems | `hl7au/au-fhir-core-inferno`, `hl7au/au-ps-inferno` |
 | Inferno platform | staging `https://development.inferno.sparked-fhir.com`, production `https://inferno.hl7.org.au` | `hl7au/au-fhir-inferno`, deployed by ArgoCD from `aehrc/sparked-argo` (private) |
 | Test data | the AU FHIR test data set loaded onto `aucore` | `hl7au/au-fhir-test-data`, loaded by this repo's `Manage Test Data` workflow |
@@ -99,7 +103,7 @@ three cycles, so a new engineer knows who to ask.
 ```mermaid
 flowchart TD
     P["IG version published on hl7.org.au<br/>and packages.fhir.org"] --> T["Phase 0: open tracking issue"]
-    T --> TX["Phase 1: tx.dev<br/>(automatic, except AU PS pin)"]
+    T --> TX["Phase 1: tx.dev<br/>manual Atomio feed entry,<br/>ingested at 15:00 UTC"]
     T --> S["Phase 2: Smile aucore<br/>request, PR, deploy, verify, persist"]
     T --> K["Phase 4: kit<br/>generate, preview, release gem"]
     TX --> S
@@ -129,7 +133,8 @@ Each of these has been broken at least once, or would silently break a later ste
 2. **tx.dev should carry the release before anyone judges validation results.** Both the
    Smile node (`remote_term_svc.base_url`) and the Inferno validator
    (`validator.terminologyServer`) validate terminology against
-   `https://tx.dev.hl7.org.au/fhir`. tx.dev only ingests once a day (15:00 UTC).
+   `https://tx.dev.hl7.org.au/fhir`. Nothing adds a release to tx.dev automatically, and
+   tx.dev only ingests once a day (15:00 UTC), so do step 1.1 on day one.
 3. **On Smile, dependencies install before the IG, and coupled IGs ship in one PR.** AU
    Core 3.0.0-ballot1 declares, among others, AU Base 7.0.0-ballot1, `hl7.terminology.r4`
    7.3.0 and `smart-app-launch` 2.2.0; those went out together in #91 and #92. Separate IG PRs also
@@ -184,8 +189,9 @@ output) into the issue.
   IG's `package-list.json` (AU Base `https://hl7.org.au/fhir/package-list.json`; the
   others add `core/`, `ps/` or `ereq/`; IPS is
   `https://hl7.org/fhir/uv/ips/package-list.json`).
-- **Do:** check the feed. Nothing watches it for Smile or Inferno today; the tx.dev feeder
-  is the only automated consumer.
+- **Do:** check the feed. Nothing watches it for any Sparked target: the tx-dev
+  fhir-ig-feeder that pushed new versions to tx.dev was decommissioned on 2026-09-29
+  (`aehrc/sparked-argo` #285).
 
   ```bash
   curl -s https://hl7.org.au/fhir/package-feed.xml | grep -o '<title>[^<]*</title>'
@@ -222,67 +228,72 @@ output) into the issue.
 ### Phase 1: tx.dev terminology server
 
 <a id="step-1-1"></a>
-#### 1.1 Let the feeder pick up the release (or edit the AU PS pin)
+#### 1.1 Add the release to the `hl7au-dev` Atomio feed
 
-- **Who:** release lead.
-- **Where:** [`terminology-servers/tx-dev-helm-values.yaml`](../../terminology-servers/tx-dev-helm-values.yaml).
-  ArgoCD deploys that file from this repo's `main` (ApplicationSet `fhir-ig-feeders` in
-  `aehrc/sparked-argo`), and the feeder polls `https://hl7.org.au/fhir/package-feed.xml`
-  every 5 minutes, pushing matches into the Atomio feed `hl7au-dev`.
+tx.dev has no automated feed any more. The tx-dev fhir-ig-feeder, which watched the HL7 AU
+package feed and pushed AU Base, AU Core and AU eRequesting into `hl7au-dev`, was
+decommissioned on 2026-09-29 (`aehrc/sparked-argo` #285; its Application no longer exists,
+verified). Every IG version that should reach tx.dev now needs an entry added by hand, which
+is the process that was used before the feeder went live on 2026-07-05.
+
+- **Who:** release lead, or anyone with write access to the `hl7au-dev` feed. Who holds
+  that access today is not recorded here **(unverified)**. The HL7 Confluence page below
+  lists only read-only dashboard access as its prerequisite, and adding an entry needs
+  more than that.
+- **Where:** the Atomio dashboard (`https://ontoserver.csiro.au/atomio/feeds`, sign in
+  with AAF against the syndication server `https://synd.ontoserver.csiro.au`), feed
+  `hl7au-dev`. tx.dev's Ontoserver reads that feed, alongside `hl7au-fragments` and the
+  NCTS SNOMED CT feed (`atom.preload.feedLocation` and `atom.syndication.feedLocation` in
+  `aehrc/sparked-argo` `apps/ontoserver/values.yaml`, verified on `main`). The step-by-step
+  procedure, with screenshots, is the HL7 Confluence page
+  [Process: HL7 AU Dev Terminology Server](https://confluence.hl7.org/pages/viewpage.action?pageId=265093732)
+  (space HAFWG). Its link to the Ontoserver configuration in `aehrc/sparked-infrastructure`
+  is stale; the configuration now lives in `aehrc/sparked-argo`.
 - **Do:**
-  1. **Check the feeder is running.** It has been described as decommissioned for now,
-     but on 2026-09-25 it was deployed and pushing (verified). With cluster read access:
+  1. Download the package and read the values the entry needs (verified):
 
      ```bash
-     kubectl --context sparkey -n argocd get application fhir-ig-feeder-tx-dev \
-       -o jsonpath='{.status.sync.status} {.status.health.status}{"\n"}'    # expect: Synced Healthy
-     kubectl --context sparkey -n fhir-ig-feeder-tx-dev get deploy fhir-ig-feeder-tx-dev-fhir-ig-feeder \
-       -o jsonpath='{.status.readyReplicas}/{.spec.replicas} ready{"\n"}'  # expect: 1/1 ready
+     curl -sL -o "$PKG-$VER.tgz" "https://packages.fhir.org/$PKG/$VER"
+     tar xzO -f "$PKG-$VER.tgz" package/package.json | jq -c '{name, version, title, fhirVersions}'
      ```
 
-     If either command says `NotFound`, or the deployment shows `0/`, nothing in this
-     step reaches tx.dev. Stop and ask the release lead. The pre-feeder fallback is adding
-     the entry by hand in the Atomio UI at `https://synd.ontoserver.csiro.au`, feed
-     `hl7au-dev` **(unverified: not exercised since the feeder went live on 2026-07-05)**.
-  2. **AU Base, AU Core, AU eRequesting:** nothing more. They are `versionMode: latest-any`
-     with statuses `[ballot, preview, draft, trial-use]`, so the single newest version is
-     taken automatically. (`latest-any` is missing from the mode table in
-     [terminology-servers/readme.md](../../terminology-servers/readme.md); it means "the one
-     newest version across all listed statuses".)
-  3. **AU PS:** `versionMode: pinned`, `versions: [1.0.0]`, `statuses: [trial-use]`. In a
-     PR, add the new version under `versions`, and add its status under `statuses` if it
-     is not `trial-use`, or it will never match. Edit the YAML by hand. Do not use
-     `scripts/update_tx_helm_values.py` or a
-     [Terminology Content Change](https://github.com/aehrc/sparked-fhir-server-configuration/issues/new?template=04-tx-content-change.yml)
-     request for this: both run that script, which reads `feeds` at the top level of the
-     file while the feeder layout nests them under `targets[].feeds`, so it exits with
-     `Error: Feed 'hl7au-dev' not found in values file` (verified with `--dry-run` on
-     2026-09-25). The 1.0.0 bump was committed straight to `main` (0944fa2); do not repeat
-     that.
-- **Verify:** within a poll cycle (5 minutes) the feeder logs the package. With cluster
-  read access:
+     The same file is published with the IG, for example
+     `https://hl7.org.au/fhir/core/3.0.0-ballot1/package.tgz` (verified), which is the link
+     the Confluence page tells you to copy.
+  2. In Atomio, find the `hl7au-dev` feed, open its details and search for the package to
+     confirm this version is not already an entry.
+  3. Choose **Add entry** and fill it in as the Confluence page describes: Title
+     `<IG type> IG <version>`, Content Item derived from the IG release URL, Content
+     Version the IG version, FHIR Version from `fhirVersions`, and the `.tgz` as the file.
+     The page does not give the exact Content Item form, so copy it from an earlier entry
+     for the same IG. Then **Create Entry**.
+  4. Paste the entry's title and the time you added it into the tracking issue, so step 1.2
+     knows which 15:00 UTC run to wait for.
 
-  ```bash
-  kubectl --context sparkey -n fhir-ig-feeder-tx-dev logs deploy/fhir-ig-feeder-tx-dev-fhir-ig-feeder --since=15m \
-    | grep "$PKG"
-  ```
-
-  A new package is logged as added on its first cycle (exact message unverified) and then
-  as `"entry already exists, skipping"` with its `version` on every later one (verified).
-  The feeder also has a web UI at `https://tx-dev.feeder.sparked-fhir.com`, but its TLS
-  certificate expires on 2026-10-03 and its renewal has been stuck since 2026-09-03, so do
-  not rely on it.
-- **What goes wrong:** the AU PS pin is the known silent miss: the next AU PS release
-  never reaches tx.dev unless someone edits it.
+  None of this has been exercised since the feeder was decommissioned **(unverified)**.
+- **Verify:** the entry is listed in the feed details in Atomio. The feed answers `401` to
+  an anonymous GET (verified 2026-09-29), so there is no `curl` check here; step 1.2 is the
+  end-to-end check.
+- **What goes wrong:** skipping this step. Until #285 AU Base, AU Core and AU eRequesting
+  reached tx.dev without anyone acting, and only AU PS (pinned in the feeder config) needed
+  a hand edit. Now every IG is missed unless someone adds it.
 
 <a id="step-1-2"></a>
 #### 1.2 Confirm tx.dev has ingested it
 
 - **Who:** release lead.
-- **Where:** `https://tx.dev.hl7.org.au/fhir`. Ontoserver pulls the `hl7au-dev` feed once a
-  day at **15:00 UTC** (`atom.preload.schedule.cron` in `aehrc/sparked-argo`
-  `apps/ontoserver/values.yaml`), so allow up to a day after step 1.1.
-- **Do:** wait for the next run. There is no supported manual trigger in this runbook.
+- **Where:** `https://tx.dev.hl7.org.au/fhir`. Each of the two Ontoserver replicas preloads
+  its feeds once a day at **15:00 UTC** (`atom.preload.schedule.cron` in `aehrc/sparked-argo`
+  `apps/ontoserver/values.yaml`) and again on startup (the replica logs show a startup
+  preload reading `hl7au-dev` entries on 2026-09-28, verified). Allow up to a day after
+  step 1.1.
+- **Do:** wait for the next 15:00 UTC run. Do not use the Confluence page's alternative of
+  loading the entry from the Ontoserver UI. tx.dev runs two replicas and each holds its own
+  index, so content loaded through one replica is not indexed on the other, which then
+  answers HTTP 500 to `$expand` and `$validate-code` for it until the scheduled run (from
+  the `allowScaledReadWrite` comment in `apps/ontoserver/values.yaml`). tx.dev is also
+  configured read-only for FHIR writes (`ontoserver.security.readOnly.fhir: "true"`), so
+  the UI load may be refused outright. The UI load was not tried **(unverified)**.
 - **Verify** (verified): AU Core and AU PS ship no ValueSets of their own, so check a
   StructureDefinition; AU Base also ships ValueSets, which can be checked by `version`.
 
@@ -296,6 +307,8 @@ output) into the issue.
 
 - **What goes wrong:** judging Smile or Inferno validation results before this passes
   (constraint 2). tx.dev keeps every earlier version too, so always check with `version`.
+  If the 15:00 UTC run has passed and the check still returns nothing, go back to step 1.1:
+  the usual cause is that no entry was added.
 
 ### Phase 2: Sparked Dev FHIR Server (Smile CDR, aucore)
 
@@ -749,7 +762,7 @@ tracking issue:
 | Superseded StructureDefinitions stay active | [2.3](#step-2-3) | version-less search returns two versions | #45; verified 2026-09-25 |
 | Large package replacement causes a long expunge and ingress timeouts | [2.3](#step-2-3) | pod CPU pinned, 15 s timeouts, no restart | #92 |
 | Live install without Terraform means a restart reseeds old versions | [2.4](#step-2-4) | live `startup_installation_specs` differs from the repo | #91, #111 |
-| AU PS pinned on tx.dev | [1.1](#step-1-1) | no feeder log line for the new AU PS version | `tx-dev-helm-values.yaml`; 0944fa2 |
+| Nothing feeds tx.dev automatically | [1.1](#step-1-1) | step 1.2 returns nothing after the 15:00 UTC run | `aehrc/sparked-argo` #285 |
 | Suite loads the IG from `/home/igs` | [4.2](#step-4-2) | `igs '/home/igs/...'` in generated code; "Unable to find/resolve/read -ig" | `au-fhir-inferno` #130; `au-fhir-core-inferno` #316 |
 | Generation workflows open PRs CI never checks | [4.2](#step-4-2) | no checks on the bot PR | `generate-tests.yaml`, `sync-ig-package.yaml` |
 | Tag before version bump | [4.4](#step-4-4) | "Release tag ... does not match gem version" | `publish-gem.yaml`; v1.3.1, v1.4.0 reruns |
@@ -766,8 +779,9 @@ tracking issue:
   version's JSON, then restore the seed config in a PR and apply it. The superseded
   version's StructureDefinitions are likely still present (step 2.3), which makes a
   rollback fast. A rollback has not been exercised for this runbook **(unverified)**.
-- **tx.dev:** remove or re-pin the watch. Ontoserver keeps what it has already ingested;
-  removing content from tx.dev is not covered here **(unverified)**.
+- **tx.dev:** remove the entry from the `hl7au-dev` feed in Atomio. Ontoserver keeps what
+  it has already ingested; removing content from tx.dev is not covered here
+  **(unverified)**.
 - **Kit:** release a fixed patch version. RubyGems versions are immutable.
 - **Platform:** a promotion PR pointing `values-prod.yaml` back at the previous release's
   SHA ([prod-releases.md, Rollback](https://github.com/hl7au/au-fhir-inferno/blob/master/docs/prod-releases.md#rollback)).
@@ -776,9 +790,9 @@ tracking issue:
 
 Each item removes checklist lines, which is better than documenting them.
 
-1. **Watch the package feed and open the tracking issue and Smile request.** fhir-ig-feeder
-   already polls `package-feed.xml`; a scheduled Action doing the same could open both
-   issues. Removes steps 0.1, 0.2 (mostly) and 2.1.
+1. **Watch the package feed and open the tracking issue and Smile request.** A scheduled
+   Action polling `package-feed.xml` could open both issues. Removes steps 0.1, 0.2
+   (mostly) and 2.1.
 2. **Make STORE_AND_INSTALL the default and check exact dependency versions** in the IG
    Release form and its dry-run, failing when a declared dependency version is not
    installed. Removes two gotchas and the manual part of step 2.2.
@@ -795,11 +809,15 @@ Each item removes checklist lines, which is better than documenting them.
 7. **Automate the kit gem bump in the platform** (Renovate or Dependabot on
    `au_core_test_kit` / `au_ps_inferno`), together with item 3. Opens step 5.1's PR by
    itself.
-8. **Decide AU PS on tx.dev:** `latest-any` like the others, or keep the pin as a
-   documented choice. Removes step 1.1's manual branch.
-9. **Fix `scripts/update_tx_helm_values.py` for the feeder layout**: read feeds under
-   `targets[].feeds` and accept `versionMode: latest-any`. Until then the Terminology
-   Content Change request cannot produce a tx.dev PR, and step 1.1 is a hand edit.
+8. **Decide how tx.dev is fed from now on.** Either re-enable a feeder environment
+   (the `fhir-ig-feeders` ApplicationSet in `aehrc/sparked-argo` is parked with a
+   documented re-enable path) or add entries through an Atomio API from a workflow (the
+   Confluence page points at CSIRO Jira ST-335 for an API contract, **unverified**).
+   Either removes step 1.1. Settle the Terminology Content Change offering at the same
+   time: its tx.dev path still edits `terminology-servers/tx-dev-helm-values.yaml`, which
+   nothing deploys since #285, through `scripts/update_tx_helm_values.py`, which cannot
+   parse that file's `targets[].feeds` layout anyway (`Error: Feed 'hl7au-dev' not found
+   in values file`, verified with `--dry-run` on 2026-09-25).
 
 ## History
 
