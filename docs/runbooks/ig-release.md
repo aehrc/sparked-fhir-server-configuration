@@ -240,6 +240,15 @@ is the process that was used before the feeder went live on 2026-07-05.
   that access today is not recorded here **(unverified)**. The HL7 Confluence page below
   lists only read-only dashboard access as its prerequisite, and adding an entry needs
   more than that.
+- **Credential at risk:** the only known write credential for `hl7au-dev` is the retired
+  feeder's Keycloak client (scopes `onto/synd.read` and `onto/synd.write` in
+  [`terminology-servers/tx-dev-helm-values.yaml`](../../terminology-servers/tx-dev-helm-values.yaml)),
+  whose `clientId` and `clientSecret` are in the Secrets Manager secret `fhir-feeder-tx-dev`
+  (ap-southeast-2). That secret still exists (verified 2026-09-29). `aehrc/sparked-argo`
+  #285 lists deleting it, and revoking the client, as manual follow-ups. Do not delete the
+  secret or revoke the client until a human write path to `hl7au-dev` is confirmed:
+  someone has added an entry with their own login. Until then, losing it may leave nobody
+  able to add a release to tx.dev.
 - **Where:** the Atomio dashboard (`https://ontoserver.csiro.au/atomio/feeds`, sign in
   with AAF against the syndication server `https://synd.ontoserver.csiro.au`), feed
   `hl7au-dev`. tx.dev's Ontoserver reads that feed, alongside `hl7au-fragments` and the
