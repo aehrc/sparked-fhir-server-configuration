@@ -1,5 +1,12 @@
 # Terminology Server Content Management
 
+> **tx.dev is not fed from this directory.** The tx-dev feeder that deployed
+> `tx-dev-helm-values.yaml` was decommissioned on 2026-09-29 (`aehrc/sparked-argo` #285),
+> and no feeder environment is deployed for tx.hl7 either. Editing these files changes
+> nothing live. A new IG version reaches tx.dev through a hand-added entry in the
+> `hl7au-dev` Atomio feed; see
+> [IG release runbook, step 1.1](../docs/runbooks/ig-release.md#step-1-1).
+
 This directory manages the content loaded on the Sparked terminology servers via [atomio-ig-feeder](https://github.com/aehrc/atomio-ig-feeder/). The ig-feeder automatically syncs FHIR IG packages from the [HL7 AU package feed](https://hl7.org.au/fhir/package-feed.xml) to [Atomio](https://ontoserver.csiro.au/atomio/) syndication feeds based on the configuration in the helm values files.
 
 ## Servers
