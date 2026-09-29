@@ -103,7 +103,7 @@ three cycles, so a new engineer knows who to ask.
 ```mermaid
 flowchart TD
     P["IG version published on hl7.org.au<br/>and packages.fhir.org"] --> T["Phase 0: open tracking issue"]
-    T --> TX["Phase 1: tx.dev<br/>manual Atomio feed entry,<br/>ingested at 15:00 UTC"]
+    T --> TX["Phase 1: tx.dev<br/>manual Atomio feed entry,<br/>scheduled ingest 15:00 UTC"]
     T --> S["Phase 2: Smile aucore<br/>request, PR, deploy, verify, persist"]
     T --> K["Phase 4: kit<br/>generate, preview, release gem"]
     TX --> S
@@ -134,7 +134,7 @@ Each of these has been broken at least once, or would silently break a later ste
    Smile node (`remote_term_svc.base_url`) and the Inferno validator
    (`validator.terminologyServer`) validate terminology against
    `https://tx.dev.hl7.org.au/fhir`. Nothing adds a release to tx.dev automatically, and
-   tx.dev only ingests once a day (15:00 UTC), so do step 1.1 on day one.
+   tx.dev is scheduled to ingest once a day (15:00 UTC), so do step 1.1 on day one.
 3. **On Smile, dependencies install before the IG, and coupled IGs ship in one PR.** AU
    Core 3.0.0-ballot1 declares, among others, AU Base 7.0.0-ballot1, `hl7.terminology.r4`
    7.3.0 and `smart-app-launch` 2.2.0; those went out together in #91 and #92. Separate IG PRs also
@@ -293,9 +293,13 @@ is the process that was used before the feeder went live on 2026-07-05.
 - **Who:** release lead.
 - **Where:** `https://tx.dev.hl7.org.au/fhir`. Each of the two Ontoserver replicas preloads
   its feeds once a day at **15:00 UTC** (`atom.preload.schedule.cron` in `aehrc/sparked-argo`
-  `apps/ontoserver/values.yaml`) and again on startup (the replica logs show a startup
-  preload reading `hl7au-dev` entries on 2026-09-28, verified). Allow up to a day after
-  step 1.1.
+  `apps/ontoserver/values.yaml`, and `TZ=UTC` on the pods, verified) and again on startup.
+  The only evidence of ingestion is a startup preload reading `hl7au-dev` entries on
+  2026-09-28, verified in the replica logs. Both replicas restarted after that day's
+  15:00 UTC run, so no scheduled run is in the current logs, and a scheduled run picking up
+  an entry added after the last startup has not been observed **(unverified)**. Allow up to
+  a day after step 1.1, and record in the tracking issue whether the scheduled run picked
+  the entry up, so the next release knows.
 - **Do:** wait for the next 15:00 UTC run. Do not use the Confluence page's alternative of
   loading the entry from the Ontoserver UI. tx.dev runs two replicas and each holds its own
   index, so content loaded through one replica is not indexed on the other, which then
