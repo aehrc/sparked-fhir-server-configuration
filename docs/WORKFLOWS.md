@@ -200,10 +200,11 @@ well, with the step each one bites in.
   do not stack another install on top (#92).
 - **A live install is not persistent** until the Terraform apply updates the seeded
   `startup_installation_specs`; a restart before that reseeds the old versions.
-- **AU PS is pinned on tx.dev** (`versionMode: pinned` in
-  `terminology-servers/tx-dev-helm-values.yaml`), unlike AU Base, AU Core and AU
-  eRequesting, so each AU PS release needs a hand edit there in a PR
-  ([runbook step 1.1](runbooks/ig-release.md#step-1-1) says why not the script).
+- **Nothing feeds tx.dev automatically.** The tx-dev fhir-ig-feeder was decommissioned
+  on 2026-09-29 (`aehrc/sparked-argo` #285), so every IG version, not only AU PS, reaches
+  tx.dev only once someone adds it to the `hl7au-dev` Atomio feed by hand
+  ([runbook step 1.1](runbooks/ig-release.md#step-1-1)). Editing
+  `terminology-servers/tx-dev-helm-values.yaml` no longer changes anything.
 
 ---
 
