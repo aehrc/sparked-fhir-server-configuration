@@ -105,8 +105,12 @@ environment, migrating data, restarting a server, or backup/restore.
 
 ### Terminology Content Change
 
-Add, remove, or modify the IG packages watched on the Sparked terminology servers (tx.dev /
-tx.hl7) via atomio-ig-feeder.
+Add, remove, or modify the IG packages loaded on the Sparked terminology servers (tx.dev /
+tx.hl7).
+
+No feeder syncs tx.dev any more: the tx-dev feeder was decommissioned on 2026-09-29, and none
+is deployed for tx.hl7. A change to tx.dev now needs a manual entry in the `hl7au-dev` Atomio
+feed, as described in [IG release runbook step 1.1](runbooks/ig-release.md#step-1-1).
 
 - **Audience:** technical requestors familiar with FHIR package concepts (package IDs,
   package-list.json, version modes, Atomio feeds).
@@ -116,10 +120,12 @@ tx.hl7) via atomio-ig-feeder.
   release statuses to include, pinned versions, Atomio feed name.
 - **Fulfilment:** automated validation runs a dry-run and posts a preview. An admin adds
   `ready-for-automation`, which triggers an automated PR editing the terminology helm values.
-  A human merges the PR; the atomio-ig-feeder picks up the change on its next sync cycle.
-- **Automation level:** semi-automated (validate then auto-PR then human merge then feeder
-  sync).
-- **SLA:** target 1 to 2 weeks; the live effect depends on the feeder's next sync after merge.
+  A human merges the PR, then a maintainer adds the matching Atomio feed entry by hand
+  ([runbook step 1.1](runbooks/ig-release.md#step-1-1)).
+- **Automation level:** semi-automated (validate then auto-PR then human merge then manual
+  Atomio entry).
+- **SLA:** target 1 to 2 weeks; the live effect depends on the manual Atomio entry after
+  merge and tx.dev's next daily ingest.
 - **Elevated approval:** `tx.hl7` is an HL7-hosted reference environment. Changes targeting it
   require the `needs:hl7-approval` label and Brett Esler's sign-off before approval or
   automation. `tx.dev` (CSIRO) follows the normal workflow. See
