@@ -33,16 +33,15 @@ on:
           - bundle
           - transaction
 
-# A reusable workflow may only request permissions the caller already holds, and
+# Each job declares the permissions it needs; the default here is read-only.
+#
+# A reusable workflow may only request permissions its calling job holds, and
 # GitHub validates that for the WHOLE file at startup. load-test-data.yml needs
-# id-token: write for its ECR OIDC login, so omitting it here does not just break
-# load-test-data-execute: it fails the entire workflow with startup_failure, and
+# id-token: write for its ECR OIDC login, so load-test-data-execute grants it at
+# job level. Without it the entire workflow fails with startup_failure, and
 # every unrelated job (create-ig-pr included) never starts.
 permissions:
-  contents: write
-  pull-requests: write
-  issues: write
-  id-token: write
+  contents: read
 
 jobs:
   # ============================================================================
@@ -51,6 +50,10 @@ jobs:
   create-ig-pr:
     name: Generate IG Release PR
     runs-on: arc-runner-set
+    permissions:
+      contents: write # push the release branch
+      pull-requests: write # open and label the PR
+      issues: write # comment on and label the issue
     container:
       image: python:3.12-slim
     if: |
@@ -76,9 +79,12 @@ jobs:
       - name: Get issue details
         id: issue
         uses: actions/github-script@v7
+        env:
+          ISSUE_NUMBER: ${{ inputs.issue_number }}
         with:
           script: |
-            const issueNumber = context.payload.issue?.number || parseInt('${{ inputs.issue_number }}') || null;
+            const checks = require(`${process.env.GITHUB_WORKSPACE}/scripts/issue_field_checks.js`);
+            const issueNumber = context.payload.issue?.number || parseInt(process.env.ISSUE_NUMBER, 10) || null;
             const { data: issue } = await github.rest.issues.get({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -164,46 +170,65 @@ jobs:
               return;
             }
 
+            const formatErrors = checks.checkIgRequest({ igName, igVersion, packageId, packageUrl });
+            if (formatErrors.length) {
+              core.setFailed(`Issue fields are not in the expected format:\n- ${formatErrors.join('\n- ')}`);
+              return;
+            }
+
       - name: Check if required fields present
         if: steps.issue.outputs.ig_name == '' || steps.issue.outputs.ig_version == ''
         run: |
           echo "::error::Missing required fields in issue"
-          gh issue comment ${{ steps.issue.outputs.issue_number }} --body "**Automation Failed**
+          gh issue comment "$ISSUE_NUMBER" --body "**Automation Failed**
 
           Missing required information:
-          - IG Name: ${{ steps.issue.outputs.ig_name }}
-          - IG Version: ${{ steps.issue.outputs.ig_version }}
+          - IG Name: $IG_NAME
+          - IG Version: $IG_VERSION
 
           Please ensure these fields are filled in the issue and try again."
-          gh issue edit ${{ steps.issue.outputs.issue_number }} --add-label "needs-manual-intervention" --remove-label "ready-for-automation"
+          gh issue edit "$ISSUE_NUMBER" --add-label "needs-manual-intervention" --remove-label "ready-for-automation"
           exit 1
         env:
           GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ steps.issue.outputs.issue_number }}
+          IG_NAME: ${{ steps.issue.outputs.ig_name }}
+          IG_VERSION: ${{ steps.issue.outputs.ig_version }}
 
       - name: Create branch
+        env:
+          BRANCH_NAME: ${{ steps.issue.outputs.branch_name }}
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git checkout -b "${{ steps.issue.outputs.branch_name }}"
+          git checkout -b "$BRANCH_NAME"
 
       - name: Apply IG release across config files
         id: apply
+        env:
+          PACKAGE_ID: ${{ steps.issue.outputs.package_id }}
+          SAFE_NAME: ${{ steps.issue.outputs.safe_name }}
+          IG_VERSION: ${{ steps.issue.outputs.ig_version }}
+          IG_NAME: ${{ steps.issue.outputs.ig_name }}
+          SELECTED_NODES: ${{ steps.issue.outputs.selected_nodes }}
+          INSTALL_MODE: ${{ steps.issue.outputs.install_mode }}
+          FETCH_DEPENDENCIES: ${{ steps.issue.outputs.fetch_dependencies }}
+          PACKAGE_URL: ${{ steps.issue.outputs.package_url }}
         run: |
-          PACKAGE_ID="${{ steps.issue.outputs.package_id }}"
           if [ -z "$PACKAGE_ID" ]; then
-            PACKAGE_ID="hl7.fhir.${{ steps.issue.outputs.safe_name }}"
+            PACKAGE_ID="hl7.fhir.$SAFE_NAME"
             echo "No package ID provided, using generated: $PACKAGE_ID"
           fi
 
           python scripts/apply_ig_release.py \
             --package-id "$PACKAGE_ID" \
-            --version "${{ steps.issue.outputs.ig_version }}" \
-            --ig-name "${{ steps.issue.outputs.ig_name }}" \
-            --nodes "${{ steps.issue.outputs.selected_nodes }}" \
-            --install-mode "${{ steps.issue.outputs.install_mode }}" \
-            --fetch-dependencies "${{ steps.issue.outputs.fetch_dependencies }}" \
-            --package-url "${{ steps.issue.outputs.package_url }}" \
+            --version "$IG_VERSION" \
+            --ig-name "$IG_NAME" \
+            --nodes "$SELECTED_NODES" \
+            --install-mode "$INSTALL_MODE" \
+            --fetch-dependencies "$FETCH_DEPENDENCIES" \
+            --package-url "$PACKAGE_URL" \
             --github-output "$GITHUB_OUTPUT"
 
           echo "--- generated package file ---"
@@ -213,6 +238,10 @@ jobs:
         env:
           PACKAGE_FILE_NAME: ${{ steps.apply.outputs.package_file_name }}
           ORPHANED_FILES: ${{ steps.apply.outputs.orphaned_files }}
+          IG_NAME: ${{ steps.issue.outputs.ig_name }}
+          IG_VERSION: ${{ steps.issue.outputs.ig_version }}
+          ISSUE_NUMBER: ${{ steps.issue.outputs.issue_number }}
+          SELECTED_NODES: ${{ steps.issue.outputs.selected_nodes }}
         run: |
           # -A stages modifications, additions AND deletions (superseded files)
           git add -A \
@@ -226,22 +255,24 @@ jobs:
             REMOVED_LINE="- Removed superseded package file(s): $ORPHANED_FILES"
           fi
 
-          git commit -m "Add ${{ steps.issue.outputs.ig_name }} ${{ steps.issue.outputs.ig_version }}
+          git commit -m "Add $IG_NAME $IG_VERSION
 
-          Auto-generated from issue #${{ steps.issue.outputs.issue_number }}
+          Auto-generated from issue #$ISSUE_NUMBER
 
           Changes:
           - Created module-config/packages/$PACKAGE_FILE_NAME
-          - Updated simplified-multinode.yaml for nodes: ${{ steps.issue.outputs.selected_nodes }} (replacing any prior version in place)
+          - Updated simplified-multinode.yaml for nodes: $SELECTED_NODES (replacing any prior version in place)
           - Updated values-common.yaml mappedFiles section
           - Updated terraform/main.tf to reference new package
           $REMOVED_LINE
 
-          Implements: #${{ steps.issue.outputs.issue_number }}"
+          Implements: #$ISSUE_NUMBER"
 
       - name: Push branch
+        env:
+          BRANCH_NAME: ${{ steps.issue.outputs.branch_name }}
         run: |
-          git push origin "${{ steps.issue.outputs.branch_name }}"
+          git push origin "$BRANCH_NAME"
 
       - name: Create Pull Request
         id: create_pr
@@ -333,6 +364,7 @@ jobs:
           PACKAGE_FILE_NAME: ${{ steps.apply.outputs.package_file_name }}
           PACKAGE_ID: ${{ steps.issue.outputs.package_id }}
           IG_VERSION: ${{ steps.issue.outputs.ig_version }}
+          DEPLOY_IMMEDIATELY: ${{ steps.issue.outputs.deploy_immediately }}
         uses: actions/github-script@v7
         with:
           script: |
@@ -377,7 +409,7 @@ jobs:
             const issueLabels = ['auto-pr-created', 'in-progress'];
             const prLabels = ['auto-pr-created'];
 
-            const deployImmediately = '${{ steps.issue.outputs.deploy_immediately }}' === 'true';
+            const deployImmediately = process.env.DEPLOY_IMMEDIATELY === 'true';
             if (deployImmediately) {
               issueLabels.push('deploy-immediately');
               prLabels.push('deploy-immediately');
@@ -451,6 +483,10 @@ jobs:
   create-tx-pr:
     name: Generate TX Content Change PR
     runs-on: arc-runner-set
+    permissions:
+      contents: write # push the change branch
+      pull-requests: write # open and label the PR
+      issues: write # comment on and label the issue
     container:
       image: python:3.12-slim
     if: |
@@ -476,9 +512,12 @@ jobs:
       - name: Get issue details
         id: issue
         uses: actions/github-script@v7
+        env:
+          ISSUE_NUMBER: ${{ inputs.issue_number }}
         with:
           script: |
-            const issueNumber = context.payload.issue?.number || parseInt('${{ inputs.issue_number }}') || null;
+            const checks = require(`${process.env.GITHUB_WORKSPACE}/scripts/issue_field_checks.js`);
+            const issueNumber = context.payload.issue?.number || parseInt(process.env.ISSUE_NUMBER, 10) || null;
             const { data: issue } = await github.rest.issues.get({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -574,89 +613,112 @@ jobs:
               return;
             }
 
+            const formatErrors = checks.checkTxRequest({
+              actionType, packageId, packageListUrl, displayName, versionMode, pinnedVersions, feedName
+            });
+            if (formatErrors.length) {
+              core.setFailed(`Issue fields are not in the expected format:\n- ${formatErrors.join('\n- ')}`);
+              return;
+            }
+
       - name: Check if required fields present
         if: steps.issue.outputs.package_id == '' || steps.issue.outputs.selected_servers_count == '0'
         run: |
           echo "::error::Missing required fields in issue"
-          gh issue comment ${{ steps.issue.outputs.issue_number }} --body "**Automation Failed**
+          gh issue comment "$ISSUE_NUMBER" --body "**Automation Failed**
 
           Missing required information:
-          - Package ID: ${{ steps.issue.outputs.package_id }}
-          - Selected Servers: ${{ steps.issue.outputs.selected_servers }}
+          - Package ID: $PACKAGE_ID
+          - Selected Servers: $SELECTED_SERVERS
 
           Please ensure these fields are filled in the issue and try again."
-          gh issue edit ${{ steps.issue.outputs.issue_number }} --add-label "needs-manual-intervention" --remove-label "ready-for-automation"
+          gh issue edit "$ISSUE_NUMBER" --add-label "needs-manual-intervention" --remove-label "ready-for-automation"
           exit 1
         env:
           GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ steps.issue.outputs.issue_number }}
+          PACKAGE_ID: ${{ steps.issue.outputs.package_id }}
+          SELECTED_SERVERS: ${{ steps.issue.outputs.selected_servers }}
 
       - name: Create branch
+        env:
+          BRANCH_NAME: ${{ steps.issue.outputs.branch_name }}
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git checkout -b "${{ steps.issue.outputs.branch_name }}"
+          git checkout -b "$BRANCH_NAME"
 
       - name: Update helm values files
+        shell: bash
+        env:
+          SERVERS: ${{ steps.issue.outputs.selected_servers }}
+          ACTION: ${{ steps.issue.outputs.cli_action }}
+          PACKAGE_ID: ${{ steps.issue.outputs.package_id }}
+          PACKAGE_LIST_URL: ${{ steps.issue.outputs.package_list_url }}
+          DISPLAY_NAME: ${{ steps.issue.outputs.display_name }}
+          STATUSES: ${{ steps.issue.outputs.selected_statuses }}
+          VERSION_MODE: ${{ steps.issue.outputs.version_mode }}
+          PINNED_VERSIONS: ${{ steps.issue.outputs.pinned_versions }}
+          FEED_NAME: ${{ steps.issue.outputs.feed_name }}
         run: |
-          SERVERS="${{ steps.issue.outputs.selected_servers }}"
-          ACTION="${{ steps.issue.outputs.cli_action }}"
-          PACKAGE_ID="${{ steps.issue.outputs.package_id }}"
+          # An array keeps each value a single argument (a display name with
+          # spaces stays one --display-name value).
+          cmd=(python scripts/update_tx_helm_values.py --action "$ACTION" --server "$SERVERS" --package-id "$PACKAGE_ID")
 
-          CMD="python scripts/update_tx_helm_values.py --action $ACTION --server $SERVERS --package-id $PACKAGE_ID"
-
-          PACKAGE_LIST_URL="${{ steps.issue.outputs.package_list_url }}"
           if [ -n "$PACKAGE_LIST_URL" ]; then
-            CMD="$CMD --package-list-url $PACKAGE_LIST_URL"
+            cmd+=(--package-list-url "$PACKAGE_LIST_URL")
           fi
 
-          DISPLAY_NAME="${{ steps.issue.outputs.display_name }}"
           if [ -n "$DISPLAY_NAME" ]; then
-            CMD="$CMD --display-name \"$DISPLAY_NAME\""
+            cmd+=(--display-name "$DISPLAY_NAME")
           fi
 
-          STATUSES="${{ steps.issue.outputs.selected_statuses }}"
           if [ -n "$STATUSES" ]; then
-            CMD="$CMD --statuses $STATUSES"
+            cmd+=(--statuses "$STATUSES")
           fi
 
-          VERSION_MODE="${{ steps.issue.outputs.version_mode }}"
           if [ -n "$VERSION_MODE" ]; then
-            CMD="$CMD --version-mode $VERSION_MODE"
+            cmd+=(--version-mode "$VERSION_MODE")
           fi
 
-          PINNED_VERSIONS="${{ steps.issue.outputs.pinned_versions }}"
           if [ -n "$PINNED_VERSIONS" ]; then
-            CLEANED_VERSIONS=$(echo "$PINNED_VERSIONS" | tr -d ' ')
-            CMD="$CMD --versions $CLEANED_VERSIONS"
+            cmd+=(--versions "${PINNED_VERSIONS// /}")
           fi
 
-          FEED_NAME="${{ steps.issue.outputs.feed_name }}"
           if [ -n "$FEED_NAME" ]; then
-            CMD="$CMD --feed-name $FEED_NAME"
+            cmd+=(--feed-name "$FEED_NAME")
           fi
 
-          echo "Running: $CMD"
-          $CMD
+          echo "Running: ${cmd[*]}"
+          "${cmd[@]}"
 
       - name: Commit changes
+        env:
+          ACTION_TYPE: ${{ steps.issue.outputs.action_type }}
+          PACKAGE_ID: ${{ steps.issue.outputs.package_id }}
+          SELECTED_SERVERS: ${{ steps.issue.outputs.selected_servers }}
+          VERSION_MODE: ${{ steps.issue.outputs.version_mode }}
+          ISSUE_NUMBER: ${{ steps.issue.outputs.issue_number }}
         run: |
           git add terminology-servers/
-          git commit -m "${{ steps.issue.outputs.action_type }} ${{ steps.issue.outputs.package_id }} on ${{ steps.issue.outputs.selected_servers }}
+          git commit -m "$ACTION_TYPE $PACKAGE_ID on $SELECTED_SERVERS
 
-          Auto-generated from issue #${{ steps.issue.outputs.issue_number }}
+          Auto-generated from issue #$ISSUE_NUMBER
 
           Changes:
-          - Action: ${{ steps.issue.outputs.action_type }}
-          - Package: ${{ steps.issue.outputs.package_id }}
-          - Servers: ${{ steps.issue.outputs.selected_servers }}
-          - Version Mode: ${{ steps.issue.outputs.version_mode }}
+          - Action: $ACTION_TYPE
+          - Package: $PACKAGE_ID
+          - Servers: $SELECTED_SERVERS
+          - Version Mode: $VERSION_MODE
 
-          Implements: #${{ steps.issue.outputs.issue_number }}"
+          Implements: #$ISSUE_NUMBER"
 
       - name: Push branch
+        env:
+          BRANCH_NAME: ${{ steps.issue.outputs.branch_name }}
         run: |
-          git push origin "${{ steps.issue.outputs.branch_name }}"
+          git push origin "$BRANCH_NAME"
 
       - name: Create Pull Request
         id: create_pr
@@ -864,6 +926,8 @@ jobs:
   load-test-data:
     name: Prepare Test Data Load
     runs-on: arc-runner-set
+    permissions:
+      issues: read
     if: |
       (github.event_name == 'issues' &&
        github.event.label.name == 'approved' &&
@@ -987,6 +1051,11 @@ jobs:
   load-test-data-execute:
     name: Execute Test Data Load
     needs: load-test-data
+    # The called workflow requests these, so this job must hold them.
+    permissions:
+      contents: read
+      issues: write
+      id-token: write
     uses: ./.github/workflows/load-test-data.yml
     with:
       upload_method: ${{ needs.load-test-data.outputs.upload_method }}
@@ -1009,6 +1078,9 @@ jobs:
   register-smart-client:
     name: Register SMART Client
     runs-on: arc-runner-set
+    permissions:
+      contents: read
+      issues: write # comment on and label the issue
     container:
       image: python:3.12-slim
     if: |
@@ -1044,9 +1116,12 @@ jobs:
       - name: Get issue details
         id: issue
         uses: actions/github-script@v7
+        env:
+          ISSUE_NUMBER: ${{ inputs.issue_number }}
         with:
           script: |
-            const issueNumber = context.payload.issue?.number || parseInt('${{ inputs.issue_number }}') || null;
+            const checks = require(`${process.env.GITHUB_WORKSPACE}/scripts/issue_field_checks.js`);
+            const issueNumber = context.payload.issue?.number || parseInt(process.env.ISSUE_NUMBER, 10) || null;
             const { data: issue } = await github.rest.issues.get({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -1137,22 +1212,34 @@ jobs:
               return;
             }
 
+            const formatErrors = checks.checkSmartClient({
+              clientId, clientName, clientType, redirectUris, scopes, contactEmail
+            });
+            if (formatErrors.length) {
+              core.setFailed(`Issue fields are not in the expected format:\n- ${formatErrors.join('\n- ')}`);
+              return;
+            }
+
       - name: Validate fields
         if: steps.issue.outputs.client_id == '' || steps.issue.outputs.client_name == '' || steps.issue.outputs.client_type == ''
         run: |
           echo "::error::Missing required fields in issue"
-          gh issue comment ${{ steps.issue.outputs.issue_number }} --body "**Registration Failed**
+          gh issue comment "$ISSUE_NUMBER" --body "**Registration Failed**
 
           Missing required information:
-          - Client ID: ${{ steps.issue.outputs.client_id }}
-          - Client Name: ${{ steps.issue.outputs.client_name }}
-          - Client Type: ${{ steps.issue.outputs.client_type }}
+          - Client ID: $CLIENT_ID
+          - Client Name: $CLIENT_NAME
+          - Client Type: $CLIENT_TYPE
 
           Please ensure these fields are filled in the issue and try again."
-          gh issue edit ${{ steps.issue.outputs.issue_number }} --add-label "needs-manual-intervention" --remove-label "ready-for-automation"
+          gh issue edit "$ISSUE_NUMBER" --add-label "needs-manual-intervention" --remove-label "ready-for-automation"
           exit 1
         env:
           GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ steps.issue.outputs.issue_number }}
+          CLIENT_ID: ${{ steps.issue.outputs.client_id }}
+          CLIENT_NAME: ${{ steps.issue.outputs.client_name }}
+          CLIENT_TYPE: ${{ steps.issue.outputs.client_type }}
 
       # Partition creation is deliberately not automated (no partition is expressed
       # in this repository for any tenant). Registering a client against a tenant
@@ -1186,11 +1273,13 @@ jobs:
             CLIENT_TYPE_ARG="backend-service"
           fi
 
-          REDIRECT_URIS_ARG=""
-          if [ -n "$REDIRECT_URIS" ]; then
+          # Redirect URIs apply to SMART App Launch clients only; a Backend
+          # Service client does not use them.
+          redirect_args=()
+          if [ "$CLIENT_TYPE_ARG" = "smart-app-launch" ] && [ -n "$REDIRECT_URIS" ]; then
             # Convert newlines to commas for the script
-            URIS=$(echo "$REDIRECT_URIS" | tr '\n' ',' | sed 's/,$//')
-            REDIRECT_URIS_ARG="--redirect-uris $URIS"
+            URIS=$(printf '%s' "$REDIRECT_URIS" | tr '\n' ',' | sed 's/,$//')
+            redirect_args=(--redirect-uris "$URIS")
           fi
 
           # Register on each target node
@@ -1204,7 +1293,7 @@ jobs:
               --client-type "$CLIENT_TYPE_ARG" \
               --client-id "$CLIENT_ID" \
               --client-name "$CLIENT_NAME" \
-              $REDIRECT_URIS_ARG \
+              "${redirect_args[@]}" \
               --scopes "$SCOPES" \
               --contact-email "$CONTACT_EMAIL" \
               --summary-file "/tmp/registration-result-${NODE}.json" \
@@ -1212,8 +1301,8 @@ jobs:
           done
 
           # Merge results into a single summary
-          python3 -c "
-          import json, glob
+          python3 - <<'PY'
+          import json, glob, os
           results = []
           for f in sorted(glob.glob('/tmp/registration-result-*.json')):
               data = json.load(open(f))
@@ -1221,9 +1310,9 @@ jobs:
               for r in data.get('results', []):
                   r['node'] = node
                   results.append(r)
-          merged = {'results': results, 'target_nodes': '$TARGET_NODES'}
+          merged = {'results': results, 'target_nodes': os.environ['TARGET_NODES']}
           json.dump(merged, open('/tmp/registration-result.json', 'w'), indent=2)
-          "
+          PY
 
           exit $FAILED
         env:
@@ -1240,15 +1329,18 @@ jobs:
       - name: Post success comment
         if: success()
         uses: actions/github-script@v7
+        env:
+          ISSUE_NUMBER: ${{ steps.issue.outputs.issue_number }}
+          TENANT: ${{ steps.issue.outputs.tenant }}
         with:
           script: |
             const fs = require('fs');
             const summary = JSON.parse(fs.readFileSync('/tmp/registration-result.json', 'utf8'));
             const result = summary.results[0];
             const nodes = summary.target_nodes.split(',');
-            const issueNumber = parseInt('${{ steps.issue.outputs.issue_number }}');
+            const issueNumber = parseInt(process.env.ISSUE_NUMBER, 10);
             const baseUrl = 'https://smile.sparked-fhir.com';
-            const tenant = '${{ steps.issue.outputs.tenant }}' || 'DEFAULT';
+            const tenant = process.env.TENANT || 'DEFAULT';
 
             const clientType = result.client_type === 'smart-app-launch'
               ? 'SMART App Launch (Public)'
@@ -1318,9 +1410,11 @@ jobs:
       - name: Post failure comment
         if: failure()
         uses: actions/github-script@v7
+        env:
+          ISSUE_NUMBER: ${{ steps.issue.outputs.issue_number }}
         with:
           script: |
-            const issueNumber = parseInt('${{ steps.issue.outputs.issue_number }}');
+            const issueNumber = parseInt(process.env.ISSUE_NUMBER, 10);
             if (!issueNumber) return;
 
             const body = `**SMART Client Registration Failed**\n\nThe automated registration encountered an error. Please check the [workflow logs](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}) for details.\n\nA repo admin may need to register this client manually via the SmileCDR admin console.`;
