@@ -239,7 +239,7 @@ stand up your own instance:
 - All AWS-specific values are variables: `s3_bucket_name`, `cdr_regcred_secret_arn`,
   `smilecdr_iam_role_name` (see `terraform/terraform.tfvars.example`), the state
   backend bucket (`terraform/backend.hcl.example`), and `AWS_ACCOUNT_ID` /
-  `AWS_OIDC_ROLE_ARN` as GitHub repository variables. None are committed.
+  `AWS_OIDC_ROLE_ARN` / `ECR_PULL_ROLE_ARN` as GitHub repository variables. None are committed.
 - Fork the repo, supply your own values, point the Terraform backend at your own
   state bucket, and `terraform apply` from your workstation against your own account.
 - Credentials live in AWS Secrets Manager and GitHub Actions secrets in your own
@@ -359,6 +359,7 @@ The following GitHub configuration is required for CI/CD workflows:
 | Variable | Description |
 |----------|-------------|
 | `AWS_OIDC_ROLE_ARN` | ARN of the IAM role for GitHub Actions AWS OIDC federation. Its trust policy must be scoped to this repository (and a specific ref/environment) so no fork or pull request can assume it. |
+| `ECR_PULL_ROLE_ARN` | ARN of the IAM role the Load Test Data and Clear Test Data workflows assume through OIDC to pull the `sparked-test-data-loader` image from ECR. The role can only pull that image. |
 | `AWS_ACCOUNT_ID` | AWS account ID, used to build the test-data loader ECR image reference. Parameterized so the account ID is not hardcoded in the public repo. |
 | `CATALOGUE_PROJECT_URL` | (optional) URL of the service-catalogue GitHub Project; set to enable auto-adding new issues to the board |
 
