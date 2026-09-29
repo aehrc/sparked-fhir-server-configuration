@@ -101,7 +101,7 @@ body:
     id: test-data-source-url
     attributes:
       label: Test Data Source URL
-      description: Git repository or URL to load test data from. Leave blank to use the default AU FHIR test data set.
+      description: Git repository to load test data from, under https://github.com/hl7au/ or https://github.com/aehrc/ (for example https://github.com/hl7au/au-fhir-test-data). Leave blank to use the default AU FHIR test data set.
       placeholder: "https://github.com/hl7au/au-fhir-test-data"
     validations:
       required: false

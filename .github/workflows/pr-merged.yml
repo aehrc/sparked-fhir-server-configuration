@@ -40,9 +40,10 @@ jobs:
       - name: Check if deploy-immediately label is present
         id: check_deploy
         if: steps.extract.outputs.issue_number
+        env:
+          HAS_DEPLOY_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'deploy-immediately') }}
         run: |
-          HAS_DEPLOY_LABEL="${{ contains(github.event.pull_request.labels.*.name, 'deploy-immediately') }}"
-          echo "has_deploy_label=$HAS_DEPLOY_LABEL" >> $GITHUB_OUTPUT
+          echo "has_deploy_label=$HAS_DEPLOY_LABEL" >> "$GITHUB_OUTPUT"
 
       - name: Extract target nodes from PR
         id: extract_nodes
@@ -64,10 +65,13 @@ jobs:
       - name: Trigger deployment workflow
         if: steps.extract.outputs.issue_number && steps.check_deploy.outputs.has_deploy_label == 'true'
         uses: actions/github-script@v7
+        env:
+          ISSUE_NUMBER: ${{ steps.extract.outputs.issue_number }}
+          NODES: ${{ steps.extract_nodes.outputs.nodes }}
         with:
           script: |
-            const issueNumber = parseInt('${{ steps.extract.outputs.issue_number }}');
-            const nodes = '${{ steps.extract_nodes.outputs.nodes }}';
+            const issueNumber = parseInt(process.env.ISSUE_NUMBER, 10);
+            const nodes = process.env.NODES;
             const prNumber = context.payload.pull_request.number;
 
             console.log(`Triggering deployment for issue #${issueNumber} with nodes: ${nodes}`);
@@ -113,9 +117,11 @@ jobs:
       - name: Post deployment options (no immediate deployment)
         if: steps.extract.outputs.issue_number && steps.check_deploy.outputs.has_deploy_label != 'true'
         uses: actions/github-script@v7
+        env:
+          ISSUE_NUMBER: ${{ steps.extract.outputs.issue_number }}
         with:
           script: |
-            const issueNumber = parseInt('${{ steps.extract.outputs.issue_number }}');
+            const issueNumber = parseInt(process.env.ISSUE_NUMBER, 10);
             const prNumber = context.payload.pull_request.number;
             const prTitle = context.payload.pull_request.title;
 
@@ -158,9 +164,11 @@ jobs:
       - name: Handle failure
         if: failure() && steps.extract.outputs.issue_number
         uses: actions/github-script@v7
+        env:
+          ISSUE_NUMBER: ${{ steps.extract.outputs.issue_number }}
         with:
           script: |
-            const issueNumber = parseInt('${{ steps.extract.outputs.issue_number }}');
+            const issueNumber = parseInt(process.env.ISSUE_NUMBER, 10);
 
             await github.rest.issues.createComment({
               owner: context.repo.owner,

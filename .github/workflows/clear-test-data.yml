@@ -20,21 +20,21 @@ on:
           - aucore
           - custom
       custom_fhir_url:
-        description: "Custom FHIR server URL (only when target_node=custom)"
+        description: "Custom FHIR server URL (only when target_node=custom). Must be https:// on sparked-fhir.com or a subdomain of it, e.g. https://smile.sparked-fhir.com/aucore/fhir/DEFAULT"
         required: false
         type: string
       data_source:
-        description: "Test data Git repository URL (targeted mode only)"
+        description: "Test data Git repository URL (targeted mode only): https://github.com/hl7au/<repo> or https://github.com/aehrc/<repo>"
         required: false
         default: "https://github.com/hl7au/au-fhir-test-data"
         type: string
       data_folder:
-        description: "Folder within repo containing test data (targeted mode only)"
+        description: "Folder within repo containing test data (targeted mode only, relative path)"
         required: false
         default: "au-fhir-test-data-set"
         type: string
       resource_types:
-        description: "Comma-separated resource types to delete (optional filter)"
+        description: "Comma-separated resource types to delete, e.g. Patient,Observation (optional filter)"
         required: false
         type: string
       exclude_patterns:
@@ -121,7 +121,7 @@ on:
 permissions:
   contents: read
   issues: write
-  id-token: write # OIDC for ECR login
+  id-token: write # OIDC for the ECR pull role, which can only pull the loader image
 
 jobs:
   clear-data:
@@ -130,15 +130,108 @@ jobs:
     # The loader image lives in a private ECR repo. A job-level `container:` is
     # pulled before any step can authenticate, which fails on arc-runner-set
     # ("no basic auth credentials"). Authenticate with OIDC first and run the
-    # loader with `docker run` instead.
+    # loader with `docker run` instead. The role in vars.ECR_PULL_ROLE_ARN can
+    # only pull the sparked-test-data-loader image.
     env:
       LOADER_IMAGE: ${{ vars.AWS_ACCOUNT_ID }}.dkr.ecr.ap-southeast-2.amazonaws.com/sparked-test-data-loader:latest
 
     steps:
+      # Every value reaches the shell through env rather than inline
+      # expressions, so quotes, dollar signs and newlines in an input no longer
+      # break the step. Each input is also checked against the format it must
+      # have before any other step uses it, so a mistyped value stops the run
+      # here with a message that names the input.
+      - name: Resolve inputs
+        id: inputs
+        env:
+          DELETE_MODE: ${{ inputs.delete_mode || 'targeted' }}
+          TARGET_NODE: ${{ inputs.target_node || 'aucore' }}
+          CUSTOM_FHIR_URL: ${{ inputs.custom_fhir_url }}
+          DATA_SOURCE: ${{ inputs.data_source || 'https://github.com/hl7au/au-fhir-test-data' }}
+          DATA_FOLDER: ${{ inputs.data_folder || 'au-fhir-test-data-set' }}
+          RESOURCE_TYPES: ${{ inputs.resource_types }}
+          EXCLUDE: ${{ inputs.exclude_patterns || 'vendor-demonstrator' }}
+          EXPUNGE: ${{ inputs.expunge }}
+          BATCH_SIZE: ${{ inputs.batch_size || '50' }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          CONTINUE_ON_ERROR: ${{ inputs.continue_on_error }}
+          ISSUE_NUMBER: ${{ inputs.issue_number }}
+        run: |
+          export LC_ALL=C
+          ERRORS=0
+          fail() { echo "::error::$1"; ERRORS=1; }
+
+          # Resolve FHIR URL from node name
+          case "$TARGET_NODE" in
+            aucore) FHIR_URL="https://smile.sparked-fhir.com/aucore/fhir/DEFAULT" ;;
+            custom) FHIR_URL="$CUSTOM_FHIR_URL" ;;
+            *)      fail "target_node must be aucore or custom"; FHIR_URL="" ;;
+          esac
+
+          # Custom targets are limited to the Sparked FHIR servers: https on
+          # sparked-fhir.com or one of its subdomains.
+          FHIR_URL_RE='^https://([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)*sparked-fhir\.com(/[A-Za-z0-9._~/-]*)?$'
+          if [ "$TARGET_NODE" = "custom" ]; then
+            if [ -z "$FHIR_URL" ]; then
+              fail "FHIR URL is empty. If target_node=custom, provide custom_fhir_url."
+            elif ! [[ "$FHIR_URL" =~ $FHIR_URL_RE ]]; then
+              fail "custom_fhir_url must be an https:// URL on sparked-fhir.com or a subdomain of it, with no user name, port or query, e.g. https://smile.sparked-fhir.com/aucore/fhir/DEFAULT"
+            fi
+          fi
+
+          DATA_SOURCE_RE='^https://github\.com/(hl7au|aehrc)/[A-Za-z0-9._-]+(\.git)?$'
+          if ! [[ "$DATA_SOURCE" =~ $DATA_SOURCE_RE ]] || [[ "$DATA_SOURCE" =~ /\.\.?(\.git)?$ ]]; then
+            fail "data_source must be https://github.com/hl7au/<repo> or https://github.com/aehrc/<repo>"
+          fi
+
+          DATA_FOLDER_RE='^[A-Za-z0-9._/-]+$'
+          if ! [[ "$DATA_FOLDER" =~ $DATA_FOLDER_RE ]] || [[ "$DATA_FOLDER" == /* ]] || [[ "/$DATA_FOLDER/" == */../* ]]; then
+            fail "data_folder must be a relative path inside the repository (letters, digits, '.', '_', '-', '/') with no '..' segment"
+          fi
+
+          case "$DELETE_MODE" in targeted|wipe-all) ;; *) fail "delete_mode must be targeted or wipe-all" ;; esac
+          case "$EXPUNGE" in true|false) ;; *) fail "expunge must be true or false" ;; esac
+          case "$DRY_RUN" in true|false) ;; *) fail "dry_run must be true or false" ;; esac
+          case "$CONTINUE_ON_ERROR" in true|false) ;; *) fail "continue_on_error must be true or false" ;; esac
+          [[ "$RESOURCE_TYPES" =~ ^[A-Za-z,]*$ ]] || fail "resource_types must be a comma-separated list of FHIR resource types, e.g. Patient,Observation"
+          [[ "$BATCH_SIZE" =~ ^[0-9]{1,4}$ ]] || fail "batch_size must be a whole number of at most 4 digits"
+          [[ "$EXCLUDE" =~ ^[A-Za-z0-9._,-]*$ ]] || fail "exclude_patterns must be a comma-separated list of names (letters, digits, '.', '_', '-')"
+          [[ "$ISSUE_NUMBER" =~ ^[0-9]*$ ]] || fail "issue_number must be a number"
+
+          if [ "$ERRORS" -ne 0 ]; then
+            exit 1
+          fi
+
+          {
+            echo "delete_mode=$DELETE_MODE"
+            echo "fhir_url=$FHIR_URL"
+            echo "target_node=$TARGET_NODE"
+            echo "data_source=$DATA_SOURCE"
+            echo "data_folder=$DATA_FOLDER"
+            echo "resource_types=$RESOURCE_TYPES"
+            echo "exclude_patterns=$EXCLUDE"
+            echo "expunge=$EXPUNGE"
+            echo "batch_size=$BATCH_SIZE"
+            echo "dry_run=$DRY_RUN"
+            echo "continue_on_error=$CONTINUE_ON_ERROR"
+            echo "issue_number=$ISSUE_NUMBER"
+          } >> "$GITHUB_OUTPUT"
+
+          # `manage-test-data.yml` cannot pass an empty number through
+          # `workflow_call`, so it sends 0 to mean "no issue". Treat 0 and empty
+          # alike: a comment on issue 0 is a 404 that fails the job before any
+          # work happens, which is how a dry run of `clear-and-load-aucore`
+          # failed with nothing attempted.
+          if [ -n "$ISSUE_NUMBER" ] && [ "$ISSUE_NUMBER" != "0" ]; then
+            echo "has_issue=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_issue=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Configure aws credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ vars.AWS_OIDC_ROLE_ARN }}
+          role-to-assume: ${{ vars.ECR_PULL_ROLE_ARN }}
           aws-region: ap-southeast-2
 
       - name: Login to Amazon ECR
@@ -147,75 +240,32 @@ jobs:
       - name: Pull loader image
         run: docker pull -q "$LOADER_IMAGE"
 
-      - name: Resolve inputs
-        id: inputs
-        run: |
-          DELETE_MODE="${{ inputs.delete_mode || 'targeted' }}"
-          TARGET_NODE="${{ inputs.target_node || 'aucore' }}"
-          CUSTOM_FHIR_URL="${{ inputs.custom_fhir_url }}"
-          DATA_SOURCE="${{ inputs.data_source || 'https://github.com/hl7au/au-fhir-test-data' }}"
-          DATA_FOLDER="${{ inputs.data_folder || 'au-fhir-test-data-set' }}"
-          RESOURCE_TYPES="${{ inputs.resource_types }}"
-          EXCLUDE="${{ inputs.exclude_patterns || 'vendor-demonstrator' }}"
-          EXPUNGE="${{ inputs.expunge }}"
-          BATCH_SIZE="${{ inputs.batch_size || '50' }}"
-          DRY_RUN="${{ inputs.dry_run }}"
-          CONTINUE_ON_ERROR="${{ inputs.continue_on_error }}"
-          ISSUE_NUMBER="${{ inputs.issue_number }}"
-
-          # Resolve FHIR URL from node name
-          case "$TARGET_NODE" in
-            aucore) FHIR_URL="https://smile.sparked-fhir.com/aucore/fhir/DEFAULT" ;;
-            custom) FHIR_URL="$CUSTOM_FHIR_URL" ;;
-            *)      echo "::error::Unknown target node: $TARGET_NODE"; exit 1 ;;
-          esac
-
-          if [ -z "$FHIR_URL" ]; then
-            echo "::error::FHIR URL is empty. If target_node=custom, provide custom_fhir_url."
-            exit 1
-          fi
-
-          echo "delete_mode=$DELETE_MODE" >> $GITHUB_OUTPUT
-          echo "fhir_url=$FHIR_URL" >> $GITHUB_OUTPUT
-          echo "target_node=$TARGET_NODE" >> $GITHUB_OUTPUT
-          echo "data_source=$DATA_SOURCE" >> $GITHUB_OUTPUT
-          echo "data_folder=$DATA_FOLDER" >> $GITHUB_OUTPUT
-          echo "resource_types=$RESOURCE_TYPES" >> $GITHUB_OUTPUT
-          echo "exclude_patterns=$EXCLUDE" >> $GITHUB_OUTPUT
-          echo "expunge=$EXPUNGE" >> $GITHUB_OUTPUT
-          echo "batch_size=$BATCH_SIZE" >> $GITHUB_OUTPUT
-          echo "dry_run=$DRY_RUN" >> $GITHUB_OUTPUT
-          echo "continue_on_error=$CONTINUE_ON_ERROR" >> $GITHUB_OUTPUT
-          echo "issue_number=$ISSUE_NUMBER" >> $GITHUB_OUTPUT
-
-          # `manage-test-data.yml` cannot pass an empty number through
-          # `workflow_call`, so it sends 0 to mean "no issue". Treat 0 and empty
-          # alike: a comment on issue 0 is a 404 that fails the job before any
-          # work happens, which is how a dry run of `clear-and-load-aucore`
-          # failed with nothing attempted.
-          if [ -n "$ISSUE_NUMBER" ] && [ "$ISSUE_NUMBER" != "0" ]; then
-            echo "has_issue=true" >> $GITHUB_OUTPUT
-          else
-            echo "has_issue=false" >> $GITHUB_OUTPUT
-          fi
-
       - name: Comment on issue - Starting
         if: steps.inputs.outputs.has_issue == 'true'
         uses: actions/github-script@v7
+        env:
+          ISSUE_NUMBER: ${{ steps.inputs.outputs.issue_number }}
+          DELETE_MODE: ${{ steps.inputs.outputs.delete_mode }}
+          FHIR_URL: ${{ steps.inputs.outputs.fhir_url }}
+          EXPUNGE: ${{ steps.inputs.outputs.expunge }}
+          DRY_RUN: ${{ steps.inputs.outputs.dry_run }}
         with:
           script: |
+            const issueNumber = parseInt(process.env.ISSUE_NUMBER, 10);
+            const runUrl = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`;
+
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              issue_number: parseInt('${{ steps.inputs.outputs.issue_number }}'),
+              issue_number: issueNumber,
               body: `## Test Data Clear Starting
 
             **Details:**
-            - Delete Mode: \`${{ steps.inputs.outputs.delete_mode }}\`
-            - Target: \`${{ steps.inputs.outputs.fhir_url }}\`
-            - Expunge: \`${{ steps.inputs.outputs.expunge }}\`
-            - Dry Run: \`${{ steps.inputs.outputs.dry_run }}\`
-            - Workflow Run: [View Progress](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+            - Delete Mode: \`${process.env.DELETE_MODE}\`
+            - Target: \`${process.env.FHIR_URL}\`
+            - Expunge: \`${process.env.EXPUNGE}\`
+            - Dry Run: \`${process.env.DRY_RUN}\`
+            - Workflow Run: [View Progress](${runUrl})
 
             This may take several minutes depending on the number of resources.`
             });
@@ -223,21 +273,24 @@ jobs:
             await github.rest.issues.addLabels({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              issue_number: parseInt('${{ steps.inputs.outputs.issue_number }}'),
+              issue_number: issueNumber,
               labels: ['in-progress']
             });
 
       - name: Clone test data repository
         if: steps.inputs.outputs.delete_mode == 'targeted'
         id: clone
+        env:
+          DATA_SOURCE: ${{ steps.inputs.outputs.data_source }}
+          DATA_FOLDER: ${{ steps.inputs.outputs.data_folder }}
         run: |
           # RUNNER_TEMP lives on the runner's work volume, which the dind
           # daemon shares, so it can be bind-mounted into the loader container.
           WORK_DIR="$RUNNER_TEMP/fhir-data"
           rm -rf "$WORK_DIR" && mkdir -p "$WORK_DIR"
-          git clone "${{ steps.inputs.outputs.data_source }}" "$WORK_DIR"
+          git clone -- "$DATA_SOURCE" "$WORK_DIR"
 
-          DATA_DIR="$WORK_DIR/${{ steps.inputs.outputs.data_folder }}"
+          DATA_DIR="$WORK_DIR/$DATA_FOLDER"
           if [ ! -d "$DATA_DIR" ]; then
             echo "::error::Data folder not found: $DATA_DIR"
             echo "Available contents:"
@@ -247,12 +300,21 @@ jobs:
 
           TOTAL_FILES=$(find "$DATA_DIR" -name "*.json" -type f | wc -l)
           echo "Found $TOTAL_FILES JSON files in $DATA_DIR"
-          echo "data_dir=$DATA_DIR" >> $GITHUB_OUTPUT
+          echo "data_dir=$DATA_DIR" >> "$GITHUB_OUTPUT"
 
       - name: Clear test data
         id: clear
         env:
           FHIR_AUTH_HEADER: ${{ secrets.CSIRO_FHIR_AUTH_64 }}
+          DELETE_MODE: ${{ steps.inputs.outputs.delete_mode }}
+          FHIR_URL: ${{ steps.inputs.outputs.fhir_url }}
+          BATCH_SIZE: ${{ steps.inputs.outputs.batch_size }}
+          DATA_FOLDER: ${{ steps.inputs.outputs.data_folder }}
+          EXCLUDE_PATTERNS: ${{ steps.inputs.outputs.exclude_patterns }}
+          RESOURCE_TYPES: ${{ steps.inputs.outputs.resource_types }}
+          EXPUNGE: ${{ steps.inputs.outputs.expunge }}
+          DRY_RUN: ${{ steps.inputs.outputs.dry_run }}
+          CONTINUE_ON_ERROR: ${{ steps.inputs.outputs.continue_on_error }}
         run: |
           # The loader image runs as a non-root user that cannot write into the
           # bind-mounted $RUNNER_TEMP itself, so both summary files were lost to
@@ -263,30 +325,35 @@ jobs:
           OUT_DIR="$RUNNER_TEMP/loader-out"
           rm -rf "$OUT_DIR" && mkdir -p "$OUT_DIR" && chmod 777 "$OUT_DIR"
 
-          # Paths are as seen inside the loader container ($RUNNER_TEMP -> /work)
-          ARGS="--mode ${{ steps.inputs.outputs.delete_mode }}"
-          ARGS="$ARGS --fhir-url ${{ steps.inputs.outputs.fhir_url }}"
-          ARGS="$ARGS --batch-size ${{ steps.inputs.outputs.batch_size }}"
-          ARGS="$ARGS --summary-file /work/loader-out/clear-summary.json"
-          ARGS="$ARGS --github-step-summary /work/loader-out/step-summary.md"
+          # Paths are as seen inside the loader container ($RUNNER_TEMP -> /work).
+          # An array keeps each value a single argument.
+          args=(
+            --mode "$DELETE_MODE"
+            --fhir-url "$FHIR_URL"
+            --batch-size "$BATCH_SIZE"
+            --summary-file /work/loader-out/clear-summary.json
+            --github-step-summary /work/loader-out/step-summary.md
+          )
 
           # Add data-dir for targeted mode
-          if [ "${{ steps.inputs.outputs.delete_mode }}" = "targeted" ]; then
-            ARGS="$ARGS --data-dir /work/fhir-data/${{ steps.inputs.outputs.data_folder }}"
-            ARGS="$ARGS --exclude-patterns ${{ steps.inputs.outputs.exclude_patterns }}"
+          if [ "$DELETE_MODE" = "targeted" ]; then
+            args+=(--data-dir "/work/fhir-data/$DATA_FOLDER")
+            if [ -n "$EXCLUDE_PATTERNS" ]; then
+              args+=(--exclude-patterns "$EXCLUDE_PATTERNS")
+            fi
           fi
 
           # Add resource types filter if specified
-          if [ -n "${{ steps.inputs.outputs.resource_types }}" ]; then
-            ARGS="$ARGS --resource-types ${{ steps.inputs.outputs.resource_types }}"
+          if [ -n "$RESOURCE_TYPES" ]; then
+            args+=(--resource-types "$RESOURCE_TYPES")
           fi
 
-          if [ "${{ steps.inputs.outputs.expunge }}" = "true" ]; then
-            ARGS="$ARGS --expunge"
+          if [ "$EXPUNGE" = "true" ]; then
+            args+=(--expunge)
           fi
 
-          if [ "${{ steps.inputs.outputs.dry_run }}" = "true" ]; then
-            ARGS="$ARGS --dry-run"
+          if [ "$DRY_RUN" = "true" ]; then
+            args+=(--dry-run)
           fi
 
           # The loader refuses a real wipe-all without --yes ("wipe-all deletes
@@ -295,16 +362,16 @@ jobs:
           # guard having deleted nothing, while dry runs passed because
           # --dry-run skips it. The dispatch is the confirmation here: reaching
           # this line means an operator selected wipe-all and cleared dry_run.
-          if [ "${{ steps.inputs.outputs.delete_mode }}" = "wipe-all" ]; then
-            ARGS="$ARGS --yes"
+          if [ "$DELETE_MODE" = "wipe-all" ]; then
+            args+=(--yes)
           fi
 
-          if [ "${{ steps.inputs.outputs.continue_on_error }}" != "true" ]; then
-            ARGS="$ARGS --fail-on-error"
+          if [ "$CONTINUE_ON_ERROR" != "true" ]; then
+            args+=(--fail-on-error)
           fi
 
           set +e
-          docker run --rm -e FHIR_AUTH_HEADER -v "$RUNNER_TEMP:/work" "$LOADER_IMAGE" clear $ARGS
+          docker run --rm -e FHIR_AUTH_HEADER -v "$RUNNER_TEMP:/work" "$LOADER_IMAGE" clear "${args[@]}"
           EXIT_CODE=$?
           set -e
 
@@ -314,18 +381,20 @@ jobs:
           fi
 
           if [ $EXIT_CODE -eq 0 ]; then
-            echo "status=success" >> $GITHUB_OUTPUT
+            echo "status=success" >> "$GITHUB_OUTPUT"
           else
-            echo "status=failure" >> $GITHUB_OUTPUT
+            echo "status=failure" >> "$GITHUB_OUTPUT"
           fi
 
           # Read summary as single-line JSON for output
           if [ -f "$OUT_DIR/clear-summary.json" ]; then
             DELIMITER="SUMMARY_$(date +%s%N)"
-            echo "summary<<${DELIMITER}" >> $GITHUB_OUTPUT
-            cat "$OUT_DIR/clear-summary.json" | tr -d '\n' >> $GITHUB_OUTPUT
-            echo "" >> $GITHUB_OUTPUT
-            echo "${DELIMITER}" >> $GITHUB_OUTPUT
+            {
+              echo "summary<<${DELIMITER}"
+              tr -d '\n' < "$OUT_DIR/clear-summary.json"
+              echo ""
+              echo "${DELIMITER}"
+            } >> "$GITHUB_OUTPUT"
           fi
 
           exit $EXIT_CODE
@@ -333,15 +402,19 @@ jobs:
       - name: Post results to issue - Success
         if: always() && steps.inputs.outputs.has_issue == 'true' && steps.clear.outputs.status == 'success'
         uses: actions/github-script@v7
+        env:
+          ISSUE_NUMBER: ${{ steps.inputs.outputs.issue_number }}
+          DRY_RUN: ${{ steps.inputs.outputs.dry_run }}
+          SUMMARY: ${{ steps.clear.outputs.summary }}
         with:
           script: |
-            const issueNumber = parseInt('${{ steps.inputs.outputs.issue_number }}');
-            const runUrl = `${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}`;
-            const dryRun = '${{ steps.inputs.outputs.dry_run }}' === 'true' ? ' (dry run)' : '';
+            const issueNumber = parseInt(process.env.ISSUE_NUMBER, 10);
+            const runUrl = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`;
+            const dryRun = process.env.DRY_RUN === 'true' ? ' (dry run)' : '';
 
             let summaryText = '';
             try {
-              const summary = JSON.parse(`${{ steps.clear.outputs.summary }}`);
+              const summary = JSON.parse(process.env.SUMMARY || '');
               summaryText = `- Total Resources: ${summary.total}
             - Deleted: ${summary.succeeded}
             - Already Gone: ${summary.already_gone}
@@ -386,14 +459,17 @@ jobs:
       - name: Post results to issue - Failure
         if: always() && steps.inputs.outputs.has_issue == 'true' && steps.clear.outputs.status == 'failure'
         uses: actions/github-script@v7
+        env:
+          ISSUE_NUMBER: ${{ steps.inputs.outputs.issue_number }}
+          SUMMARY: ${{ steps.clear.outputs.summary }}
         with:
           script: |
-            const issueNumber = parseInt('${{ steps.inputs.outputs.issue_number }}');
-            const runUrl = `${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}`;
+            const issueNumber = parseInt(process.env.ISSUE_NUMBER, 10);
+            const runUrl = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`;
 
             let errorDetails = '';
             try {
-              const summary = JSON.parse(`${{ steps.clear.outputs.summary }}`);
+              const summary = JSON.parse(process.env.SUMMARY || '');
               errorDetails = `- Total Resources: ${summary.total}
             - Deleted: ${summary.succeeded}
             - Already Gone: ${summary.already_gone}

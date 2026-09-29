@@ -11,7 +11,7 @@ on:
           - bulk-connectathon
           - single-client
       clients_file:
-        description: "Path to clients JSON file (bulk mode only)"
+        description: "Path to clients JSON file, relative to the repository root (bulk mode only)"
         required: false
         default: "module-config/connectathon-clients.json"
         type: string
@@ -121,20 +121,39 @@ jobs:
         run: pip install -r scripts/requirements.txt
 
       - name: Register clients
+        shell: bash
         run: |
+          # The clients file must be a JSON file inside the repository.
+          if ! [[ "$CLIENTS_FILE" =~ ^[A-Za-z0-9._/-]+\.json$ ]] || [[ "$CLIENTS_FILE" == /* ]] || [[ "/$CLIENTS_FILE/" == */../* ]]; then
+            echo "::error::clients_file must be a relative path to a .json file inside the repository, with no '..' segment"
+            exit 1
+          fi
+
+          args=(--bulk --clients-file "$CLIENTS_FILE")
+          if [ "$DRY_RUN" = "true" ]; then
+            args+=(--dry-run)
+          fi
+          if [ "$SKIP_EXISTING" = "true" ]; then
+            args+=(--skip-existing)
+          else
+            args+=(--no-skip-existing)
+          fi
+
           python scripts/register_smart_client.py \
-            --bulk \
-            --clients-file "${{ inputs.clients_file }}" \
-            ${{ inputs.dry_run == true && '--dry-run' || '' }} \
-            ${{ inputs.skip_existing == true && '--skip-existing' || '--no-skip-existing' }} \
+            "${args[@]}" \
             --summary-file /tmp/registration-summary.json \
             --github-step-summary "$GITHUB_STEP_SUMMARY"
         env:
           CSIRO_FHIR_AUTH_64: ${{ secrets.CSIRO_FHIR_AUTH_64 }}
+          CLIENTS_FILE: ${{ inputs.clients_file }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          SKIP_EXISTING: ${{ inputs.skip_existing }}
 
       - name: Post results to issue
         if: inputs.issue_number != 0 && inputs.issue_number != ''
         uses: actions/github-script@v7
+        env:
+          ISSUE_NUMBER: ${{ inputs.issue_number }}
         with:
           script: |
             const fs = require('fs');
@@ -158,7 +177,7 @@ jobs:
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              issue_number: parseInt('${{ inputs.issue_number }}'),
+              issue_number: parseInt(process.env.ISSUE_NUMBER, 10),
               body: body,
             });
 
@@ -182,25 +201,31 @@ jobs:
         run: pip install -r scripts/requirements.txt
 
       - name: Register client
+        shell: bash
         run: |
-          REDIRECT_URIS_ARG=""
+          # An array keeps each value a single argument: the space-separated
+          # scopes reach the script as one --scopes value.
+          args=()
           if [ -n "$REDIRECT_URIS" ]; then
-            REDIRECT_URIS_ARG="--redirect-uris $REDIRECT_URIS"
+            args+=(--redirect-uris "$REDIRECT_URIS")
           fi
-
-          SCOPES_ARG=""
           if [ -n "$SCOPES" ]; then
-            SCOPES_ARG="--scopes $SCOPES"
+            args+=(--scopes "$SCOPES")
+          fi
+          if [ "$DRY_RUN" = "true" ]; then
+            args+=(--dry-run)
+          fi
+          if [ "$SKIP_EXISTING" = "true" ]; then
+            args+=(--skip-existing)
+          else
+            args+=(--no-skip-existing)
           fi
 
           python scripts/register_smart_client.py \
             --client-type "$CLIENT_TYPE" \
             --client-id "$CLIENT_ID" \
             --client-name "$CLIENT_NAME" \
-            $REDIRECT_URIS_ARG \
-            $SCOPES_ARG \
-            ${{ inputs.dry_run == true && '--dry-run' || '' }} \
-            ${{ inputs.skip_existing == true && '--skip-existing' || '--no-skip-existing' }} \
+            "${args[@]}" \
             --summary-file /tmp/registration-summary.json \
             --github-step-summary "$GITHUB_STEP_SUMMARY"
         env:
@@ -210,6 +235,8 @@ jobs:
           CLIENT_NAME: ${{ inputs.client_name }}
           REDIRECT_URIS: ${{ inputs.redirect_uris }}
           SCOPES: ${{ inputs.scopes }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          SKIP_EXISTING: ${{ inputs.skip_existing }}
 
   # ============================================================================
   # Single Client Registration (called from issue-labeled workflow)
@@ -235,24 +262,26 @@ jobs:
 
       - name: Register client
         id: register
+        shell: bash
         run: |
-          REDIRECT_URIS_ARG=""
+          # An array keeps each value a single argument: the space-separated
+          # scopes reach the script as one --scopes value.
+          args=()
           if [ -n "$REDIRECT_URIS" ]; then
-            REDIRECT_URIS_ARG="--redirect-uris $REDIRECT_URIS"
+            args+=(--redirect-uris "$REDIRECT_URIS")
           fi
-
-          SCOPES_ARG=""
           if [ -n "$SCOPES" ]; then
-            SCOPES_ARG="--scopes $SCOPES"
+            args+=(--scopes "$SCOPES")
+          fi
+          if [ "$DRY_RUN" = "true" ]; then
+            args+=(--dry-run)
           fi
 
           python scripts/register_smart_client.py \
             --client-type "$CLIENT_TYPE" \
             --client-id "$CLIENT_ID" \
             --client-name "$CLIENT_NAME" \
-            $REDIRECT_URIS_ARG \
-            $SCOPES_ARG \
-            ${{ inputs.dry_run == true && '--dry-run' || '' }} \
+            "${args[@]}" \
             --skip-existing \
             --summary-file /tmp/registration-summary.json \
             --github-step-summary "$GITHUB_STEP_SUMMARY"
@@ -263,3 +292,4 @@ jobs:
           CLIENT_NAME: ${{ inputs.client_name }}
           REDIRECT_URIS: ${{ inputs.redirect_uris }}
           SCOPES: ${{ inputs.scopes }}
+          DRY_RUN: ${{ inputs.dry_run }}

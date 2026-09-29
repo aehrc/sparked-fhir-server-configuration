@@ -38,10 +38,11 @@ on:
         required: false
         type: number
 
+# Each job calls clear-test-data.yml or load-test-data.yml, which request
+# issues: write and id-token: write (OIDC for the ECR pull role), so each job
+# grants them. A job added here without that need starts read-only.
 permissions:
   contents: read
-  issues: write
-  id-token: write # required by the called clear/load workflows for ECR OIDC login
 
 # ============================================================================
 # Clear and Load AU Core
@@ -49,6 +50,10 @@ permissions:
 jobs:
   clear-aucore:
     name: Clear aucore
+    permissions:
+      contents: read
+      issues: write
+      id-token: write
     if: inputs.operation == 'clear-and-load-aucore'
     uses: ./.github/workflows/clear-test-data.yml
     with:
@@ -62,6 +67,10 @@ jobs:
 
   load-aucore:
     name: Load aucore
+    permissions:
+      contents: read
+      issues: write
+      id-token: write
     needs: clear-aucore
     if: inputs.operation == 'clear-and-load-aucore'
     uses: ./.github/workflows/load-test-data.yml
@@ -83,6 +92,10 @@ jobs:
   # ============================================================================
   clear-and-expunge:
     name: Clear and expunge
+    permissions:
+      contents: read
+      issues: write
+      id-token: write
     if: inputs.operation == 'clear-and-expunge'
     uses: ./.github/workflows/clear-test-data.yml
     with:
