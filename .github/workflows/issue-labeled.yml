@@ -800,8 +800,8 @@ jobs:
 
             ### Post-Merge Actions
             After merging this PR:
-            1. The atomio-ig-feeder deployment will need to be updated with the new helm values
-            2. On next sync cycle, the feeder will pick up the configuration change
+            1. No feeder syncs tx.dev any more (decommissioned 2026-09-29), so merging changes nothing live
+            2. Add the matching entry to the \`hl7au-dev\` Atomio feed by hand, per [IG release runbook step 1.1](https://github.com/aehrc/sparked-fhir-server-configuration/blob/main/docs/runbooks/ig-release.md#step-1-1)
             3. Requester will be notified about the change
 
             ### Rollback Plan

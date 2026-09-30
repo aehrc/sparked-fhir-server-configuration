@@ -157,7 +157,7 @@ jobs:
                 : '2. **Validation** - A maintainer will run the automated validation and dry-run preview after triaging this request\n';
               message += '3. **Admin review** - Team will review and approve if validation passes\n';
               message += '4. **PR auto-creation** - A pull request will be automatically generated\n';
-              message += '5. **Merge & deploy** - After PR merge, the atomio-ig-feeder will pick up the change on the next sync cycle\n';
+              message += '5. **Merge & manual entry** - After PR merge, a maintainer adds the matching entry to the Atomio feed by hand (no feeder syncs tx.dev any more; see [runbook step 1.1](https://github.com/aehrc/sparked-fhir-server-configuration/blob/main/docs/runbooks/ig-release.md#step-1-1))\n';
               message += '6. **Verification** - You\'ll be asked to verify the content change took effect\n\n';
               message += '**Watch this issue for status updates** - Labels will change as work progresses.\n\n';
               message += 'Questions? Comment below and the team will respond.';
