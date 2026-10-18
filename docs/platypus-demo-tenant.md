@@ -37,6 +37,26 @@ a seeding step.
   What belongs in it depends on the scenario being demonstrated, so it is loaded
   as an operational act (see `aehrc/sparked-test-data-loader`), not held here.
 
+## The expo logins
+
+Two read-only accounts launch into the `PLATYPUS` partition alone, for the
+Platypus demo at the SNOMED CT Expo (October 2026):
+
+| Account | Launch patient | What it shows |
+| --- | --- | --- |
+| `platypus-expo-patient` | `platypus-banks-mia-leanne` (Mia Banks, the demo vault's own patient) | The app's import of a generated AU Patient Summary: three allergies the demo vault disagrees with, a refuted hypertension the app hides, a resolved urinary tract infection, and a "No current problems or disability" statement the app retires because the records it brings contradict it |
+| `platypus-expo-other` | `platypus-alford-alice` (Alice Alford, a second synthetic patient) | The app asking before it connects the demo vault to someone else's records |
+
+They need no `DEFAULT` grant, because they write nothing. The scenario data
+they read is operational, not seeded from this repository: on 19 October 2026
+`platypus-banks-mia-leanne` gained `AllergyIntolerance/platypus-lactose-intolerance`,
+`platypus-gluten-intolerance`, `platypus-chlorhexidine-allergy` and
+`Condition/platypus-no-current-problems`; `Condition/platypus-uti` became
+resolved, `Condition/platypus-hypertension` refuted and
+`AllergyIntolerance/platypus-no-known-allergy` entered-in-error (so `$summary`
+omits it); and `Patient/platypus-alford-alice` was created. A `PUT` of a
+record's earlier version from `_history` reverses any of it.
+
 ## Where the password lives
 
 `PLATYPUS-DEMO-PATIENT`'s password is in AWS Secrets Manager under

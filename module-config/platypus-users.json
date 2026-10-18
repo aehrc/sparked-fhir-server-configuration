@@ -1,7 +1,7 @@
 {
-  "description": "User account for the Platypus Health demo tenant on the aucore node. Create with: python scripts/manage_smart_users.py --bulk --users-file module-config/platypus-users.json --node aucore",
+  "description": "User accounts for the Platypus Health demo tenant on the aucore node. Create with: python scripts/manage_smart_users.py --bulk --users-file module-config/platypus-users.json --node aucore",
   "version": "1.0.0",
-  "notes": "The password is NOT stored here. This account already exists on aucore (pid 1602); the script is idempotent and will skip it rather than reset the password. The live password is held in AWS Secrets Manager under smilecdr-user-passwords, key smilecdr-platypus-demo-patient-password, alongside the admin and devtester passwords. It is not recoverable from the server, only resettable, so keep that entry current. On a fresh node the script generates a password and prints it once, which must then be stored there and distributed securely. See docs/platypus-demo-tenant.md.",
+  "notes": "Passwords are NOT stored here. Every account below already exists on aucore; the script is idempotent and skips an existing account rather than resetting its password. The live passwords are in AWS Secrets Manager under smilecdr-user-passwords, keys smilecdr-<username>-password (smilecdr-platypus-demo-patient-password, smilecdr-platypus-expo-patient-password, smilecdr-platypus-expo-other-password), alongside the admin and devtester passwords. They are not recoverable from the server, only resettable, so keep those entries current. On a fresh node the script generates a password and prints it once (or writes it with --credentials-file), which must then be stored there. See docs/platypus-demo-tenant.md.",
   "users": [
     {
       "username": "platypus-demo-patient",
@@ -10,6 +10,22 @@
       "permissionLevel": "read-write",
       "patientId": "banks-mia-leanne",
       "tenant": "PLATYPUS,DEFAULT"
+    },
+    {
+      "username": "platypus-expo-patient",
+      "givenName": "Mia",
+      "familyName": "Banks",
+      "permissionLevel": "read-only",
+      "patientId": "platypus-banks-mia-leanne",
+      "tenant": "PLATYPUS"
+    },
+    {
+      "username": "platypus-expo-other",
+      "givenName": "Alice",
+      "familyName": "Alford",
+      "permissionLevel": "read-only",
+      "patientId": "platypus-alford-alice",
+      "tenant": "PLATYPUS"
     }
   ]
 }
