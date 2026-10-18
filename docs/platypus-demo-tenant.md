@@ -44,7 +44,7 @@ Platypus demo at the SNOMED CT Expo (October 2026):
 
 | Account | Launch patient | What it shows |
 | --- | --- | --- |
-| `platypus-expo-patient` | `platypus-expo-banks-mia` (Mia Banks's name, birth date and sex, no IHI) | The app's import of a scenario: three allergies the demo vault disagrees with, a refuted hypertension the app hides, a resolved urinary tract infection, and a "No current problems or disability" statement the app retires because the records it brings contradict it |
+| `platypus-expo-patient` | `platypus-banks-mia-leanne` (the tenant's one Mia Banks) | The app's import of a scenario: three allergies the demo vault disagrees with, a refuted hypertension the app hides, a resolved urinary tract infection, and a "No current problems or disability" statement the app retires because the records it brings contradict it |
 | `platypus-expo-other` | `platypus-alford-alice` (Alice Alford, a second synthetic patient) | The app asking before it connects the demo vault to someone else's records |
 
 They need no `DEFAULT` grant, because they write nothing. They do need
@@ -56,10 +56,15 @@ from the SMART flow (`patient/*.rs`) fetches the summary too. A grant made
 through the admin API took a few minutes to reach a live login, so a 403 in
 that window is the old authorities, not a refusal.
 
-The scenario data is in `PLATYPUS`, written by `scripts/seed-platypus-tenant.py
---expo-only` in `aehrc/platypus` (part of its full run), on a patient of its own
-so the tenant's mirror of the curated Mia, `platypus-banks-mia-leanne`, is left
-as the app's other verification work needs it.
+The scenario is written onto the tenant's one Mia by
+`scripts/seed-platypus-tenant.py --expo-only` in `aehrc/platypus` (also the last
+step of its full run). There is deliberately one Mia: a second patient with her
+name, birth date and IHI reads as the same person twice. That retires her
+absence-only Allergies category; her "No known allergy" is now entered-in-error.
+
+`platypus-demo-patient`'s password was reset on 19 October 2026: the stored copy
+no longer authenticated (the account had also locked after five failed logins).
+The new value is in `smilecdr-user-passwords`.
 
 ## Where the password lives
 
