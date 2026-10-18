@@ -37,6 +37,35 @@ a seeding step.
   What belongs in it depends on the scenario being demonstrated, so it is loaded
   as an operational act (see `aehrc/sparked-test-data-loader`), not held here.
 
+## The expo logins
+
+Two read-only accounts launch into the `PLATYPUS` partition alone, for the
+Platypus demo at the SNOMED CT Expo (October 2026):
+
+| Account | Launch patient | What it shows |
+| --- | --- | --- |
+| `platypus-expo-patient` | `platypus-banks-mia-leanne` (the tenant's one Mia Banks) | The app's import of a scenario: three allergies the demo vault disagrees with, a refuted hypertension the app hides, a resolved urinary tract infection, and a "No current problems or disability" statement the app retires because the records it brings contradict it |
+| `platypus-expo-other` | `platypus-alford-alice` (Alice Alford, a second synthetic patient) | The app asking before it connects the demo vault to someone else's records |
+
+They need no `DEFAULT` grant, because they write nothing. They do need
+`FHIR_OP_PATIENT_SUMMARY`: `$summary` is an extended operation, which
+`FHIR_ALL_READ` does not cover, so without it a Basic login's summary request is
+answered "Access denied" (the read-only preset in `manage_smart_users.py` now
+grants it; both accounts were updated through the admin API). With it, a token
+from the SMART flow (`patient/*.rs`) fetches the summary too. A grant made
+through the admin API took a few minutes to reach a live login, so a 403 in
+that window is the old authorities, not a refusal.
+
+The scenario is written onto the tenant's one Mia by
+`scripts/seed-platypus-tenant.py --expo-only` in `aehrc/platypus` (also the last
+step of its full run). There is deliberately one Mia: a second patient with her
+name, birth date and IHI reads as the same person twice. That retires her
+absence-only Allergies category; her "No known allergy" is now entered-in-error.
+
+`platypus-demo-patient`'s password was reset on 19 October 2026: the stored copy
+no longer authenticated (the account had also locked after five failed logins).
+The new value is in `smilecdr-user-passwords`.
+
 ## Where the password lives
 
 `PLATYPUS-DEMO-PATIENT`'s password is in AWS Secrets Manager under

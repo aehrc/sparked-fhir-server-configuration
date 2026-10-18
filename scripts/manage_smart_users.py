@@ -123,6 +123,11 @@ def build_authorities(permission_level: str = "read-only",
         {"permission": "FHIR_CAPABILITIES"},
         {"permission": "FHIR_ACCESS_PARTITION_NAME", "argument": tenant},
         {"permission": "FHIR_ALL_READ"},
+        # Patient/$summary (the AU Patient Summary generator) is a read, but an
+        # extended operation, which FHIR_ALL_READ does not cover: without this an
+        # authenticated read-only login is answered "Access denied", though the
+        # same GET succeeds anonymously on DEFAULT.
+        {"permission": "FHIR_OP_PATIENT_SUMMARY"},
     ]
 
     if permission_level in ("read-write", "superuser"):
