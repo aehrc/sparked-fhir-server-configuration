@@ -47,7 +47,12 @@ Platypus demo at the SNOMED CT Expo (October 2026):
 | `platypus-expo-patient` | `platypus-banks-mia-leanne` (Mia Banks, the demo vault's own patient) | The app's import of a generated AU Patient Summary: three allergies the demo vault disagrees with, a refuted hypertension the app hides, a resolved urinary tract infection, and a "No current problems or disability" statement the app retires because the records it brings contradict it |
 | `platypus-expo-other` | `platypus-alford-alice` (Alice Alford, a second synthetic patient) | The app asking before it connects the demo vault to someone else's records |
 
-They need no `DEFAULT` grant, because they write nothing. The scenario data
+They need no `DEFAULT` grant, because they write nothing. They do need
+`FHIR_OP_PATIENT_SUMMARY`: `$summary` is an extended operation, which
+`FHIR_ALL_READ` does not cover, so without it the app's summary fetch is
+answered "Access denied" (the read-only preset in `manage_smart_users.py` now
+grants it; both accounts were updated through the admin API, and the change
+took a minute to reach a live login). The scenario data
 they read is operational, not seeded from this repository: on 19 October 2026
 `platypus-banks-mia-leanne` gained `AllergyIntolerance/platypus-lactose-intolerance`,
 `platypus-gluten-intolerance`, `platypus-chlorhexidine-allergy` and
