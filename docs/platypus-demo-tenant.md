@@ -44,23 +44,22 @@ Platypus demo at the SNOMED CT Expo (October 2026):
 
 | Account | Launch patient | What it shows |
 | --- | --- | --- |
-| `platypus-expo-patient` | `platypus-banks-mia-leanne` (Mia Banks, the demo vault's own patient) | The app's import of a generated AU Patient Summary: three allergies the demo vault disagrees with, a refuted hypertension the app hides, a resolved urinary tract infection, and a "No current problems or disability" statement the app retires because the records it brings contradict it |
+| `platypus-expo-patient` | `platypus-expo-banks-mia` (Mia Banks's name, birth date and sex, no IHI) | The app's import of a scenario: three allergies the demo vault disagrees with, a refuted hypertension the app hides, a resolved urinary tract infection, and a "No current problems or disability" statement the app retires because the records it brings contradict it |
 | `platypus-expo-other` | `platypus-alford-alice` (Alice Alford, a second synthetic patient) | The app asking before it connects the demo vault to someone else's records |
 
 They need no `DEFAULT` grant, because they write nothing. They do need
 `FHIR_OP_PATIENT_SUMMARY`: `$summary` is an extended operation, which
-`FHIR_ALL_READ` does not cover, so without it the app's summary fetch is
+`FHIR_ALL_READ` does not cover, so without it a Basic login's summary request is
 answered "Access denied" (the read-only preset in `manage_smart_users.py` now
 grants it; both accounts were updated through the admin API, and the change
-took a minute to reach a live login). The scenario data
-they read is operational, not seeded from this repository: on 19 October 2026
-`platypus-banks-mia-leanne` gained `AllergyIntolerance/platypus-lactose-intolerance`,
-`platypus-gluten-intolerance`, `platypus-chlorhexidine-allergy` and
-`Condition/platypus-no-current-problems`; `Condition/platypus-uti` became
-resolved, `Condition/platypus-hypertension` refuted and
-`AllergyIntolerance/platypus-no-known-allergy` entered-in-error (so `$summary`
-omits it); and `Patient/platypus-alford-alice` was created. A `PUT` of a
-record's earlier version from `_history` reverses any of it.
+took a minute to reach a live login). Over SMART the permission does not survive
+the narrowing to the approved scopes, so the app's own summary fetch is still
+refused; the app's per-type bring-in, which needs only reads, is unaffected.
+
+The scenario data is in `PLATYPUS`, written by `scripts/seed-platypus-tenant.py
+--expo-only` in `aehrc/platypus` (part of its full run), on a patient of its own
+so the tenant's mirror of the curated Mia, `platypus-banks-mia-leanne`, is left
+as the app's other verification work needs it.
 
 ## Where the password lives
 
