@@ -51,10 +51,10 @@ They need no `DEFAULT` grant, because they write nothing. They do need
 `FHIR_OP_PATIENT_SUMMARY`: `$summary` is an extended operation, which
 `FHIR_ALL_READ` does not cover, so without it a Basic login's summary request is
 answered "Access denied" (the read-only preset in `manage_smart_users.py` now
-grants it; both accounts were updated through the admin API, and the change
-took a minute to reach a live login). Over SMART the permission does not survive
-the narrowing to the approved scopes, so the app's own summary fetch is still
-refused; the app's per-type bring-in, which needs only reads, is unaffected.
+grants it; both accounts were updated through the admin API). With it, a token
+from the SMART flow (`patient/*.rs`) fetches the summary too. A grant made
+through the admin API took a few minutes to reach a live login, so a 403 in
+that window is the old authorities, not a refusal.
 
 The scenario data is in `PLATYPUS`, written by `scripts/seed-platypus-tenant.py
 --expo-only` in `aehrc/platypus` (part of its full run), on a patient of its own
