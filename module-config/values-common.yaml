@@ -17,11 +17,25 @@ ingresses:
     annotations:
       nginx.ingress.kubernetes.io/proxy-body-size: "16m"
 
+# The embedded ActiveMQ broker keeps its KahaDB store in this emptyDir
+# (/home/smile/smilecdr/activemq-data). A pod that writes past sizeLimit is
+# evicted by the kubelet, which on this single-replica server is an outage: it
+# happened on 2026-11-21 when an undrained subscription-matching queue filled
+# 100Mi (see the subscription settings on the aucore persistence module in
+# simplified-multinode.yaml, which remove that producer).
+#
+# KahaDB writes 32 MiB journal files and frees one only once every message in it
+# is consumed, so 100Mi held barely three journal files. 1Gi gives 32 of them,
+# about 650,000 messages at the 1.6 KB per message measured in that incident.
+# It costs nothing up front: sizeLimit is an eviction threshold, not a
+# reservation, and the on-demand-prod node this pod runs on alone has about
+# 76 GB of allocatable ephemeral storage, against about 31 MB this pod used in
+# total on 2026-11-21 (the 10Gi log volume is the only larger limit).
 volumeConfig:
   cdr:
     amq:
-      sizeLimit: "100Mi"
-      
+      sizeLimit: "1Gi"
+
 image:
   repository: docker.smilecdr.com/smilecdr
   imagePullSecrets:
