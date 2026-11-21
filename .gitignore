@@ -39,6 +39,11 @@ terminology-servers/atomio-ig-feeder
 terraform/backend.hcl
 terraform/backend-*.hcl
 
+# scripts/fetch-smile-tfvars.sh records, next to each input it fetches, the
+# Secrets Manager version id it came from, so push can refuse a stale base.
+*.secret-version
+*.secret-version.tmp*
+
 # Saved plan files. These embed resolved variable values and data-source reads,
 # including secret ARNs and generated database credentials, so they must never
 # be committed.

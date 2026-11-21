@@ -55,20 +55,30 @@ gate on content that is not a credential, and a key policy narrow enough to
 matter is one that can lock everyone out. Revisit if a credential is ever added
 to either file.
 
-**Who can read and write: the `AdministratorAccess` permission set only.** Each
-secret carries a resource policy that denies `GetSecretValue` and
-`PutSecretValue` to every principal whose ARN is not an
-`AWSReservedSSO_AdministratorAccess_*` role in this account. Without it, anyone
-with the `PowerUserAccess` permission set, and the GitHub Actions apply roles in
-`aehrc/sparked-infrastructure` (which hold `AdministratorAccess`), could read
-them too. Administrator is the right line because it is already what an apply
-needs: the stack creates and changes IAM roles and policies, which
-`PowerUserAccess` cannot do. So "can fetch the inputs" and "can apply Smile"
-are the same set of people. The policy does not deny
-`PutResourcePolicy`/`DeleteResourcePolicy`, so an administrator can always
-widen or remove it; it cannot lock the account out. That includes the
-break-glass and `OrganizationAccountAccessRole` roles: the policy denies them a
-read, but they can remove it if SSO is ever unavailable.
+**Direct reads and writes: the `AdministratorAccess` permission set only.**
+Each secret carries a resource policy that denies `GetSecretValue`,
+`PutSecretValue`, `UpdateSecret` (which can also write a new value) and
+`UpdateSecretVersionStage` (which can point `AWSCURRENT` at an old version) to
+every principal whose ARN is not an `AWSReservedSSO_AdministratorAccess_*` role
+in this account. Without it, anyone with the `PowerUserAccess` permission set,
+and the GitHub Actions apply roles in `aehrc/sparked-infrastructure` (which
+hold `AdministratorAccess`), could read and replace them directly.
+Administrator is the right line because it is already what an apply needs: the
+stack creates and changes IAM roles and policies, which `PowerUserAccess`
+cannot do. So "can fetch the inputs" and "can apply Smile" are the same set of
+people.
+
+What the policy does not do: it is not a hard boundary. It does not deny
+`PutResourcePolicy` or `DeleteResourcePolicy`, so any principal allowed those
+actions (an administrator, and also the `PowerUserAccess` set and the
+GitHub apply roles) can change or remove the policy first and then read or
+write; CloudTrail records that change. That is deliberate. The content is
+identifiers, not credentials, so a speed bump with an audit trail is enough,
+and it keeps a way back in: the policy can never lock the account out, and the
+break-glass and `OrganizationAccountAccessRole` roles, which it denies a direct
+read, can remove it if SSO is ever unavailable. Deleting a secret is not denied
+either; a deleted secret stays recoverable for its recovery window (7 to 30
+days).
 
 **Versioning and rollback come free.** Every `push` is a new secret version;
 Secrets Manager keeps the one before it labelled `AWSPREVIOUS`. See
@@ -99,6 +109,15 @@ you changed the local file on purpose, `push` it; if you want the stored copy,
 `fetch --force` (it keeps your old copy as `sparkey.bak-<timestamp>.tfvars`,
 which `.gitignore` also covers). The script never prints either file.
 
+`fetch` also records, next to each file, the secret version it matched or
+wrote (`sparkey.tfvars.secret-version`, mode 0600, gitignored). `push` uses it
+to refuse a stale base: if someone else pushed after your fetch, or there is no
+record, `push` stops instead of silently reverting their change. Then run
+`fetch --force` (your copy is kept as a backup), re-apply your edit to the
+fetched file and push again; `push --force` replaces the stored copy
+regardless. The check is not a lock: two pushes in the same second can still
+race.
+
 ### After changing a value
 
 Edit the local file, plan and apply as usual, then store it so the next
@@ -106,7 +125,8 @@ operator gets the same inputs:
 
 ```bash
 scripts/fetch-smile-tfvars.sh status     # shows DIFFERENT for the file you edited
-scripts/fetch-smile-tfvars.sh push       # asks before replacing each changed secret
+scripts/fetch-smile-tfvars.sh push       # asks before replacing each changed secret;
+                                         # refuses if the stored copy moved since your fetch
 ```
 
 Push after the apply succeeds, not before: the stored copy should describe what
@@ -126,7 +146,8 @@ aws secretsmanager update-secret-version-stage --secret-id "$SECRET" \
   --remove-from-version-id <the AWSCURRENT version id>
 ```
 
-Then `scripts/fetch-smile-tfvars.sh fetch --force`.
+Then `scripts/fetch-smile-tfvars.sh fetch --force`, which also records the
+version you moved back to.
 
 ## Giving another operator access
 
@@ -157,9 +178,14 @@ for pair in "sparked/smile/terraform/sparkey-tfvars=tfvars/sparkey.tfvars" \
 done
 ```
 
-Then attach the resource policy to each:
+Then attach the resource policy to each. It needs `$ACCOUNT` from the block
+above. The block runs as one subshell so that, pasted into a fresh shell, the
+guard on its first line stops all of it: an empty account id would make a
+pattern that matches nobody and deny reads to everyone.
 
 ```bash
+(
+: "${ACCOUNT:?run the block above first, it sets ACCOUNT}"
 cat > /tmp/smile-deploy-inputs-policy.json <<EOF
 {
   "Version": "2012-10-17",
@@ -168,7 +194,12 @@ cat > /tmp/smile-deploy-inputs-policy.json <<EOF
       "Sid": "OnlySsoAdministrators",
       "Effect": "Deny",
       "Principal": "*",
-      "Action": ["secretsmanager:GetSecretValue", "secretsmanager:PutSecretValue"],
+      "Action": [
+        "secretsmanager:GetSecretValue",
+        "secretsmanager:PutSecretValue",
+        "secretsmanager:UpdateSecret",
+        "secretsmanager:UpdateSecretVersionStage"
+      ],
       "Resource": "*",
       "Condition": {
         "ArnNotLike": {
@@ -180,17 +211,23 @@ cat > /tmp/smile-deploy-inputs-policy.json <<EOF
 }
 EOF
 for name in sparked/smile/terraform/sparkey-tfvars sparked/smile/terraform/backend-sparkey-hcl; do
-  aws secretsmanager validate-resource-policy --secret-id "$name" \
-    --resource-policy file:///tmp/smile-deploy-inputs-policy.json --query PolicyValidationPassed
-  aws secretsmanager put-resource-policy --secret-id "$name" \
-    --resource-policy file:///tmp/smile-deploy-inputs-policy.json --block-public-policy --query Name --output text
+  # validate-resource-policy exits 0 even when the policy fails, so test its answer.
+  if [ "$(aws secretsmanager validate-resource-policy --secret-id "$name" \
+          --resource-policy file:///tmp/smile-deploy-inputs-policy.json \
+          --query PolicyValidationPassed --output text)" = True ]; then
+    aws secretsmanager put-resource-policy --secret-id "$name" \
+      --resource-policy file:///tmp/smile-deploy-inputs-policy.json --block-public-policy --query Name --output text
+  else
+    echo "policy failed validation for $name; not attached"
+  fi
 done
 rm /tmp/smile-deploy-inputs-policy.json
+)
 
-scripts/fetch-smile-tfvars.sh status     # expect "in sync" for both
+scripts/fetch-smile-tfvars.sh fetch      # expect "unchanged" for both; records each version
 ```
 
-If `status` now fails with `AccessDeniedException`, the policy does not match
+If `fetch` now fails with `AccessDeniedException`, the policy does not match
 your role. Remove it with
 `aws secretsmanager delete-resource-policy --secret-id <name>` (not denied by
 the policy) and check the ARN that `aws sts get-caller-identity` reports.
