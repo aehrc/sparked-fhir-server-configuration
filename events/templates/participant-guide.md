@@ -2,7 +2,7 @@
 
 {{ generated_note }}
 
-This guide covers the services the Sparked program runs for the event: the Sparked FHIR server, writable sandboxes, the hosted Inferno test kits and the terminology servers. For the agenda, tracks and venue, see the [event page]({{ event.event_page }}).
+This guide covers the services the Sparked program runs for the event: {{ sandbox.slot.services }}. For the agenda, tracks and venue, see the [event page]({{ event.event_page }}).
 
 Everything here holds **synthetic test data only**. Never send real patient or personal data to any of these services.
 
@@ -16,7 +16,7 @@ Everything here holds **synthetic test data only**. Never send real patient or p
 | Sparked FHIR server | `{{ server.sparked.fhir_base }}` |
 | HL7 AU reference server | `{{ server.hl7au-reference.fhir_base }}` |
 | Inferno | {{ inferno.url }} |
-| Sandboxes | {{ sandbox.summary }} |
+| Sandboxes | {{ sandbox.slot.summary }} |
 | Change freeze | {{ freeze.window }} |
 | Help | [Sparked FHIR Server topic on Zulip]({{ help.first_url }}) |
 
@@ -28,7 +28,9 @@ Everything here holds **synthetic test data only**. Never send real patient or p
 
 **Two servers share the same path.** `smile.sparked-fhir.com/aucore/fhir/DEFAULT` (Sparked) and `fhir.hl7.org.au/aucore/fhir/DEFAULT` (HL7 AU reference server) look alike but are separate systems, run by different teams, holding different IG versions. Check the host before you report a problem, and report it in the right place (see [Help](#help)).
 
-The Sparked server's `DEFAULT` partition is read-only for participants. Reads, searches, `$validate` and `$summary` need no login. To write, use your own sandbox (see [Sandboxes](#sandboxes)).
+The Sparked server's `DEFAULT` partition is read-only for participants. Reads, searches, `$validate` and `$summary` need no login. {{ sandbox.slot.writes }}
+
+{{ other_endpoints }}
 
 ## Version map
 
@@ -77,11 +79,11 @@ About the identifiers in this data (from the [AU test data documentation](https:
 
 ## Sandboxes
 
-{{ sandbox_section }}
+{{ sandbox.slot.section }}
 
 ## Auth recipes
 
-Each recipe below matches what the server's discovery documents advertise ([SMART configuration]({{ server.sparked.smart.configuration }}), [OpenID configuration]({{ server.sparked.smart.openid_configuration }})): grant types `authorization_code` and `client_credentials`, confidential clients with a shared secret (`client-confidential-symmetric`), public clients with PKCE `S256`, and SMART v1 scopes (`permission-v2` is not advertised). The examples use the shell variables `SANDBOX_BASE`, `CLIENT_ID` and `CLIENT_SECRET`; take their values from your sandbox page.
+The Sparked server's discovery documents ([SMART configuration]({{ server.sparked.smart.configuration }}), [OpenID configuration]({{ server.sparked.smart.openid_configuration }})) advertise grant types `authorization_code` and `client_credentials`, confidential clients with a shared secret (`client-confidential-symmetric`) and public clients with PKCE `S256`. They list only `openid` and `fhirUser` in `scopes_supported` and advertise neither `permission-v1` nor `permission-v2`.
 
 | | URL |
 |---|---|
@@ -97,53 +99,7 @@ Each recipe below matches what the server's discovery documents advertise ([SMAR
 curl -s '{{ server.sparked.fhir_base }}/Patient?_count=5'
 ```
 
-### Backend services: client credentials
-
-For a system talking to your sandbox with no user present. Send the client id and secret with HTTP Basic, then use the access token as a bearer token.
-
-```bash
-TOKEN=$(curl -s -u "$CLIENT_ID:$CLIENT_SECRET" \
-  -d grant_type=client_credentials \
-  -d scope='system/*.read' \
-  '{{ server.sparked.smart.token }}' | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])')
-```
-
-Ask only for the scopes your sandbox page lists for the backend client.
-
-### Bearer token on each request
-
-```bash
-curl -s -H "Authorization: Bearer $TOKEN" "$SANDBOX_BASE/Patient?_count=5"
-```
-
-A sandbox token works on your own sandbox only. Read `DEFAULT` without a token.
-
-### SMART App Launch with PKCE (standalone launch)
-
-For an app that a user signs in to. Your sandbox comes with a public client and a login user; register your app's redirect URIs (https, or http on localhost) on the sandbox page first.
-
-1. Make a PKCE verifier and its S256 challenge:
-
-   ```bash
-   CODE_VERIFIER=$(openssl rand -base64 48 | tr -d '=+/\n' | cut -c1-64)
-   CODE_CHALLENGE=$(printf '%s' "$CODE_VERIFIER" | openssl dgst -sha256 -binary | openssl base64 | tr '+/' '-_' | tr -d '=\n')
-   ```
-
-2. Send the user's browser to the authorize endpoint with these query parameters (URL-encoded): `response_type=code`, `client_id`, `redirect_uri`, `scope=launch/patient openid fhirUser patient/*.read`, a random `state`, `aud=<your sandbox FHIR base>`, `code_challenge=$CODE_CHALLENGE` and `code_challenge_method=S256`.
-3. The user signs in with the sandbox login user and approves. The browser comes back to your redirect URI with `code` and `state`; check that `state` matches.
-4. Exchange the code:
-
-   ```bash
-   curl -s \
-     -d grant_type=authorization_code \
-     -d code="$CODE" \
-     -d redirect_uri="$REDIRECT_URI" \
-     -d client_id="$CLIENT_ID" \
-     -d code_verifier="$CODE_VERIFIER" \
-     '{{ server.sparked.smart.token }}'
-   ```
-
-5. The response carries `access_token`, the `patient` in context and an `id_token`. Check the `id_token` signature against `{{ server.sparked.smart.jwks }}` (see [Known issues](#known-issues) on the `jwks_uri` in SMART discovery).
+{{ sandbox.slot.auth }}
 
 ### Testing your own server in Inferno: bearer token or custom header
 

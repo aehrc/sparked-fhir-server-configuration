@@ -47,7 +47,7 @@ servers:
     name: Sparked FHIR Server (aucore)
     run_by: CSIRO, for the Sparked program
     fhir_base: https://smile.sparked-fhir.com/aucore/fhir/DEFAULT
-    access: "Anonymous read and search, $validate and $summary on the shared DEFAULT partition. DEFAULT is read-only for participants; writes go to your own sandbox."
+    access: "Anonymous read and search, $validate and $summary on the shared DEFAULT partition, which is read-only for participants."
     software: Smile CDR 2026.05.R01
     smart:
       configuration: https://smile.sparked-fhir.com/aucore/fhir/DEFAULT/.well-known/smart-configuration
@@ -118,6 +118,18 @@ servers:
       - AU Core 3.0.0-ballot1
     last_checked: "2026-11-21"
 
+# IGs an event track uses that Sparked does not serve, and where they are.
+not_on_sparked:
+  - title: AU eRequesting
+    version: 1.0.0
+    server_name: HL7 AU reference FHIR server (not run by Sparked)
+    fhir_base: https://fhir.hl7.org.au/ereq/fhir/DEFAULT
+    note: "Sparked's own eRequesting endpoint (`smile.sparked-fhir.com/ereq`) was retired in August 2026 and answers 404. Ask in the AU eRequesting track topic on Zulip (see [Help](#help)) which server the track uses."
+    # Sparked: /ereq/fhir/DEFAULT/metadata 404, no au-erequesting
+    # StructureDefinition on aucore. HL7 AU: metadata 200, 21 au-erequesting
+    # StructureDefinitions, all version 1.0.0.
+    last_checked: "2026-11-21"
+
 version_policy: >-
   The Sparked FHIR server carries the latest AU ballots (AU Core 3.0.0-ballot1,
   AU Base 7.0.0-ballot1), and the HL7 AU reference server carries the current
@@ -174,7 +186,9 @@ inferno:
           title: SMART App Launch STU1
         - id: smart_access_brands
           title: SMART User-access Brands and Endpoints STU2.2
-      note: hosted on purpose from v1.2.3 onwards; there is no kit page, so open the suites directly.
+      # No `page` until hl7au/au-fhir-inferno#227 adds the kit page to the
+      # site; the operator checklist adds it once that page answers.
+      note: hosted on purpose from v1.2.3 onwards.
 
 # The DEFAULT partition's curated data, as recorded by the loader
 # (loader.sparked-fhir.com, /api/v1/public/nodes and /datasets).
@@ -201,7 +215,9 @@ sandbox:
   decision: Go/no-go on Mon 30 Nov 2026
   url: https://sandbox.sparked-fhir.com
   mode: event
-  access_code_distribution: printed in the participant guide handed out on the day and shown on the venue slides
+  # Rendered as "From <opens>, the code is <this>." The code itself never
+  # goes in this public repository.
+  access_code_distribution: "in the organisers' pre-event message to registered participants and in the Sparked FHIR Server topic on Zulip (see [Help](#help)); during the event it is also on the venue slides and in the printed guide"
   opens: "2026-12-02T09:00:00+11:00"
   creation_closes: "2026-12-10T17:00:00+11:00"
   expiry_days_after_event_end: 7
@@ -225,6 +241,9 @@ help:
   - name: "Zulip: #australia > AU Core Track - Melbourne FHIR Connectathon #28"
     url: https://chat.fhir.org/#narrow/channel/179173-australia/topic/AU.20Core.20Track.20-.20Melbourne.20FHIR.20Connectathon.20.2328
     use_for: AU Core track questions
+  - name: "Zulip: #australia > AU eRequesting Track - Melbourne FHIR Connectathon #28"
+    url: https://chat.fhir.org/#narrow/channel/179173-australia/topic/AU.20eRequesting.20Track.20-.20Melbourne.20FHIR.20Connectathon.20.2328
+    use_for: AU eRequesting track questions, including which server the track uses
   - name: "Zulip: #australia > AU Patient Summary Track - Melbourne FHIR Connectathon #28"
     url: https://chat.fhir.org/#narrow/channel/179173-australia/topic/AU.20Patient.20Summary.20Track.20-.20Melbourne.20FHIR.20Connectathon.20.2328
     use_for: AU Patient Summary track questions

@@ -52,6 +52,18 @@ BANNED_WORDS = re.compile(
 )
 PLACEHOLDER = re.compile(r"\{\{\s*([A-Za-z0-9_.-]+)\s*\}\}")
 
+# Every statement about sandboxes lives in templates/sandbox-<status>.md, one
+# file per sandbox status, split into these slots by `<!-- slot: name -->`
+# lines. The guide template uses them as {{ sandbox.slot.<name> }}, so a
+# planned or cancelled sandbox never renders a sentence that assumes one.
+SANDBOX_STATUSES = ("planned", "open", "cancelled")
+SANDBOX_SLOTS = ("summary", "services", "writes", "section", "auth")
+SLOT_MARKER = re.compile(r"^<!-- slot: ([a-z_]+) -->[ \t]*$", re.MULTILINE)
+
+# Karpenter expires a node this long after it was created (expireAfter 720h),
+# so a node created in the window this far before the freeze expires inside it.
+NODE_EXPIRY = dt.timedelta(days=30)
+
 
 class ManifestError(Exception):
     """A manifest that fails the schema or a cross-field check."""
@@ -235,6 +247,7 @@ def build_context(manifest: dict, access_code: str | None = None) -> dict[str, s
     last_checked = max(
         [s["last_checked"] for s in manifest["servers"]]
         + [i["last_checked"] for i in manifest["known_issues"]]
+        + [o["last_checked"] for o in manifest.get("not_on_sparked", [])]
     )
 
     ctx: dict[str, str] = {
@@ -247,6 +260,17 @@ def build_context(manifest: dict, access_code: str | None = None) -> dict[str, s
         "freeze.start": fmt_datetime(freeze_start, tz),
         "freeze.end": fmt_datetime(freeze_end, tz),
         "freeze.window": f"{fmt_datetime(freeze_start, tz)} to {fmt_datetime(freeze_end, tz)}",
+        # The freeze as the cron and duration the sparked-argo freeze blocks
+        # render: Argo CD sync windows in the event timezone, Karpenter
+        # budgets in UTC.
+        "freeze.timezone": manifest["timezone"],
+        "freeze.cron_local": _cron(freeze_start.astimezone(tz)),
+        "freeze.cron_utc": _cron(freeze_start.astimezone(dt.timezone.utc)),
+        "freeze.duration": f"{int((freeze_end - freeze_start).total_seconds() // 3600)}h",
+        "freeze.node_expiry_window": (
+            f"{fmt_datetime(freeze_start - NODE_EXPIRY, tz)} and "
+            f"{fmt_datetime(freeze_end - NODE_EXPIRY, tz)}"
+        ),
         "inferno.url": inferno["url"],
         "inferno.release.tracking": inferno["release"]["tracking"],
         "version_policy": " ".join(manifest["version_policy"].split()),
@@ -279,15 +303,12 @@ def build_context(manifest: dict, access_code: str | None = None) -> dict[str, s
             "sandbox.max_live": f"{sandbox['caps']['max_live_sandboxes']:,}",
             "sandbox.max_resources": f"{sandbox['caps']['max_resources_per_sandbox']:,}",
             "sandbox.access_code_line": (
-                f"**Event access code: `{access_code}`**" if access_code else ""
+                f"**Event access code: `{access_code}`**"
+                if access_code
+                else "The code is not in this guide."
             ),
         }
     )
-    ctx["sandbox.summary"] = {
-        "planned": f"Planned, not yet confirmed ({sandbox['decision']})",
-        "open": f"{sandbox['url']}, with the event access code",
-        "cancelled": "None for this event; see [Sandboxes](#sandboxes)",
-    }[sandbox["status"]]
 
     # Generated blocks
     ctx["programme"] = "Programme:\n\n" + "\n".join(
@@ -312,17 +333,56 @@ def build_context(manifest: dict, access_code: str | None = None) -> dict[str, s
     ctx["help_list"] = "\n".join(
         f"- [{h['name']}]({h['url']}): {h['use_for']}" for h in manifest["help"]
     )
+    ctx["other_endpoints"] = other_endpoints(manifest)
 
-    # Sandbox section: the partial for the current status, which may include
-    # the shared details partial.
+    # Sandbox text: the slots of the partial for the current status, which
+    # may include the shared details partial.
     ctx["sandbox_details"] = substitute(
         (TEMPLATES_DIR / "sandbox-details.md").read_text(encoding="utf-8"), ctx, "sandbox-details.md"
     ).strip()
-    partial = TEMPLATES_DIR / f"sandbox-{sandbox['status']}.md"
-    ctx["sandbox_section"] = substitute(
-        partial.read_text(encoding="utf-8"), ctx, partial.name
-    ).strip()
+    for name, text in sandbox_slots(sandbox["status"]).items():
+        ctx[f"sandbox.slot.{name}"] = substitute(
+            text, ctx, f"sandbox-{sandbox['status']}.md ({name})"
+        ).strip()
     return ctx
+
+
+def sandbox_slots(status: str) -> dict[str, str]:
+    """The named slots of templates/sandbox-<status>.md; each status file must
+    define exactly SANDBOX_SLOTS."""
+    name = f"sandbox-{status}.md"
+    text = (TEMPLATES_DIR / name).read_text(encoding="utf-8")
+    parts = SLOT_MARKER.split(text)
+    if parts[0].strip():
+        raise ManifestError(f"{name}: text before the first <!-- slot: ... --> line")
+    slots: dict[str, str] = {}
+    for slot, body in zip(parts[1::2], parts[2::2]):
+        if slot in slots:
+            raise ManifestError(f"{name}: slot {slot!r} appears twice")
+        slots[slot] = body.strip()
+    if set(slots) != set(SANDBOX_SLOTS):
+        raise ManifestError(
+            f"{name}: slots {sorted(slots)} must be exactly {sorted(SANDBOX_SLOTS)}"
+        )
+    return slots
+
+
+def _cron(moment: dt.datetime) -> str:
+    return f"{moment.minute} {moment.hour} {moment.day} {moment.month} *"
+
+
+def other_endpoints(manifest: dict) -> str:
+    entries = manifest.get("not_on_sparked", [])
+    if not entries:
+        return ""
+    lines = ["**Not on the Sparked server.** Some event tracks use IGs that Sparked does not serve:", ""]
+    for entry in entries:
+        lines.append(
+            f"- **{entry['title']} {entry['version']}**: `{entry['fhir_base']}` on the "
+            f"{entry['server_name']}, checked {fmt_date(_date(entry['last_checked']))}. "
+            f"{entry['note']}"
+        )
+    return "\n".join(lines)
 
 
 def servers_table(manifest: dict) -> str:
@@ -529,6 +589,22 @@ def render_guide(manifest: dict, access_code: str | None = None) -> str:
     return text
 
 
+def with_sandbox_status(manifest: dict, status: str) -> dict:
+    variant = dict(manifest)
+    variant["sandbox"] = {**manifest["sandbox"], "status": status}
+    return variant
+
+
+def lint_participant_text(manifest: dict) -> None:
+    """Lint everything a participant may read, not only today's guide: the
+    guide under every sandbox status (so a partial is checked before the
+    go/no-go switches to it) and the loader banner."""
+    for status in SANDBOX_STATUSES:
+        render_guide(with_sandbox_status(manifest, status))
+    banner = manifest["loader_banner"]
+    lint_wording(f"{banner['title']}\n{banner['message']}", "loader_banner")
+
+
 def anchor_dates(manifest: dict) -> dict[str, dt.date]:
     tz = ZoneInfo(manifest["timezone"])
 
@@ -546,15 +622,18 @@ def anchor_dates(manifest: dict) -> dict[str, dt.date]:
     }
 
 
-def render_checklist(manifest: dict) -> str:
+def render_checklist(manifest: dict, spec: dict | None = None) -> str:
     ctx = build_context(manifest)
-    with (TEMPLATES_DIR / "operator-checklist.yaml").open(encoding="utf-8") as fh:
-        spec = yaml.safe_load(fh)
+    if spec is None:
+        with (TEMPLATES_DIR / "operator-checklist.yaml").open(encoding="utf-8") as fh:
+            spec = yaml.safe_load(fh)
     anchors = anchor_dates(manifest)
     start = anchors["event_start"]
 
     dated: list[tuple[dt.date, int, dict]] = []
     for order, item in enumerate(spec["items"]):
+        if "only_for" in item and manifest["id"] not in item["only_for"]:
+            continue
         if item["anchor"] not in anchors:
             raise ManifestError(f"operator-checklist.yaml: unknown anchor {item['anchor']!r}")
         day = anchors[item["anchor"]] + dt.timedelta(days=item["offset_days"])
@@ -586,15 +665,17 @@ def render_checklist(manifest: dict) -> str:
             delta = (day - start).days
             label = "T" if delta == 0 else f"T{delta:+d}"
             lines += ["", f"## {fmt_date(day)} ({label})", ""]
-        task = substitute(item["task"], ctx, "operator-checklist.yaml")
-        if item.get("todo"):
-            lines.append(f"- [ ] **TODO, not yet written:** {task}")
-        else:
-            lines.append(f"- [ ] {task}")
+        task = substitute(item["task"].strip(), ctx, "operator-checklist.yaml")
+        # A multi-line task (code blocks and all) continues inside its list item.
+        first, *rest = task.split("\n")
+        prefix = "- [ ] **TODO, not yet written:** " if item.get("todo") else "- [ ] "
+        lines.append(prefix + first)
+        lines.extend(f"  {line}" if line else "" for line in rest)
     return tidy("\n".join(lines))
 
 
 def outputs_for(manifest: dict) -> dict[Path, str]:
+    lint_participant_text(manifest)
     return {
         REPO_ROOT / manifest["outputs"]["guide"]: render_guide(manifest),
         REPO_ROOT / manifest["outputs"]["checklist"]: render_checklist(manifest),
@@ -613,9 +694,11 @@ def check_links(manifest: dict) -> int:
     smart = next((s.get("smart") for s in manifest["servers"] if s.get("smart")), {}) or {}
     post_only = {smart.get("token"), smart.get("authorize")}
     # A FHIR base answers GET with 400; its CapabilityStatement is the check.
-    fhir_bases = {s["fhir_base"] for s in manifest["servers"]} | {
-        t["url"] for t in manifest["terminology"]
-    }
+    fhir_bases = (
+        {s["fhir_base"] for s in manifest["servers"]}
+        | {t["url"] for t in manifest["terminology"]}
+        | {o["fhir_base"] for o in manifest.get("not_on_sparked", [])}
+    )
     urls = []
     for url in URL_RE.findall(text):
         url = url.rstrip(".,;:")

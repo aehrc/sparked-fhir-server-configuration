@@ -101,12 +101,107 @@ class RenderingTests(unittest.TestCase):
         checklist = r.render_checklist(manifest)
         headings = [line for line in checklist.splitlines() if line.startswith("## ")]
         self.assertTrue(headings[0].endswith("(T-14)"), headings[0])
-        self.assertIn("TODO, not yet written", checklist)
+        self.assertNotIn("TODO, not yet written", checklist)
+
+    def test_checklist_items_todo_only_for_and_multiline(self):
+        _, manifest = first_manifest()
+        spec = {
+            "items": [
+                {"anchor": "event_start", "offset_days": 0, "todo": True, "task": "Write this step."},
+                {"anchor": "event_start", "offset_days": 0, "only_for": ["1999-01-elsewhere"], "task": "Hidden."},
+                {"anchor": "event_end", "offset_days": 0, "task": "Run:\n```sh\necho {{ event.id }}\n```\n"},
+            ]
+        }
+        checklist = r.render_checklist(manifest, spec)
+        self.assertIn("- [ ] **TODO, not yet written:** Write this step.", checklist)
+        self.assertNotIn("Hidden.", checklist)
+        self.assertIn(f"- [ ] Run:\n  ```sh\n  echo {manifest['id']}\n  ```", checklist)
+
+    def test_freeze_values_match_the_window(self):
+        _, manifest = first_manifest()
+        ctx = r.build_context(manifest)
+        self.assertEqual(ctx["freeze.cron_local"], "0 17 4 12 *")
+        self.assertEqual(ctx["freeze.cron_utc"], "0 6 4 12 *")
+        self.assertEqual(ctx["freeze.duration"], "168h")
 
     def test_committed_outputs_match(self):
         with redirect_stdout(io.StringIO()) as out:
             code = r.main(["--check"])
         self.assertEqual(code, 0, out.getvalue())
+
+
+# Sentences that state sandbox behaviour as fact. None may render unless the
+# sandbox is open.
+SANDBOX_FACTS = (
+    "your own sandbox",
+    "your sandbox page",
+    "sandbox token",
+    "SANDBOX_BASE",
+    "writes go to",
+    "writable sandboxes, the hosted",
+    "Writable sandboxes are **open**",
+    "sandbox login user",
+)
+
+
+class SandboxStatusTests(unittest.TestCase):
+    def render(self, status: str) -> str:
+        _, manifest = first_manifest()
+        return r.render_guide(r.with_sandbox_status(manifest, status))
+
+    def test_every_status_partial_has_every_slot(self):
+        for status in r.SANDBOX_STATUSES:
+            with self.subTest(status=status):
+                self.assertEqual(set(r.sandbox_slots(status)), set(r.SANDBOX_SLOTS))
+
+    def test_cancelled_guide_states_no_sandbox_as_fact(self):
+        _, manifest = first_manifest()
+        guide = self.render("cancelled")
+        for phrase in SANDBOX_FACTS:
+            with self.subTest(phrase=phrase):
+                self.assertNotIn(phrase, guide)
+        self.assertNotIn(manifest["sandbox"]["url"], guide)
+        self.assertIn("no self-serve sandboxes", guide)
+
+    def test_planned_guide_states_no_sandbox_as_fact_outside_the_plan(self):
+        guide = self.render("planned")
+        # The Sandboxes section describes the plan; nothing else may assume it.
+        before, _, rest = guide.partition("## Sandboxes")
+        _, _, after = rest.partition("\n## ")
+        for phrase in SANDBOX_FACTS:
+            with self.subTest(phrase=phrase):
+                self.assertNotIn(phrase, before + after)
+
+    def test_open_guide_has_the_recipes(self):
+        guide = self.render("open")
+        self.assertIn("### Backend services: client credentials", guide)
+        self.assertIn("SANDBOX_BASE", guide)
+
+    def test_guide_template_leaves_sandboxes_to_the_partials(self):
+        """participant-guide.md may name the Sandboxes section but never
+        describe sandboxes: that text belongs in the status partials."""
+        template = (r.TEMPLATES_DIR / "participant-guide.md").read_text(encoding="utf-8")
+        stripped = r.PLACEHOLDER.sub("", template)
+        for allowed in ("[Sandboxes](#sandboxes)", "## Sandboxes", "| Sandboxes |"):
+            stripped = stripped.replace(allowed, "")
+        self.assertNotRegex(stripped.lower(), r"sandbox")
+
+    def test_manifest_text_outside_the_partials_states_no_sandbox_as_fact(self):
+        _, manifest = first_manifest()
+        for server in manifest["servers"]:
+            self.assertNotIn("sandbox", server["access"].lower())
+
+    def test_lint_covers_other_statuses_and_the_loader_banner(self):
+        _, manifest = first_manifest()
+        bad = copy.deepcopy(manifest)
+        bad["sandbox"]["status"] = "planned"
+        bad["sandbox"]["fallback"] = "Ask for a certified sandbox."  # cancelled partial only
+        with self.assertRaisesRegex(r.ManifestError, "banned wording"):
+            r.lint_participant_text(bad)
+        bad = copy.deepcopy(manifest)
+        bad["loader_banner"]["message"] = "All servers passed."
+        with self.assertRaisesRegex(r.ManifestError, "loader_banner"):
+            r.lint_participant_text(bad)
 
 
 if __name__ == "__main__":

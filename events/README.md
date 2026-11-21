@@ -20,7 +20,8 @@ file differs from what its manifest renders to.
 | `<event>.yaml` | The manifest for one event |
 | `schema/event-manifest.schema.json` | JSON Schema for a manifest |
 | `templates/participant-guide.md` | Hand-written guide prose, with `{{ placeholders }}` |
-| `templates/sandbox-*.md` | The guide's sandbox section, one file per sandbox status |
+| `templates/sandbox-<status>.md` | Every sentence about sandboxes, one file per sandbox status, split into slots |
+| `templates/sandbox-details.md` | The sandbox plan, shared by the `planned` and `open` files |
 | `templates/operator-checklist.yaml` | Checklist items, each dated relative to the event |
 | `requirements.txt` | The renderer's pinned dependencies |
 
@@ -51,12 +52,21 @@ Never edit a rendered file by hand.
   one is a review rule, not checked by the renderer.)
 - Unknown placeholders, unknown manifest keys and inconsistent dates fail
   the render.
+- The wording check covers the guide under every sandbox status (not only
+  the current one) and the loader banner text.
+- `templates/participant-guide.md` never describes sandboxes; the tests fail
+  if it does. Anything that depends on whether sandboxes exist goes in a
+  slot of `templates/sandbox-<status>.md`, so a planned or cancelled sandbox
+  never renders a sentence that assumes one.
 
 ## The sandbox access code
 
 The access code keeps crawlers out of the event sandbox front, so it is never
-written to this public repository. It is handed out on the day: on the venue
-slides and in a printed copy of the guide, produced with
+written to this public repository. From `sandbox.opens`, it goes out where
+`sandbox.access_code_distribution` says (for 2026-12-melbourne: the
+organisers' pre-event message and the Sparked FHIR Server topic on Zulip);
+during the event it is on the venue slides and in a printed copy of the
+guide, produced with
 
 ```bash
 EVENT_ACCESS_CODE=... python scripts/render_event.py --print-copy /path/outside/the/repo.md events/<event>.yaml
@@ -67,7 +77,11 @@ which refuses to write inside the repository.
 ## Statuses that change the guide
 
 - `sandbox.status`: `planned` until the go/no-go, then `open` or `cancelled`.
-  Each has its own section text in `templates/sandbox-<status>.md`.
+  Each has its own text in `templates/sandbox-<status>.md`, one block per
+  slot, each block starting with a `<!-- slot: name -->` line: `summary`
+  (the At a glance cell), `services` (the opening sentence), `writes`
+  (Endpoints), `section` (Sandboxes) and `auth` (the sandbox recipes under
+  Auth recipes). Every file must define every slot.
 - `inferno.release.status`: `planned` until the promotion merges and the site
   serves the release, then `live`.
 

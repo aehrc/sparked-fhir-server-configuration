@@ -85,6 +85,23 @@
       "minItems": 1,
       "items": { "$ref": "#/$defs/server" }
     },
+    "not_on_sparked": {
+      "description": "IGs an event track uses that Sparked does not serve, with the server that does. Rendered under Endpoints.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["title", "version", "server_name", "fhir_base", "note", "last_checked"],
+        "properties": {
+          "title": { "type": "string", "minLength": 1 },
+          "version": { "type": "string", "minLength": 1 },
+          "server_name": { "type": "string", "minLength": 1 },
+          "fhir_base": { "$ref": "#/$defs/url" },
+          "note": { "type": "string", "minLength": 1 },
+          "last_checked": { "$ref": "#/$defs/date" }
+        }
+      }
+    },
     "version_policy": {
       "description": "One or two sentences on why each server serves the versions it does.",
       "type": "string",
@@ -212,7 +229,7 @@
           "enum": ["event", "standing"]
         },
         "access_code_distribution": {
-          "description": "Where participants find the access code. The code itself never goes in this public file.",
+          "description": "Where participants find the access code from sandbox.opens onwards, completing the sentence \"From <opens>, the code is ...\". The code itself never goes in this public file.",
           "type": "string",
           "minLength": 1
         },

@@ -4,7 +4,7 @@
 
 _Facts in this guide were last checked on Sat 21 Nov 2026._
 
-This guide covers the services the Sparked program runs for the event: the Sparked FHIR server, writable sandboxes, the hosted Inferno test kits and the terminology servers. For the agenda, tracks and venue, see the [event page](https://confluence.hl7.org/pages/viewpage.action?pageId=494872196).
+This guide covers the services the Sparked program runs for the event: the Sparked FHIR server, the hosted Inferno test kits and the terminology servers, and writable sandboxes if they go ahead. For the agenda, tracks and venue, see the [event page](https://confluence.hl7.org/pages/viewpage.action?pageId=494872196).
 
 Everything here holds **synthetic test data only**. Never send real patient or personal data to any of these services.
 
@@ -34,13 +34,17 @@ Programme:
 |---|---|---|
 | Run by | CSIRO, for the Sparked program | HL7 Australia (not run by Sparked) |
 | FHIR base | `https://smile.sparked-fhir.com/aucore/fhir/DEFAULT` | `https://fhir.hl7.org.au/aucore/fhir/DEFAULT` |
-| Access | Anonymous read and search, $validate and $summary on the shared DEFAULT partition. DEFAULT is read-only for participants; writes go to your own sandbox. | Anonymous read and search. The default target of the Inferno AU Core Test Kit. |
+| Access | Anonymous read and search, $validate and $summary on the shared DEFAULT partition, which is read-only for participants. | Anonymous read and search. The default target of the Inferno AU Core Test Kit. |
 | Software | Smile CDR 2026.05.R01 | Smile CDR 2026.02.R02 |
 | SMART configuration | `https://smile.sparked-fhir.com/aucore/fhir/DEFAULT/.well-known/smart-configuration` |  |
 
 **Two servers share the same path.** `smile.sparked-fhir.com/aucore/fhir/DEFAULT` (Sparked) and `fhir.hl7.org.au/aucore/fhir/DEFAULT` (HL7 AU reference server) look alike but are separate systems, run by different teams, holding different IG versions. Check the host before you report a problem, and report it in the right place (see [Help](#help)).
 
-The Sparked server's `DEFAULT` partition is read-only for participants. Reads, searches, `$validate` and `$summary` need no login. To write, use your own sandbox (see [Sandboxes](#sandboxes)).
+The Sparked server's `DEFAULT` partition is read-only for participants. Reads, searches, `$validate` and `$summary` need no login. Writable sandboxes are planned but not yet confirmed (see [Sandboxes](#sandboxes)); until they open, there is nowhere on the Sparked server to write.
+
+**Not on the Sparked server.** Some event tracks use IGs that Sparked does not serve:
+
+- **AU eRequesting 1.0.0**: `https://fhir.hl7.org.au/ereq/fhir/DEFAULT` on the HL7 AU reference FHIR server (not run by Sparked), checked Sat 21 Nov 2026. Sparked's own eRequesting endpoint (`smile.sparked-fhir.com/ereq`) was retired in August 2026 and answers 404. Ask in the AU eRequesting track topic on Zulip (see [Help](#help)) which server the track uses.
 
 ## Version map
 
@@ -119,7 +123,9 @@ Writable sandboxes for this event are **planned, not yet confirmed**. Go/no-go o
 
 A sandbox is your own writable space on the Sparked FHIR server, with its own FHIR base URL, clients and starter data, separate from every other participant's.
 
-**Getting one.** Go to https://sandbox.sparked-fhir.com and enter the event access code. The code is printed in the participant guide handed out on the day and shown on the venue slides; it is not published online. There is no account to create and no GitHub login during the event.
+**Getting one.** Go to https://sandbox.sparked-fhir.com and enter the event access code. From Wed 2 Dec 2026, 09:00 AEDT, the code is in the organisers' pre-event message to registered participants and in the Sparked FHIR Server topic on Zulip (see [Help](#help)); during the event it is also on the venue slides and in the printed guide. There is no account to create and no GitHub login.
+
+The code is not in this guide.
 
 **What you get**, all shown on your sandbox page:
 
@@ -135,7 +141,7 @@ A sandbox is your own writable space on the Sparked FHIR server, with its own FH
 
 ## Auth recipes
 
-Each recipe below matches what the server's discovery documents advertise ([SMART configuration](https://smile.sparked-fhir.com/aucore/fhir/DEFAULT/.well-known/smart-configuration), [OpenID configuration](https://smile.sparked-fhir.com/aucore/smartauth/.well-known/openid-configuration)): grant types `authorization_code` and `client_credentials`, confidential clients with a shared secret (`client-confidential-symmetric`), public clients with PKCE `S256`, and SMART v1 scopes (`permission-v2` is not advertised). The examples use the shell variables `SANDBOX_BASE`, `CLIENT_ID` and `CLIENT_SECRET`; take their values from your sandbox page.
+The Sparked server's discovery documents ([SMART configuration](https://smile.sparked-fhir.com/aucore/fhir/DEFAULT/.well-known/smart-configuration), [OpenID configuration](https://smile.sparked-fhir.com/aucore/smartauth/.well-known/openid-configuration)) advertise grant types `authorization_code` and `client_credentials`, confidential clients with a shared secret (`client-confidential-symmetric`) and public clients with PKCE `S256`. They list only `openid` and `fhirUser` in `scopes_supported` and advertise neither `permission-v1` nor `permission-v2`.
 
 | | URL |
 |---|---|
@@ -151,53 +157,7 @@ Each recipe below matches what the server's discovery documents advertise ([SMAR
 curl -s 'https://smile.sparked-fhir.com/aucore/fhir/DEFAULT/Patient?_count=5'
 ```
 
-### Backend services: client credentials
-
-For a system talking to your sandbox with no user present. Send the client id and secret with HTTP Basic, then use the access token as a bearer token.
-
-```bash
-TOKEN=$(curl -s -u "$CLIENT_ID:$CLIENT_SECRET" \
-  -d grant_type=client_credentials \
-  -d scope='system/*.read' \
-  'https://smile.sparked-fhir.com/aucore/smartauth/oauth/token' | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])')
-```
-
-Ask only for the scopes your sandbox page lists for the backend client.
-
-### Bearer token on each request
-
-```bash
-curl -s -H "Authorization: Bearer $TOKEN" "$SANDBOX_BASE/Patient?_count=5"
-```
-
-A sandbox token works on your own sandbox only. Read `DEFAULT` without a token.
-
-### SMART App Launch with PKCE (standalone launch)
-
-For an app that a user signs in to. Your sandbox comes with a public client and a login user; register your app's redirect URIs (https, or http on localhost) on the sandbox page first.
-
-1. Make a PKCE verifier and its S256 challenge:
-
-   ```bash
-   CODE_VERIFIER=$(openssl rand -base64 48 | tr -d '=+/\n' | cut -c1-64)
-   CODE_CHALLENGE=$(printf '%s' "$CODE_VERIFIER" | openssl dgst -sha256 -binary | openssl base64 | tr '+/' '-_' | tr -d '=\n')
-   ```
-
-2. Send the user's browser to the authorize endpoint with these query parameters (URL-encoded): `response_type=code`, `client_id`, `redirect_uri`, `scope=launch/patient openid fhirUser patient/*.read`, a random `state`, `aud=<your sandbox FHIR base>`, `code_challenge=$CODE_CHALLENGE` and `code_challenge_method=S256`.
-3. The user signs in with the sandbox login user and approves. The browser comes back to your redirect URI with `code` and `state`; check that `state` matches.
-4. Exchange the code:
-
-   ```bash
-   curl -s \
-     -d grant_type=authorization_code \
-     -d code="$CODE" \
-     -d redirect_uri="$REDIRECT_URI" \
-     -d client_id="$CLIENT_ID" \
-     -d code_verifier="$CODE_VERIFIER" \
-     'https://smile.sparked-fhir.com/aucore/smartauth/oauth/token'
-   ```
-
-5. The response carries `access_token`, the `patient` in context and an `id_token`. Check the `id_token` signature against `https://smile.sparked-fhir.com/aucore/smartauth/jwk` (see [Known issues](#known-issues) on the `jwks_uri` in SMART discovery).
+The recipes for backend services, bearer tokens and SMART App Launch need a client on a sandbox. They are added here if sandboxes go ahead; see [Sandboxes](#sandboxes).
 
 ### Testing your own server in Inferno: bearer token or custom header
 
@@ -215,7 +175,7 @@ Release v1.2.3 is planned for this event and is not on the site yet; the site ru
 | [AU PS Test Kit](https://inferno.hl7.org.au/test-kits/au-ps/) | 1.0.1 | 1.0.1 | [AU PS 1.0.0 Test Suite](https://inferno.hl7.org.au/suites/au_ps_v100) |
 | SMART App Launch Test Kit | 0.4.6 | 0.4.6 | [SMART App Launch STU2.2](https://inferno.hl7.org.au/suites/smart_stu2_2)<br>[SMART App Launch STU2](https://inferno.hl7.org.au/suites/smart_stu2)<br>[SMART App Launch STU1](https://inferno.hl7.org.au/suites/smart)<br>[SMART User-access Brands and Endpoints STU2.2](https://inferno.hl7.org.au/suites/smart_access_brands) |
 
-- SMART App Launch Test Kit: hosted on purpose from v1.2.3 onwards; there is no kit page, so open the suites directly.
+- SMART App Launch Test Kit: hosted on purpose from v1.2.3 onwards.
 
 The AU Core Test Kit's **FHIR Endpoint** input starts filled in with the HL7 AU reference server; change it to your own server. See [Known issues](#known-issues) before a dry run against Sparked.
 
@@ -264,6 +224,7 @@ From Fri 4 Dec 2026, 17:00 AEDT to Fri 11 Dec 2026, 17:00 AEDT, the following st
 
 - [Zulip: #australia > Sparked FHIR Server](https://chat.fhir.org/#narrow/channel/179173-australia/topic/Sparked.20FHIR.20Server): The Sparked FHIR server, sandboxes and the test data on it
 - [Zulip: #australia > AU Core Track - Melbourne FHIR Connectathon #28](https://chat.fhir.org/#narrow/channel/179173-australia/topic/AU.20Core.20Track.20-.20Melbourne.20FHIR.20Connectathon.20.2328): AU Core track questions
+- [Zulip: #australia > AU eRequesting Track - Melbourne FHIR Connectathon #28](https://chat.fhir.org/#narrow/channel/179173-australia/topic/AU.20eRequesting.20Track.20-.20Melbourne.20FHIR.20Connectathon.20.2328): AU eRequesting track questions, including which server the track uses
 - [Zulip: #australia > AU Patient Summary Track - Melbourne FHIR Connectathon #28](https://chat.fhir.org/#narrow/channel/179173-australia/topic/AU.20Patient.20Summary.20Track.20-.20Melbourne.20FHIR.20Connectathon.20.2328): AU Patient Summary track questions
 - [Zulip: #australia > SMART App Launch Track - Melbourne FHIR Connectathon #28](https://chat.fhir.org/#narrow/channel/179173-australia/topic/SMART.20App.20Launch.20Track.20-.20Melbourne.20FHIR.20Connectathon.20.2328): SMART App Launch track questions
 - [Zulip: #australia > Inferno Test Kit feedback and queries](https://chat.fhir.org/#narrow/channel/179173-australia/topic/Inferno.20Test.20Kit.20feedback.20and.20queries): Inferno and the AU test kits

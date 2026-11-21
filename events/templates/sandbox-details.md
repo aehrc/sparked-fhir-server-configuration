@@ -1,6 +1,6 @@
 A sandbox is your own writable space on the Sparked FHIR server, with its own FHIR base URL, clients and starter data, separate from every other participant's.
 
-**Getting one.** Go to {{ sandbox.url }} and enter the event access code. The code is {{ sandbox.access_code_distribution }}; it is not published online. There is no account to create and no GitHub login during the event.
+**Getting one.** Go to {{ sandbox.url }} and enter the event access code. From {{ sandbox.opens }}, the code is {{ sandbox.access_code_distribution }}. There is no account to create and no GitHub login.
 
 {{ sandbox.access_code_line }}
 
