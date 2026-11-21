@@ -123,7 +123,7 @@ Writable sandboxes for this event are **planned, not yet confirmed**. Go/no-go o
 
 A sandbox is your own writable space on the Sparked FHIR server, with its own FHIR base URL, clients and starter data, separate from every other participant's.
 
-**Getting one.** Go to https://sandbox.sparked-fhir.com and enter the event access code. From Wed 2 Dec 2026, 09:00 AEDT, the code is in the organisers' pre-event message to registered participants and in the Sparked FHIR Server topic on Zulip (see [Help](#help)); during the event it is also on the venue slides and in the printed guide. There is no account to create and no GitHub login.
+**Getting one.** Go to https://sandbox.sparked-fhir.com and enter the event access code. From Wed 2 Dec 2026, 09:00 AEDT, the code is in the organisers' pre-event message to registered participants. If you did not get that message, ask in the Sparked FHIR Server topic on Zulip (see [Help](#help)) and the Sparked team sends you the code by Zulip direct message. During the event it is also on the venue slides and in the printed guide. Please do not post the code in a Zulip channel. There is no account to create and no GitHub login.
 
 The code is not in this guide.
 

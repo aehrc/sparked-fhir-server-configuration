@@ -217,7 +217,9 @@ sandbox:
   mode: event
   # Rendered as "From <opens>, the code is <this>." The code itself never
   # goes in this public repository.
-  access_code_distribution: "in the organisers' pre-event message to registered participants and in the Sparked FHIR Server topic on Zulip (see [Help](#help)); during the event it is also on the venue slides and in the printed guide"
+  # The code is never posted in a Zulip channel: chat.fhir.org channels can be
+  # web-public, which would hand it to the crawlers it keeps out.
+  access_code_distribution: "in the organisers' pre-event message to registered participants. If you did not get that message, ask in the Sparked FHIR Server topic on Zulip (see [Help](#help)) and the Sparked team sends you the code by Zulip direct message. During the event it is also on the venue slides and in the printed guide. Please do not post the code in a Zulip channel"
   opens: "2026-12-02T09:00:00+11:00"
   creation_closes: "2026-12-10T17:00:00+11:00"
   expiry_days_after_event_end: 7

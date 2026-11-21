@@ -34,22 +34,23 @@ Open the tracking issue with `gh issue create --title "Operator checklist: Melbo
      ```
      Expect one new NodeClaim, the old one gone, the pod Ready, then `200`.
   3. Check: `kubectl --context sparkey get nodeclaims -l karpenter.sh/nodepool=on-demand-prod -o jsonpath='{.items[*].spec.expireAfter}{"\n"}'` prints `Never`.
-  4. If #384 is not merged by Mon 30 Nov, the fallback is a forceful roll at a chosen hour, `kubectl --context sparkey delete nodeclaim on-demand-prod-pr76v` (no pre-spun node, so a longer gap: node launch plus startup, up to the 20-minute startup probe ceiling), any time after 2026-11-11 17:00 AEDT so the new 30-day clock ends after the freeze. It is a cluster write: Kyle's call.
+  4. If #384 is not merged by Mon 30 Nov, the fallback is a forceful roll at a chosen hour, `kubectl --context sparkey delete nodeclaim on-demand-prod-pr76v` (no pre-spun node, so a longer gap: node launch plus startup, up to the 20-minute startup probe ceiling), any time after 2026-11-11 17:00 AEDT so the new 30-day clock ends after the freeze. It is a cluster write: the operator's call.
 
 ## Tue 1 Dec 2026 (T-7)
 
 - [ ] **Stacked PRs (one-off; read before merging the freeze PRs).** aehrc/sparked-argo keeps merged branches (`delete_branch_on_merge: false`), so GitHub does **not** retarget #383 and #386 when #382 merges. Merged as they stand they would land on the dead `freeze/event-sync-windows` branch, and after a squash of #382 they conflict. Right after #382 squash-merges, restack each one (whoever owns the #383 and #386 branches does this):
   ```sh
-  cd ~/Documents/repos/sparked-worktrees/w4-karpenter      # freeze/karpenter-event-budgets, #383
-  git fetch origin && git merge --ff-only origin/freeze/karpenter-event-budgets
+  # In an aehrc/sparked-argo checkout with a clean working tree:
+  git fetch origin
   OLD=$(gh pr view 382 -R aehrc/sparked-argo --json headRefOid -q .headRefOid)   # #382's last head
+
+  git switch freeze/karpenter-event-budgets && git merge --ff-only origin/freeze/karpenter-event-budgets   # #383
   git rebase --onto origin/main "$OLD"
   git push --force-with-lease origin freeze/karpenter-event-budgets
   gh pr edit 383 -R aehrc/sparked-argo --base main
   gh pr checks 383 -R aehrc/sparked-argo --watch           # wait for green before merging
 
-  cd ~/Documents/repos/sparked-worktrees/w4-renovate       # freeze/renovate-pause, #386
-  git fetch origin && git merge --ff-only origin/freeze/renovate-pause
+  git switch freeze/renovate-pause && git merge --ff-only origin/freeze/renovate-pause                     # #386
   git rebase --onto origin/main "$OLD"
   git push --force-with-lease origin freeze/renovate-pause
   gh pr edit 386 -R aehrc/sparked-argo --base main
@@ -60,16 +61,17 @@ Open the tracking issue with `gh issue create --title "Operator checklist: Melbo
   1. Merge hl7au/au-fhir-inferno#226 (`prod-release.yaml` fast-forwards a `prod` branch to each promotion merge).
   2. Bootstrap the branch at the current `master` head, which is what prod renders today:
      ```sh
-     cd ~/Documents/repos/au-fhir-inferno && git fetch origin
+     # In an hl7au/au-fhir-inferno checkout:
+     git fetch origin
      git push origin origin/master:refs/heads/prod
      git rev-parse origin/master
      kubectl --context sparkey -n argocd get app inferno-prod -o jsonpath='{.status.sync.revision}{"\n"}'
      ```
      The two SHAs must match. If `master` moved after Argo's last sync, wait for `inferno-prod` to sync it first. **Record this SHA in this issue:** it is the rollback target for the first promotion after the switch (the promotion PR that supersedes hl7au/au-fhir-inferno#223, see the Inferno promotion item), because the `v1.2.2` tag's chart predates five chart changes that prod already runs (#211, #213, #216, #222, #225: `git log v1.2.2..origin/master -- infra/helm/inferno` without the `values-dev.yaml` and `values-ci-build.yaml` commits).
-  3. **Kyle (repository admin), straight after the bootstrap: protect `prod`** with the ruleset in the "Kyle's admin actions" item (K1). Check: `gh api repos/hl7au/au-fhir-inferno/rules/branches/prod --jq '.[].type'` lists `deletion`, `update`, `non_fast_forward`.
+  3. **A repository admin, straight after the bootstrap: protect `prod`** with the ruleset in the "Repository admin actions" item (K1). Check: `gh api repos/hl7au/au-fhir-inferno/rules/branches/prod --jq '.[].type'` lists `deletion`, `update`, `non_fast_forward`.
   4. Merge aehrc/sparked-argo#381 (`inferno-prod` renders `targetRevision: prod`) straight after. Check: `kubectl --context sparkey -n argocd get app inferno-prod -o jsonpath='{.spec.source.targetRevision} {.status.sync.status} {.status.health.status} {.status.sync.revision}{"\n"}'` prints `prod Synced Healthy <same SHA>`.
-  5. `PROMOTE_TOKEN` needs Contents and Workflows read and write (K2 in the "Kyle's admin actions" item); without Workflows, a promotion whose range changes a workflow file fails at the move step and a repository admin pushes `prod` by hand.
-- [ ] **Kyle's admin actions (one-off).**
+  5. `PROMOTE_TOKEN` needs Contents and Workflows read and write (K2 in the "Repository admin actions" item); without Workflows, a promotion whose range changes a workflow file fails at the move step and a repository admin pushes `prod` by hand.
+- [ ] **Repository admin actions (one-off).**
   - **K1. `prod` ruleset on hl7au/au-fhir-inferno (repository admin), right after the Inferno prod ref bootstrap.** Moving `prod` is the prod deploy, and five collaborators hold `maintain`. This blocks deleting, pushing and force-pushing `prod` for everyone but the repository admin role. The promotion step pushes with `PROMOTE_TOKEN || GITHUB_TOKEN`, and `PROMOTE_TOKEN` is a repository admin's PAT, so it needs no GitHub Actions bypass:
     ```sh
     gh api -X POST repos/hl7au/au-fhir-inferno/rulesets --input - <<'EOF'
@@ -101,18 +103,18 @@ Open the tracking issue with `gh issue create --title "Operator checklist: Melbo
 
 ## Wed 2 Dec 2026 (T-6)
 
-- [ ] **Inferno promotion (one-off; by Wed 2 Dec).** The promotion PR that supersedes hl7au/au-fhir-inferno#223 merges through the new path. Merging hl7au/au-fhir-inferno#227 (D5 SMART, changes `Gemfile.lock` and `lib/`) triggers a trunk build that opens a new promotion PR and closes #223 as superseded; that new PR is the one to merge (and the one the bootstrap SHA recorded in this issue rolls back). Before merging it, open its "What merging now ships" link (`compare/prod...master`; present when #226 merged before that build, otherwise open that compare URL by hand). Point `inferno.release.tracking` in the manifest at the new PR. Then run the check in the next item, which shows that promotion PR's merge commit.
-- [ ] Inferno: the promotion (https://github.com/hl7au/au-fhir-inferno/pull/223) is merged through the `prod` branch path. Check:
+- [ ] **Inferno promotion (one-off; by Wed 2 Dec).** The promotion PR that supersedes hl7au/au-fhir-inferno#223 merges through the new path. Merging hl7au/au-fhir-inferno#227 (the SMART App Launch kit; changes `Gemfile.lock` and `lib/`) triggers a trunk build that opens a new promotion PR and closes #223 as superseded; that new PR is the one to merge (and the one the bootstrap SHA recorded in this issue rolls back). Before merging it, open its "What merging now ships" link (`compare/prod...master`; present when #226 merged before that build, otherwise open that compare URL by hand). Point `inferno.release.tracking` in the manifest at the new PR. Then run the check in the next item, which shows that promotion PR's merge commit.
+- [ ] Inferno: the current promotion PR (the manifest's `inferno.release.tracking` link, now https://github.com/hl7au/au-fhir-inferno/pull/223; repoint it first if a newer promotion PR has superseded that one) is merged through the `prod` branch path. Check, in an hl7au/au-fhir-inferno checkout:
   ```sh
-  git -C ~/Documents/repos/au-fhir-inferno fetch origin && git -C ~/Documents/repos/au-fhir-inferno log -1 --format='%h %s' origin/prod
+  git fetch origin && git log -1 --format='%h %s' origin/prod
   ```
-  shows the promotion's merge commit, and `https://inferno.hl7.org.au/suites/api/test_suites` lists every suite in the manifest at the manifest's kit versions, including the SMART App Launch suites. Then set `inferno.release.status: live` and re-render.
+  shows that promotion PR's merge commit, and `https://inferno.hl7.org.au/suites/api/test_suites` lists every suite in the manifest at the manifest's kit versions, including the SMART App Launch suites. Then set `inferno.release.status: live` and re-render.
 - [ ] Once hl7au/au-fhir-inferno#227 is live and `https://inferno.hl7.org.au/test-kits/smart-app-launch/` answers 200, add it as `page:` of the SMART App Launch Test Kit in the manifest and re-render.
 - [ ] Merge the rendered guide; check that https://sandbox.sparked-fhir.com accepts the access code (if the sandbox is open).
 - [ ] If the sandbox is open: run each Auth recipe in the guide verbatim against a sandbox (backend services, bearer token on each request, SMART App Launch with PKCE) and fix the guide where a step differs.
-- [ ] If the sandbox is open: send the event access code to the organisers for their pre-event message to registered participants, and post it in the Sparked FHIR Server topic on Zulip. Kyle posts on Zulip; an agent never does. Never commit the code.
+- [ ] If the sandbox is open: send the event access code to the organisers for their pre-event message to registered participants. In the Sparked FHIR Server topic on Zulip, say that the code is in that message and that anyone without it can ask in the topic for a direct message; answer each request with a Zulip direct message to the person who asked. Never post the code in a Zulip channel (chat.fhir.org channels can be web-public, and the code exists to keep crawlers off the sandbox front), and never commit it.
 - [ ] Loader banner: feed `loader_banner` to the loader's values and check https://loader.sparked-fhir.com/api/v1/public/event shows it.
-- [ ] Post the guide link in the Sparked FHIR Server topic on Zulip and ask the track leads to link it from their track pages. Kyle posts on Zulip; an agent never does.
+- [ ] Post the guide link in the Sparked FHIR Server topic on Zulip and ask the track leads to link it from their track pages.
 
 ## Thu 3 Dec 2026 (T-5)
 
@@ -130,9 +132,10 @@ Open the tracking issue with `gh issue create --title "Operator checklist: Melbo
 
 - [ ] **Between 09:00 and 16:00: pause the tx.dev preload.** (After the freeze starts, the `ontoserver` sync window blocks the automated sync; a manual sync still works.)
   ```sh
-  cd ~/Documents/repos/sparked-argo && git fetch origin
-  git worktree add -b freeze/tx-dev-preload-on ../sparked-worktrees/tx-preload-on origin/main
-  cd ../sparked-worktrees/tx-preload-on
+  # In an aehrc/sparked-argo checkout:
+  git fetch origin
+  git worktree add -b freeze/tx-dev-preload-on ../tx-preload-on origin/main
+  cd ../tx-preload-on
   sed -i '' 's|^          # - \$values/apps/ontoserver/values-event-freeze.yaml$|          - $values/apps/ontoserver/values-event-freeze.yaml|' apps/ontoserver.yaml
   git diff --stat   # 1 file, 1 line
   git commit -am "Pause tx.dev's nightly preload for the event freeze" && git push -u origin HEAD
@@ -150,6 +153,7 @@ Open the tracking issue with `gh issue create --title "Operator checklist: Melbo
     ```sh
     kubectl --context sparkey -n argocd logs sts/argocd-application-controller --since=10m \
       | grep 'Sync prevented by sync window' | grep -c 'application=inferno-prod'   # more than 0
+    argocd login <the sparkey Argo CD host> --sso --grpc-web   # once per session; the host is in aehrc/sparked-argo docs/argocd.md
     argocd app get inferno-prod | grep 'SyncWindow:'   # Manual Allowed (Sync Allowed = no active window)
     ```
     Repeat the log grep with `application=ontoserver` and `application=smilecdr-routes` for the `sparked` project.
@@ -162,11 +166,12 @@ Open the tracking issue with `gh issue create --title "Operator checklist: Melbo
     kubectl --context sparkey -n argocd patch application <app> --type merge \
       -p '{"operation":{"initiatedBy":{"username":"<you>"},"sync":{"syncStrategy":{"hook":{}}}}}'
     ```
-  - Emergency Inferno rollback: a repository admin (the only role the `prod` ruleset lets force-push) moves `prod` back to where it was before the last promotion, then syncs `inferno-prod` by hand. For the first promotion after the `prod` switch (for this event, the promotion PR that superseded hl7au/au-fhir-inferno#223), that is the bootstrap SHA recorded in this issue, not the previous tag: `git -C ~/Documents/repos/au-fhir-inferno push --force origin <bootstrap sha>:refs/heads/prod`. For later releases, the previous tag: `git -C ~/Documents/repos/au-fhir-inferno push --force origin 'vX.Y.Z^{commit}:refs/heads/prod'`.
+  - Emergency Inferno rollback: a repository admin (the only role the `prod` ruleset lets force-push) moves `prod` back to where it was before the last promotion, then syncs `inferno-prod` by hand. In an hl7au/au-fhir-inferno checkout, the previous release tag: `git push --force origin 'vX.Y.Z^{commit}:refs/heads/prod'`. If the last promotion was the first one after the `prod` switch, the target is the bootstrap SHA recorded in the operator checklist issue, not the previous tag: `git push --force origin <bootstrap sha>:refs/heads/prod`.
   - Emergency dependency bump: Actions, Renovate, Run workflow, tick `ignore_freeze`.
   - Emergency node repack: karpenter-config is not in a window; delete the event block from the NodePool and merge.
   - Lift the whole freeze early: merge `python3 scripts/event-freeze.py clear` (the clear step at the freeze end) and resume the tx.dev preload. Do not revert aehrc/sparked-argo#382 to lift it: once #386 is merged, that breaks every scheduled Renovate run. To remove the tooling, revert #386, then #383, then #382.
   - Renovate's scheduled runs inside the freeze should show as skipped: `gh run list -R aehrc/sparked-argo --workflow renovate.yaml -L 2`.
+- [ ] **Inferno rollback target for this event (one-off).** The first promotion after the `prod` switch is the promotion PR that superseded hl7au/au-fhir-inferno#223 (the Inferno promotion item); if it has to be rolled back, the target is the bootstrap SHA recorded in this issue, not `v1.2.2`.
 
 ## Sat 5 Dec 2026 (T-3)
 
@@ -185,7 +190,7 @@ Open the tracking issue with `gh issue create --title "Operator checklist: Melbo
 
 ## Tue 8 Dec 2026 (T)
 
-- [ ] Each event morning: status checks, Inferno suite list, sandbox count against the cap of 60; watch the Zulip topics in the guide's Help section; note problems for the retro.
+- [ ] Each event morning: status checks, Inferno suite list, sandbox count against the cap of 60; watch the Zulip topics in the guide's Help section and answer access code requests by direct message only; note problems for the retro.
 
 ## Wed 9 Dec 2026 (T+1)
 
@@ -201,9 +206,10 @@ Open the tracking issue with `gh issue create --title "Operator checklist: Melbo
 - [ ] Freeze ends at Fri 11 Dec 2026, 17:00 AEDT. Nothing to do at that moment: the sync windows and event budgets end on their own.
 - [ ] **After the freeze ends: resume the tx.dev preload.** (Before then the window holds the sync.)
   ```sh
-  cd ~/Documents/repos/sparked-argo && git fetch origin
-  git worktree add -b freeze/tx-dev-preload-off ../sparked-worktrees/tx-preload-off origin/main
-  cd ../sparked-worktrees/tx-preload-off
+  # In an aehrc/sparked-argo checkout:
+  git fetch origin
+  git worktree add -b freeze/tx-dev-preload-off ../tx-preload-off origin/main
+  cd ../tx-preload-off
   sed -i '' 's|^          - \$values/apps/ontoserver/values-event-freeze.yaml$|          # - $values/apps/ontoserver/values-event-freeze.yaml|' apps/ontoserver.yaml
   git commit -am "Resume tx.dev's nightly preload after the event freeze" && git push -u origin HEAD
   gh pr create --fill && gh pr merge --squash --delete-branch
@@ -211,9 +217,10 @@ Open the tracking issue with `gh issue create --title "Operator checklist: Melbo
   Check that the same `kubectl get sts` command as at the freeze start prints `0 0 15 * * *` and both pods are Ready.
 - [ ] **Clear the rendered freeze blocks** (the crons recur next year otherwise; the sparked-argo render CI turns every PR red from the freeze end until this lands):
   ```sh
-  cd ~/Documents/repos/sparked-argo && git fetch origin
-  git worktree add -b freeze/clear-2026-12-melbourne ../sparked-worktrees/freeze-clear origin/main
-  cd ../sparked-worktrees/freeze-clear
+  # In an aehrc/sparked-argo checkout:
+  git fetch origin
+  git worktree add -b freeze/clear-2026-12-melbourne ../freeze-clear origin/main
+  cd ../freeze-clear
   python3 scripts/event-freeze.py clear && python3 scripts/event-freeze.py check
   git commit -am "Clear the 2026-12-melbourne event freeze blocks" && git push -u origin HEAD
   gh pr create --fill

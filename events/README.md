@@ -62,10 +62,12 @@ Never edit a rendered file by hand.
 ## The sandbox access code
 
 The access code keeps crawlers out of the event sandbox front, so it is never
-written to this public repository. From `sandbox.opens`, it goes out where
-`sandbox.access_code_distribution` says (for 2026-12-melbourne: the
-organisers' pre-event message and the Sparked FHIR Server topic on Zulip);
-during the event it is on the venue slides and in a printed copy of the
+written to this public repository, and never posted in a Zulip channel
+(chat.fhir.org channels can be web-public). From `sandbox.opens`, it goes out
+where `sandbox.access_code_distribution` says. For 2026-12-melbourne: the
+organisers' pre-event message to registered participants, and a Zulip direct
+message from the operator to anyone who asks for it in the Sparked FHIR Server
+topic. During the event it is on the venue slides and in a printed copy of the
 guide, produced with
 
 ```bash
