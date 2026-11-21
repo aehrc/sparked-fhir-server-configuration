@@ -167,7 +167,13 @@ equals `main`.
    Then a PR here sets `helm_deploy = false` on the module; its plan must show
    no changes. **Never plan or apply `helm_deploy = false` with the release
    still in state:** Terraform would destroy it, and a Helm uninstall deletes
-   the Deployment. A declarative `removed` block does not work here: Terraform
+   the Deployment. **Do not merge the `helm_deploy = false` PR before the
+   `terraform state rm` is done:** merged early, it arms that destroy for the
+   next local apply from `main`, whoever runs it. Get the PR approved before
+   the window and merge it straight after the `state rm`. The gap the other
+   way round is safe: with the release out of state and `main` still on the
+   default `helm_deploy = true`, an apply plans a create, which the Helm
+   provider refuses because the release name is in use. A declarative `removed` block does not work here: Terraform
    refuses one while the module still declares the resource (count 0 or not),
    and the module is upstream code. Checked with Terraform 1.15.6 on a
    throwaway module: `removed` fails with "Removed resource still exists";
