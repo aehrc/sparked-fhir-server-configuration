@@ -103,9 +103,12 @@ permissions:
 # The Smile admin JSON API, reached over the cluster network. The public route
 # (https://smile.sparked-fhir.com/aucore/admin-json) is IP-restricted, and these
 # jobs do not depend on it, so
-# every job here must run on arc-runner-set, the only runners that NetworkPolicy
-# smile/allow-smilecdr-ingress admits to port 9000 (aehrc/sparked-argo,
-# network-policies/phase1-ingress/smile.yaml). register_smart_client.py
+# every job here must run on arc-runner-smile-admin, the only runners that
+# NetworkPolicy smile/allow-smilecdr-ingress admits to port 9000 (aehrc/sparked-argo,
+# network-policies/phase1-ingress/smile.yaml). That scale set is in the org
+# runner group sparked-smile-admin, which serves this repository only, and it
+# is reserved for the jobs that hold the admin credential: do not put other
+# jobs on it. register_smart_client.py
 # replaces {node} with --node, refuses a URL whose path names another node, and
 # checks the address answers (one retry) before it registers anything. The
 # endpoints shown to requesters still use the public hostname
@@ -127,7 +130,7 @@ jobs:
   # ============================================================================
   register-bulk:
     name: Register Connectathon Clients (Bulk)
-    runs-on: arc-runner-set
+    runs-on: arc-runner-smile-admin
     container:
       image: python:3.12-slim
     if: >-
@@ -207,7 +210,7 @@ jobs:
   # ============================================================================
   register-single-dispatch:
     name: Register Single Client (Manual)
-    runs-on: arc-runner-set
+    runs-on: arc-runner-smile-admin
     container:
       image: python:3.12-slim
     if: >-
@@ -264,7 +267,7 @@ jobs:
   # ============================================================================
   register-single-issue:
     name: Register Single Client (from Issue)
-    runs-on: arc-runner-set
+    runs-on: arc-runner-smile-admin
     container:
       image: python:3.12-slim
     if: github.event_name == 'workflow_call'

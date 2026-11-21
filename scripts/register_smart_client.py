@@ -401,8 +401,9 @@ def check_admin_api_reachable(admin_url: str, timeout: float = 10.0,
         message += (
             " This is the in-cluster Service address. It answers only inside the sparkey"
             " cluster, to pods that NetworkPolicy smile/allow-smilecdr-ingress admits on"
-            " port 9000: the arc-runner-set runners (aehrc/sparked-argo,"
-            " network-policies/phase1-ingress/smile.yaml). Run this job on arc-runner-set,"
+            " port 9000: the arc-runner-smile-admin runners (aehrc/sparked-argo,"
+            " network-policies/phase1-ingress/smile.yaml). Run this job on"
+            " arc-runner-smile-admin,"
             " or, from a CSIRO network, unset SMILECDR_ADMIN_URL to use the public route."
         )
     else:

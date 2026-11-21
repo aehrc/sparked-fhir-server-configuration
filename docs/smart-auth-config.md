@@ -27,8 +27,9 @@ Supporting pieces:
   `scripts/register_smart_client.py` against the Admin JSON API. Client
   definitions live in `module-config/connectathon-clients.json`. The workflows
   call the API at its in-cluster Service address (`SMILECDR_ADMIN_URL`), so they
-  must run on `arc-runner-set`; the public admin route answers only to the
-  CSIRO address ranges, which is what a run from a workstation uses.
+  must run on `arc-runner-smile-admin`, the scale set reserved for jobs that
+  hold the admin credential; the public admin route answers only to the CSIRO
+  address ranges, which is what a run from a workstation uses.
 - **Users**: `scripts/manage_smart_users.py` creates users in
   `local_security` (definitions in `module-config/connectathon-users.json`).
 - **Anonymous access**: deliberately enabled for the public sandbox. The
