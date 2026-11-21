@@ -29,7 +29,7 @@ https://smile.sparked-fhir.com/ereq/fhir/SCENARIO-EREQ-MEDS medications track wo
 
 ## Why this is cool for connectathons
 
-- **eRequesting medications, actually end-to-end.** A scenario tenant can host the full placer/filler medications flow: participants create MedicationRequests, claim and update Tasks, post statuses, fire subscriptions, all with real writes, without any risk to the shared dataset. Multiple vendor pairs can run the same scenario in parallel tenants without tripping over each other's Tasks.
+- **eRequesting medications, actually end-to-end.** A scenario tenant can host the full placer/filler medications flow: participants create MedicationRequests, claim and update Tasks, post statuses, all with real writes, without any risk to the shared dataset. Multiple vendor pairs can run the same scenario in parallel tenants without tripping over each other's Tasks. Subscriptions are not part of this: the server runs no Subscription Matcher module, so a Subscription is stored but never activated or delivered (see the subscription settings in `module-config/simplified-multinode.yaml`).
 - **Bring-your-own test data.** A vendor loads their dataset into their tenant on day one and it is still there, untouched, on day three. Clearing between events becomes surgical: wipe scenario tenants, keep vendor tenants, never disturb `DEFAULT`.
 - **The shared data finally becomes trustworthy.** `DEFAULT` turns into a stable, tamper-proof reference dataset. Demos and validation runs against it are reproducible because nobody can write to it.
 - **Negative testing becomes safe.** Participants can test deletes, overwrites, and malformed updates in their own tenant. Today that class of testing is effectively banned.
