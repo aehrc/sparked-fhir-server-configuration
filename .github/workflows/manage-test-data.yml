@@ -75,7 +75,6 @@ jobs:
     if: inputs.operation == 'clear-and-load-aucore'
     uses: ./.github/workflows/load-test-data.yml
     with:
-      upload_method: direct
       target_node: aucore
       exclude_patterns: ${{ inputs.exclude_patterns }}
       dry_run: ${{ inputs.dry_run }}

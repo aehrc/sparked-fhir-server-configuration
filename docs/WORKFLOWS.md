@@ -203,7 +203,7 @@ For common multi-step operations, use the **Manage Test Data** workflow:
 #### Via Workflow (Quick)
 
 1. Go to **Actions** → **Load Test Data** → **Run workflow**
-2. Select target node, upload method, and options
+2. Select the target node and options
 3. Click **Run workflow**
 
 #### Via Issue Request

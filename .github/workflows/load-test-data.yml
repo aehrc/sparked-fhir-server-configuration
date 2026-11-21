@@ -3,14 +3,6 @@ name: Load Test Data
 on:
   workflow_dispatch:
     inputs:
-      upload_method:
-        description: "Upload method: 'direct' (PUT to FHIR server) or 'fhirflare' (via FHIRFlare proxy)"
-        required: true
-        type: choice
-        default: "direct"
-        options:
-          - direct
-          - fhirflare
       target_node:
         description: "Target FHIR server node"
         required: true
@@ -34,13 +26,12 @@ on:
         default: "au-fhir-test-data-set"
         type: string
       upload_mode:
-        description: "Upload mode (fhirflare method only)"
+        description: "Upload mode: 'individual' (one PUT per resource) or 'transaction' (transaction Bundles of batch_size resources)"
         required: false
         type: choice
         default: "individual"
         options:
           - individual
-          - bundle
           - transaction
       batch_size:
         description: "Number of files per batch"
@@ -69,10 +60,6 @@ on:
 
   workflow_call:
     inputs:
-      upload_method:
-        required: true
-        type: string
-        default: "direct"
       target_node:
         required: true
         type: string
@@ -114,14 +101,6 @@ on:
     secrets:
       CSIRO_FHIR_AUTH_64:
         required: false
-      FHIRFLARE_API_KEY:
-        required: false
-      FHIRFLARE_URL:
-        required: false
-      FHIR_USERNAME:
-        required: false
-      FHIR_PASSWORD:
-        required: false
 
 permissions:
   contents: read
@@ -149,7 +128,6 @@ jobs:
       - name: Resolve inputs
         id: inputs
         env:
-          UPLOAD_METHOD: ${{ inputs.upload_method || 'direct' }}
           TARGET_NODE: ${{ inputs.target_node || 'aucore' }}
           CUSTOM_FHIR_URL: ${{ inputs.custom_fhir_url }}
           DATA_SOURCE: ${{ inputs.data_source || 'https://github.com/hl7au/au-fhir-test-data' }}
@@ -193,8 +171,7 @@ jobs:
             fail "data_folder must be a relative path inside the repository (letters, digits, '.', '_', '-', '/') with no '..' segment"
           fi
 
-          case "$UPLOAD_METHOD" in direct|fhirflare) ;; *) fail "upload_method must be direct or fhirflare" ;; esac
-          case "$UPLOAD_MODE" in individual|bundle|transaction) ;; *) fail "upload_mode must be individual, bundle or transaction" ;; esac
+          case "$UPLOAD_MODE" in individual|transaction) ;; *) fail "upload_mode must be individual or transaction" ;; esac
           case "$DRY_RUN" in true|false) ;; *) fail "dry_run must be true or false" ;; esac
           case "$CONTINUE_ON_ERROR" in true|false) ;; *) fail "continue_on_error must be true or false" ;; esac
           [[ "$BATCH_SIZE" =~ ^[0-9]{1,4}$ ]] || fail "batch_size must be a whole number of at most 4 digits"
@@ -206,7 +183,6 @@ jobs:
           fi
 
           {
-            echo "upload_method=$UPLOAD_METHOD"
             echo "fhir_url=$FHIR_URL"
             echo "target_node=$TARGET_NODE"
             echo "data_source=$DATA_SOURCE"
@@ -247,7 +223,6 @@ jobs:
         uses: actions/github-script@v7
         env:
           ISSUE_NUMBER: ${{ steps.inputs.outputs.issue_number }}
-          UPLOAD_METHOD: ${{ steps.inputs.outputs.upload_method }}
           FHIR_URL: ${{ steps.inputs.outputs.fhir_url }}
           DATA_SOURCE: ${{ steps.inputs.outputs.data_source }}
           UPLOAD_MODE: ${{ steps.inputs.outputs.upload_mode }}
@@ -264,7 +239,6 @@ jobs:
               body: `## Test Data Load Starting
 
             **Details:**
-            - Upload Method: \`${process.env.UPLOAD_METHOD}\`
             - Target: \`${process.env.FHIR_URL}\`
             - Data Source: \`${process.env.DATA_SOURCE}\`
             - Upload Mode: \`${process.env.UPLOAD_MODE}\`
@@ -310,11 +284,6 @@ jobs:
         id: upload
         env:
           FHIR_AUTH_HEADER: ${{ secrets.CSIRO_FHIR_AUTH_64 }}
-          FHIRFLARE_URL: ${{ secrets.FHIRFLARE_URL }}
-          FHIRFLARE_API_KEY: ${{ secrets.FHIRFLARE_API_KEY }}
-          FHIR_USERNAME: ${{ secrets.FHIR_USERNAME }}
-          FHIR_PASSWORD: ${{ secrets.FHIR_PASSWORD }}
-          UPLOAD_METHOD: ${{ steps.inputs.outputs.upload_method }}
           FHIR_URL: ${{ steps.inputs.outputs.fhir_url }}
           DATA_FOLDER: ${{ steps.inputs.outputs.data_folder }}
           UPLOAD_MODE: ${{ steps.inputs.outputs.upload_mode }}
@@ -335,7 +304,7 @@ jobs:
           # Paths are as seen inside the loader container ($RUNNER_TEMP -> /work).
           # An array keeps each value a single argument.
           args=(
-            --method "$UPLOAD_METHOD"
+            --method direct
             --fhir-url "$FHIR_URL"
             --data-dir "/work/fhir-data/$DATA_FOLDER"
             --upload-mode "$UPLOAD_MODE"
@@ -358,8 +327,7 @@ jobs:
 
           set +e
           docker run --rm \
-            -e FHIR_AUTH_HEADER -e FHIRFLARE_URL -e FHIRFLARE_API_KEY \
-            -e FHIR_USERNAME -e FHIR_PASSWORD \
+            -e FHIR_AUTH_HEADER \
             -v "$RUNNER_TEMP:/work" "$LOADER_IMAGE" load "${args[@]}"
           EXIT_CODE=$?
           set -e

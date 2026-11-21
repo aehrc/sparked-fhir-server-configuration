@@ -30,7 +30,6 @@ on:
         type: choice
         options:
           - individual
-          - bundle
           - transaction
 
 # Each job declares the permissions it needs; the default here is read-only.
@@ -949,7 +948,6 @@ jobs:
       data_source: ${{ steps.issue-details.outputs.data_source }}
       upload_mode: ${{ steps.issue-details.outputs.upload_mode }}
       target_node: ${{ steps.issue-details.outputs.target_node }}
-      upload_method: ${{ steps.issue-details.outputs.upload_method }}
       custom_fhir_url: ${{ steps.issue-details.outputs.custom_fhir_url }}
 
     steps:
@@ -993,8 +991,6 @@ jobs:
               return v;
             }
 
-            const bodyLower = issueBody.toLowerCase();
-
             // Data source: explicit "Test Data Source URL" field, then the legacy fenced
             // "Data Source" block, then the default test data set.
             let dataSource = context.payload.inputs?.data_source || 'https://github.com/hl7au/au-fhir-test-data';
@@ -1012,12 +1008,9 @@ jobs:
             let uploadMode = context.payload.inputs?.upload_mode || '';
             const uploadModeField = section('Upload Mode').toLowerCase();
             if (uploadModeField.includes('transaction')) uploadMode = 'transaction';
-            else if (uploadModeField.includes('bundle')) uploadMode = 'bundle';
             else if (uploadModeField.includes('individual')) uploadMode = 'individual';
             if (!uploadMode) {
-              if (issueBody.includes('bundle upload') || issueBody.includes('as bundle')) uploadMode = 'bundle';
-              else if (issueBody.includes('transaction')) uploadMode = 'transaction';
-              else uploadMode = 'individual';
+              uploadMode = issueBody.includes('transaction') ? 'transaction' : 'individual';
             }
 
             // Target node: explicit "Target Node" field, then a custom FHIR URL, then a
@@ -1039,20 +1032,10 @@ jobs:
             }
             if (!targetNode) targetNode = 'aucore';
 
-            // Upload method: explicit "Upload Method" field, then body keywords, then default.
-            let uploadMethod = '';
-            const uploadMethodField = section('Upload Method').toLowerCase();
-            if (uploadMethodField.includes('fhirflare')) uploadMethod = 'fhirflare';
-            else if (uploadMethodField.includes('direct')) uploadMethod = 'direct';
-            if (!uploadMethod) {
-              uploadMethod = (bodyLower.includes('fhirflare') || bodyLower.includes('via fhirflare') || bodyLower.includes('proxy')) ? 'fhirflare' : 'direct';
-            }
-
             core.setOutput('issue_number', issueNumber || '');
             core.setOutput('data_source', dataSource);
             core.setOutput('upload_mode', uploadMode);
             core.setOutput('target_node', targetNode);
-            core.setOutput('upload_method', uploadMethod);
             core.setOutput('issue_title', issueTitle);
 
   # ============================================================================
@@ -1068,7 +1051,6 @@ jobs:
       id-token: write
     uses: ./.github/workflows/load-test-data.yml
     with:
-      upload_method: ${{ needs.load-test-data.outputs.upload_method }}
       target_node: ${{ needs.load-test-data.outputs.target_node }}
       custom_fhir_url: ${{ needs.load-test-data.outputs.custom_fhir_url }}
       data_source: ${{ needs.load-test-data.outputs.data_source }}
@@ -1077,10 +1059,6 @@ jobs:
       continue_on_error: true
     secrets:
       CSIRO_FHIR_AUTH_64: ${{ secrets.CSIRO_FHIR_AUTH_64 }}
-      FHIRFLARE_API_KEY: ${{ secrets.FHIRFLARE_API_KEY }}
-      FHIRFLARE_URL: ${{ secrets.FHIRFLARE_URL }}
-      FHIR_USERNAME: ${{ secrets.FHIR_USERNAME }}
-      FHIR_PASSWORD: ${{ secrets.FHIR_PASSWORD }}
 
   # ============================================================================
   # JOB: Register SMART Client (parse issue)
