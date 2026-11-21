@@ -66,7 +66,9 @@ needs: the stack creates and changes IAM roles and policies, which
 `PowerUserAccess` cannot do. So "can fetch the inputs" and "can apply Smile"
 are the same set of people. The policy does not deny
 `PutResourcePolicy`/`DeleteResourcePolicy`, so an administrator can always
-widen or remove it; it cannot lock the account out.
+widen or remove it; it cannot lock the account out. That includes the
+break-glass and `OrganizationAccountAccessRole` roles: the policy denies them a
+read, but they can remove it if SSO is ever unavailable.
 
 **Versioning and rollback come free.** Every `push` is a new secret version;
 Secrets Manager keeps the one before it labelled `AWSPREVIOUS`. See
