@@ -5,7 +5,7 @@
 """
 FHIR Test Data Loader (DEPRECATED)
 
-Loads FHIR test data to a FHIR server either directly via REST API or via FHIRFlare proxy.
+Loads FHIR test data to a FHIR server directly via its REST API.
 
 Usage:
     # Direct upload to FHIR server
@@ -21,19 +21,8 @@ Usage:
         --data-dir /path/to/test-data \\
         --upload-mode transaction
 
-    # Upload via FHIRFlare proxy
-    python load_test_data.py \\
-        --method fhirflare \\
-        --fhir-url https://smile.sparked-fhir.com/aucore/fhir/DEFAULT \\
-        --data-dir /path/to/test-data \\
-        --upload-mode individual
-
 Environment Variables:
-    FHIR_AUTH_HEADER: Base64 encoded basic auth (direct method)
-    FHIRFLARE_URL: FHIRFlare base URL (fhirflare method)
-    FHIRFLARE_API_KEY: FHIRFlare API key (fhirflare method)
-    FHIR_USERNAME: FHIR server username (fhirflare method)
-    FHIR_PASSWORD: FHIR server password (fhirflare method)
+    FHIR_AUTH_HEADER: Base64 encoded basic auth
 """
 
 import argparse
@@ -613,243 +602,6 @@ class DirectFHIRUploader(BaseUploader):
 
 
 # ---------------------------------------------------------------------------
-# FHIRFlare uploader
-# ---------------------------------------------------------------------------
-
-class FHIRFlareUploader(BaseUploader):
-    """Uploads FHIR resources via FHIRFlare proxy service."""
-
-    def __init__(self, fhirflare_url: str, api_key: str, fhir_url: str,
-                 fhir_username: str, fhir_password: str,
-                 upload_mode: str = 'individual', **kwargs):
-        kwargs.setdefault('batch_size', 20)
-        super().__init__(fhir_url, **kwargs)
-        self.fhirflare_url = fhirflare_url.rstrip('/')
-        self.api_key = api_key
-        self.fhir_username = fhir_username
-        self.fhir_password = fhir_password
-        self.upload_mode = upload_mode
-
-    def check_health(self) -> bool:
-        """Check if FHIRFlare service is ready."""
-        print(f"\nChecking FHIRFlare health at {self.fhirflare_url}...")
-        max_attempts = 30
-        for attempt in range(1, max_attempts + 1):
-            for endpoint in [f"{self.fhirflare_url}/health", self.fhirflare_url]:
-                try:
-                    resp = requests.get(endpoint, timeout=10)
-                    if resp.status_code == 200:
-                        print(f"  FHIRFlare is ready!")
-                        return True
-                except requests.exceptions.RequestException:
-                    pass
-
-            print(f"  Waiting for FHIRFlare... (attempt {attempt}/{max_attempts})")
-            time.sleep(10)
-
-        print(f"  FHIRFlare not ready after {max_attempts} attempts")
-        return False
-
-    def _upload_batch(self, batch: List[FHIRResource]) -> List[UploadResult]:
-        files = []
-        file_handles = []
-        try:
-            for resource in batch:
-                fh = open(resource.file_path, 'rb')
-                file_handles.append(fh)
-                files.append(('test_data_files', (resource.file_path.name, fh, 'application/json')))
-
-            data = {
-                'fhir_server_url': self.fhir_url,
-                'auth_type': 'basic',
-                'username': self.fhir_username,
-                'password': self.fhir_password,
-                'upload_mode': self.upload_mode,
-                'error_handling': 'continue',
-                'use_conditional_uploads': 'true',
-            }
-
-            headers = {
-                'X-API-Key': self.api_key,
-                'Accept': 'application/x-ndjson',
-            }
-
-            response = requests.post(
-                f"{self.fhirflare_url}/api/upload-test-data",
-                headers=headers,
-                data=data,
-                files=files,
-                timeout=300,
-            )
-
-            # Log raw response for debugging
-            print(f"  Response status: {response.status_code}")
-            response_preview = response.text[:500] if response.text else "(empty)"
-            print(f"  Response preview: {response_preview}")
-
-            return self._parse_fhirflare_response(response, batch)
-
-        except requests.exceptions.RequestException as e:
-            error_msg = str(e)[:500]
-            print(f"  Batch request failed: {error_msg}")
-            return [
-                UploadResult(
-                    file_path=str(r.file_path.name),
-                    resource_type=r.resource_type,
-                    resource_id=r.resource_id,
-                    success=False,
-                    error_message=error_msg,
-                    method='fhirflare',
-                )
-                for r in batch
-            ]
-        finally:
-            for fh in file_handles:
-                fh.close()
-
-    def _parse_fhirflare_response(self, response, batch: List[FHIRResource]) -> List[UploadResult]:
-        """Parse FHIRFlare NDJSON response.
-
-        FHIRFlare returns lines like:
-          {"type": "progress", "message": "..."}
-          {"type": "success", "message": "..."}
-          {"type": "error", "message": "..."}
-          {"type": "complete", "data": {"status": "...", "resources_uploaded": N, ...}}
-        """
-        if response.status_code != 200:
-            error_msg = response.text[:500] if response.text else f"HTTP {response.status_code}"
-            return [
-                UploadResult(
-                    file_path=str(r.file_path.name),
-                    resource_type=r.resource_type,
-                    resource_id=r.resource_id,
-                    success=False,
-                    status_code=response.status_code,
-                    error_message=error_msg,
-                    method='fhirflare',
-                )
-                for r in batch
-            ]
-
-        # Parse NDJSON lines
-        parsed_lines = []
-        for line in response.text.strip().split('\n'):
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                parsed_lines.append(json.loads(line))
-            except json.JSONDecodeError:
-                continue
-
-        if parsed_lines:
-            print(f"  NDJSON lines: {len(parsed_lines)}, first keys: {list(parsed_lines[0].keys())}")
-
-        # Look for the "complete" summary line
-        complete_data = None
-        error_messages = []
-        success_messages = []
-        for line_data in parsed_lines:
-            line_type = line_data.get('type', '')
-            message = line_data.get('message', '')
-
-            if line_type == 'complete':
-                complete_data = line_data.get('data', {})
-            elif line_type == 'error':
-                error_messages.append(message)
-            elif line_type == 'success':
-                success_messages.append(message)
-
-        results = []
-
-        if complete_data:
-            # Use the complete summary to determine overall result
-            status = complete_data.get('status', 'failure')
-            uploaded = complete_data.get('resources_uploaded', 0)
-            error_count = complete_data.get('error_count', 0)
-            errors_list = complete_data.get('errors', [])
-
-            print(f"  FHIRFlare result: status={status}, uploaded={uploaded}, errors={error_count}")
-
-            if status in ('success', 'partial'):
-                # Mark resources as successful up to the uploaded count
-                for i, resource in enumerate(batch):
-                    is_success = i < uploaded or (status == 'success')
-                    error_msg = None
-                    if not is_success and i < len(errors_list):
-                        error_msg = str(errors_list[i])[:300]
-                    elif not is_success and error_messages:
-                        error_msg = '; '.join(error_messages)[:300]
-
-                    results.append(UploadResult(
-                        file_path=str(resource.file_path.name),
-                        resource_type=resource.resource_type,
-                        resource_id=resource.resource_id,
-                        success=is_success,
-                        status_code=200 if is_success else None,
-                        error_message=error_msg,
-                        method='fhirflare',
-                    ))
-            else:
-                # Complete failure
-                combined_errors = '; '.join(error_messages)[:500] if error_messages else complete_data.get('message', 'Upload failed')
-                for resource in batch:
-                    results.append(UploadResult(
-                        file_path=str(resource.file_path.name),
-                        resource_type=resource.resource_type,
-                        resource_id=resource.resource_id,
-                        success=False,
-                        error_message=combined_errors,
-                        method='fhirflare',
-                    ))
-        else:
-            # No complete line found — fall back to counting success/error messages
-            if error_messages and not success_messages:
-                combined = '; '.join(error_messages)[:500]
-                for resource in batch:
-                    results.append(UploadResult(
-                        file_path=str(resource.file_path.name),
-                        resource_type=resource.resource_type,
-                        resource_id=resource.resource_id,
-                        success=False,
-                        error_message=combined,
-                        method='fhirflare',
-                    ))
-            elif not parsed_lines:
-                # Empty response with 200 — assume success
-                for resource in batch:
-                    results.append(UploadResult(
-                        file_path=str(resource.file_path.name),
-                        resource_type=resource.resource_type,
-                        resource_id=resource.resource_id,
-                        success=True,
-                        status_code=200,
-                        method='fhirflare',
-                    ))
-            else:
-                # Has parsed lines but no complete — dump raw for debugging
-                raw_dump = json.dumps(parsed_lines[0])[:200]
-                print(f"  Warning: Could not interpret FHIRFlare response, first line: {raw_dump}")
-                for resource in batch:
-                    results.append(UploadResult(
-                        file_path=str(resource.file_path.name),
-                        resource_type=resource.resource_type,
-                        resource_id=resource.resource_id,
-                        success=False,
-                        error_message=f"Could not parse FHIRFlare response: {raw_dump}",
-                        method='fhirflare',
-                    ))
-
-        for result in results:
-            indicator = "ok" if result.success else "FAIL"
-            print(f"  {result.resource_type}/{result.resource_id} ... {indicator}")
-            if not result.success and result.error_message:
-                print(f"       {result.error_message[:200]}")
-
-        return results
-
-
-# ---------------------------------------------------------------------------
 # Summary generation
 # ---------------------------------------------------------------------------
 
@@ -958,20 +710,12 @@ def main():
         epilog=__doc__,
     )
 
-    parser.add_argument('--method', choices=['direct', 'fhirflare'], required=True,
-                        help='Upload method: direct to FHIR server or via FHIRFlare proxy')
+    parser.add_argument('--method', choices=['direct'], default='direct',
+                        help='Upload method; direct to the FHIR server is the only one (default: direct)')
     parser.add_argument('--fhir-url', required=True,
                         help='Target FHIR server base URL')
     parser.add_argument('--auth-header', default=os.getenv('FHIR_AUTH_HEADER'),
-                        help='Base64 basic auth header (direct method, default: FHIR_AUTH_HEADER env)')
-    parser.add_argument('--fhirflare-url', default=os.getenv('FHIRFLARE_URL'),
-                        help='FHIRFlare base URL (fhirflare method, default: FHIRFLARE_URL env)')
-    parser.add_argument('--fhirflare-api-key', default=os.getenv('FHIRFLARE_API_KEY'),
-                        help='FHIRFlare API key (fhirflare method, default: FHIRFLARE_API_KEY env)')
-    parser.add_argument('--fhir-username', default=os.getenv('FHIR_USERNAME'),
-                        help='FHIR username (fhirflare method, default: FHIR_USERNAME env)')
-    parser.add_argument('--fhir-password', default=os.getenv('FHIR_PASSWORD'),
-                        help='FHIR password (fhirflare method, default: FHIR_PASSWORD env)')
+                        help='Base64 basic auth header (default: FHIR_AUTH_HEADER env)')
     parser.add_argument('--data-dir', type=Path, required=True,
                         help='Directory containing FHIR test data JSON files')
     parser.add_argument('--exclude-patterns', default='vendor-demonstrator',
@@ -980,7 +724,7 @@ def main():
                         default='individual',
                         help='Upload mode: individual PUTs or single transaction Bundle (default: individual)')
     parser.add_argument('--conditional', action='store_true', default=False,
-                        help='Use conditional uploads with ETag (direct method, adds GET per resource)')
+                        help='Use conditional uploads with ETag (adds GET per resource)')
     parser.add_argument('--no-extract-bundles', action='store_true', default=False,
                         help='Do not extract entries from document/collection Bundles')
     parser.add_argument('--batch-size', type=int, default=50,
@@ -999,14 +743,8 @@ def main():
 
     args = parser.parse_args()
 
-    # Validate method-specific arguments
-    if args.method == 'direct' and not args.auth_header:
-        parser.error('--auth-header (or FHIR_AUTH_HEADER env) required for direct method')
-    if args.method == 'fhirflare':
-        if not args.fhirflare_url:
-            parser.error('--fhirflare-url (or FHIRFLARE_URL env) required for fhirflare method')
-        if not args.fhirflare_api_key:
-            parser.error('--fhirflare-api-key (or FHIRFLARE_API_KEY env) required for fhirflare method')
+    if not args.auth_header:
+        parser.error('--auth-header (or FHIR_AUTH_HEADER env) is required')
 
     continue_on_error = not args.fail_on_error
     exclude_patterns = [p.strip() for p in args.exclude_patterns.split(',') if p.strip()]
@@ -1025,8 +763,6 @@ def main():
     print(f"Exclude:           {', '.join(exclude_patterns)}")
     print(f"Dry run:           {args.dry_run}")
     print(f"Continue on error: {continue_on_error}")
-    if args.method == 'fhirflare':
-        print(f"FHIRFlare URL:     {args.fhirflare_url}")
     print("=" * 80)
 
     # Discover files
@@ -1051,8 +787,8 @@ def main():
 
     print(f"  Parsed {len(resources)} valid FHIR resources ({parse_errors} parse errors)")
 
-    # Extract Bundle entries (for direct method)
-    if args.method == 'direct' and not args.no_extract_bundles:
+    # Extract Bundle entries
+    if not args.no_extract_bundles:
         before = len(resources)
         resources = extract_bundle_entries(resources)
         if len(resources) != before:
@@ -1080,32 +816,15 @@ def main():
     print(f"  Order: {' -> '.join(order_preview)}")
 
     # Create uploader
-    if args.method == 'direct':
-        uploader = DirectFHIRUploader(
-            fhir_url=args.fhir_url,
-            auth_header=args.auth_header,
-            upload_mode=args.upload_mode,
-            conditional=args.conditional,
-            dry_run=args.dry_run,
-            continue_on_error=continue_on_error,
-            batch_size=args.batch_size,
-        )
-    else:
-        uploader = FHIRFlareUploader(
-            fhirflare_url=args.fhirflare_url,
-            api_key=args.fhirflare_api_key,
-            fhir_url=args.fhir_url,
-            fhir_username=args.fhir_username or '',
-            fhir_password=args.fhir_password or '',
-            upload_mode=args.upload_mode,
-            dry_run=args.dry_run,
-            continue_on_error=continue_on_error,
-            batch_size=args.batch_size,
-        )
-
-        if not args.dry_run and not uploader.check_health():
-            print("FHIRFlare service is not available. Aborting.")
-            sys.exit(1)
+    uploader = DirectFHIRUploader(
+        fhir_url=args.fhir_url,
+        auth_header=args.auth_header,
+        upload_mode=args.upload_mode,
+        conditional=args.conditional,
+        dry_run=args.dry_run,
+        continue_on_error=continue_on_error,
+        batch_size=args.batch_size,
+    )
 
     # Upload
     print(f"\n{'=' * 80}")

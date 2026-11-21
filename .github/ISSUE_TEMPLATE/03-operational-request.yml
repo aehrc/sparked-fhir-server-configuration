@@ -120,22 +120,10 @@ body:
     id: upload-mode
     attributes:
       label: Upload Mode
-      description: How resources are uploaded. Individual (one at a time), bundle (batch), or transaction. Defaults to individual.
+      description: How resources are uploaded. Individual (one at a time) or transaction (in transaction Bundles). Defaults to individual.
       options:
         - individual
-        - bundle
         - transaction
-    validations:
-      required: false
-
-  - type: dropdown
-    id: upload-method
-    attributes:
-      label: Upload Method
-      description: Upload directly to the FHIR server, or via the FHIRFlare proxy. Defaults to direct.
-      options:
-        - direct
-        - fhirflare
     validations:
       required: false
 

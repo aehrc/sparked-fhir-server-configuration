@@ -376,10 +376,6 @@ The following GitHub configuration is required for CI/CD workflows:
 | Secret | Description |
 |--------|-------------|
 | `CSIRO_FHIR_AUTH_64` | Base64-encoded SmileCDR API credentials |
-| `FHIRFLARE_API_KEY` | FHIRFlare integration API key |
-| `FHIRFLARE_URL` | FHIRFlare service URL |
-| `FHIR_USERNAME` | FHIR server username |
-| `FHIR_PASSWORD` | FHIR server password |
 | `ADD_TO_PROJECT_PAT` | (optional) PAT with Projects read/write, used with `CATALOGUE_PROJECT_URL` to add issues to the board |
 
 ## Communication Channels
