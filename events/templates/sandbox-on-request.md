@@ -16,12 +16,14 @@ Writable sandboxes for this event are issued **on request** by the Sparked team.
 - a login user (`app_username` and `app_password`) and a public PKCE client for SMART App Launch (`app_client_id`)
 - AU Core starter data, with resource ids prefixed by your sandbox id
 
-**On request.** Ask in the same direct message conversation to have your app's redirect URIs (https, or http on localhost) registered on the App Launch client, to have more added later, to have your sandbox reset (cleared and the starter data reloaded), or for a new backend client secret.
+**Redirect URIs for SMART App Launch.** Give the Sparked team your app's redirect URIs (https, or http on localhost) when you ask, and your sandbox is issued with them. If you need them, or different ones, later, you get a new sandbox with them: a new FHIR base URL, new credentials and fresh starter data. Your old sandbox is expired once you have moved over.
+
+**On request.** Ask in the same direct message conversation to have your sandbox reset (cleared and the starter data reloaded) or for a new backend client secret.
 
 **Dates.** Sandboxes for this event expire {{ sandbox.expires }}; their clients and login users are disabled and their data is deleted then.
 
 **Limits.** Up to {{ sandbox.resource_ceiling }} resources in one sandbox, and at most {{ sandbox.max_live }} sandboxes live at once for the event. Synthetic data only: the Sparked team can see everything in every sandbox.
 <!-- slot: auth -->
-The recipes that need a client use the shell variables `SANDBOX_BASE`, `CLIENT_ID` and `CLIENT_SECRET` (the backend services client) and `APP_CLIENT_ID` (the public App Launch client). Take their values from the credentials the Sparked team sent you: `fhir_base`, `backend_client_id`, `backend_client_secret` and `app_client_id`. The recipes ask for v1-style scopes (`system/*.read`, `patient/*.read`). Before the App Launch recipe, ask the Sparked team to register your app's redirect URIs on your App Launch client.
+The recipes that need a client use the shell variables `SANDBOX_BASE`, `CLIENT_ID` and `CLIENT_SECRET` (the backend services client) and `APP_CLIENT_ID` (the public App Launch client). Take their values from the credentials the Sparked team sent you: `fhir_base`, `backend_client_id`, `backend_client_secret` and `app_client_id`. The recipes ask for v1-style scopes (`system/*.read`, `patient/*.read`). The App Launch recipe needs a sandbox issued with your app's redirect URIs (see [Sandboxes](#sandboxes)).
 
 {{ sandbox_recipes }}
