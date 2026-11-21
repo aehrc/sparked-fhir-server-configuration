@@ -228,6 +228,9 @@ find module-config/packages -name "*.json" -exec jq empty {} \;
 > (prerequisites, safety snapshot, plan review, apply, verification, rollback) see
 > [`docs/terraform-local-deploy.md`](docs/terraform-local-deploy.md). For recovering from
 > module/provider drift, see [`terraform/REMEDIATION.md`](terraform/REMEDIATION.md).
+> The live deployment's gitignored inputs (`tfvars/sparkey.tfvars`,
+> `terraform/backend-sparkey.hcl`) are kept in AWS Secrets Manager: fetch them with
+> `scripts/fetch-smile-tfvars.sh` (see [`docs/smile-deploy-inputs.md`](docs/smile-deploy-inputs.md)).
 
 ### Reproducing this setup in your own AWS account
 
