@@ -135,7 +135,7 @@ The code is not in this guide.
 - AU Core starter data, with resource ids prefixed by your sandbox id
 - a **Reset** button that clears your sandbox and reloads the starter data
 
-**Dates.** Sandboxes can be created from Wed 2 Dec 2026, 09:00 AEDT until Thu 10 Dec 2026, 17:00 AEDT. Every sandbox for this event expires on Thu 17 Dec 2026, 17:00 AEDT; its clients and login user are disabled and its data is deleted.
+**Dates.** Sandboxes can be created from Wed 2 Dec 2026, 09:00 AEDT until Thu 10 Dec 2026, 17:00 AEDT. Sandboxes for this event expire overnight from Thu 17 to Fri 18 Dec 2026 (AEDT); their clients and login users are disabled and their data is deleted then.
 
 **Limits.** Up to 10,000 resources in one sandbox, and 60 sandboxes in total for the event. Synthetic data only: the Sparked team can see everything in every sandbox.
 

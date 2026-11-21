@@ -235,7 +235,12 @@
         },
         "opens": { "$ref": "#/$defs/datetime" },
         "creation_closes": { "$ref": "#/$defs/datetime" },
-        "expiry_days_after_event_end": { "type": "integer", "minimum": 0, "maximum": 90 },
+        "expiry_days_after_event_end": {
+          "description": "Event sandboxes expire at midnight at the end of dates.end plus this many days, in the event timezone (the sandbox service's expiry_after_event_days). The service's nightly job applies it, so the guide names the night, not a time.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 90
+        },
         "caps": {
           "type": "object",
           "additionalProperties": false,

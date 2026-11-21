@@ -124,6 +124,17 @@ class RenderingTests(unittest.TestCase):
         self.assertEqual(ctx["freeze.cron_utc"], "0 6 4 12 *")
         self.assertEqual(ctx["freeze.duration"], "168h")
 
+    def test_sandbox_expiry_matches_the_service(self):
+        """The sandbox service expires event sandboxes at midnight at the end
+        of the last event day plus the expiry days, and a nightly job applies
+        it, so the guide names the night rather than a time."""
+        _, manifest = first_manifest()
+        expiry = r.sandbox_expiry(manifest)
+        self.assertEqual(expiry.isoformat(), "2026-12-18T00:00:00+11:00")
+        ctx = r.build_context(manifest)
+        self.assertEqual(ctx["sandbox.expires"], "overnight from Thu 17 to Fri 18 Dec 2026 (AEDT)")
+        self.assertEqual(r.anchor_dates(manifest)["sandbox_expires"].isoformat(), "2026-12-18")
+
     def test_committed_outputs_match(self):
         with redirect_stdout(io.StringIO()) as out:
             code = r.main(["--check"])

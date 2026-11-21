@@ -228,12 +228,26 @@ def tidy(text: str) -> str:
 
 
 def sandbox_expiry(manifest: dict) -> dt.datetime:
+    """When every event sandbox expires: midnight at the end of the last event
+    day plus sandbox.expiry_days_after_event_end, in the event timezone. The
+    sandbox service computes the same moment (expiry_after_event_days); its
+    nightly job applies it a few hours later, so the text says "overnight"."""
     tz = ZoneInfo(manifest["timezone"])
-    closes = dt.datetime.fromisoformat(manifest["sandbox"]["creation_closes"]).astimezone(tz)
     day = _date(manifest["dates"]["end"]) + dt.timedelta(
-        days=manifest["sandbox"]["expiry_days_after_event_end"]
+        days=manifest["sandbox"]["expiry_days_after_event_end"] + 1
     )
-    return dt.datetime.combine(day, closes.time(), tzinfo=tz)
+    return dt.datetime.combine(day, dt.time(0), tzinfo=tz)
+
+
+def fmt_overnight(moment: dt.datetime, tz: ZoneInfo) -> str:
+    """The night that ends at midnight `moment`, e.g. "overnight from Thu 17
+    to Fri 18 Dec 2026 (AEDT)"."""
+    local = moment.astimezone(tz)
+    morning = local.date()
+    return (
+        f"overnight from {fmt_date_range(morning - dt.timedelta(days=1), morning)} "
+        f"({local.tzname()})"
+    )
 
 
 def build_context(manifest: dict, access_code: str | None = None) -> dict[str, str]:
@@ -299,7 +313,7 @@ def build_context(manifest: dict, access_code: str | None = None) -> dict[str, s
             "sandbox.creation_closes": fmt_datetime(
                 dt.datetime.fromisoformat(sandbox["creation_closes"]), tz
             ),
-            "sandbox.expires": fmt_datetime(sandbox_expiry(manifest), tz),
+            "sandbox.expires": fmt_overnight(sandbox_expiry(manifest), tz),
             "sandbox.max_live": f"{sandbox['caps']['max_live_sandboxes']:,}",
             "sandbox.max_resources": f"{sandbox['caps']['max_resources_per_sandbox']:,}",
             "sandbox.access_code_line": (

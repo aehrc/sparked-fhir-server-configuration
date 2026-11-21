@@ -6,7 +6,7 @@ Open the tracking issue with `gh issue create --title "Operator checklist: Melbo
 
 - Event: Tue 8 to Thu 10 Dec 2026 (T = Tue 8 Dec 2026)
 - Freeze: Fri 4 Dec 2026, 17:00 AEDT to Fri 11 Dec 2026, 17:00 AEDT
-- Sandbox: planned, mode `event`; opens Wed 2 Dec 2026, 09:00 AEDT; creation closes Thu 10 Dec 2026, 17:00 AEDT; expires Thu 17 Dec 2026, 17:00 AEDT
+- Sandbox: planned, mode `event`; opens Wed 2 Dec 2026, 09:00 AEDT; creation closes Thu 10 Dec 2026, 17:00 AEDT; expires overnight from Thu 17 to Fri 18 Dec 2026 (AEDT)
 - Inferno: v1.2.3 (planned); https://github.com/hl7au/au-fhir-inferno/pull/223
 - Participant guide: `docs/participants/2026-12-melbourne.md`
 
@@ -229,7 +229,7 @@ Open the tracking issue with `gh issue create --title "Operator checklist: Melbo
 - [ ] Tell maintainers the freeze is over and release the feed publishing hold. Renovate resumes on its own; work through its backlog one PR at a time. For the next event, run `python3 scripts/event-freeze.py render --manifest <raw URL of events/<event>.yaml>` in a sparked-argo worktree and merge that PR before its freeze (sparked-argo docs/event-freeze.md).
 - [ ] Retro from the status history, the sandbox register and the Zulip topics.
 
-## Thu 17 Dec 2026 (T+9)
+## Fri 18 Dec 2026 (T+10)
 
-- [ ] Sandbox expiry ran at Thu 17 Dec 2026, 17:00 AEDT: every event sandbox is disabled and its data deleted; retire the access code.
+- [ ] Sandbox expiry ran overnight from Thu 17 to Fri 18 Dec 2026 (AEDT): every event sandbox is disabled and its data deleted; retire the access code.
 - [ ] Turn the loader banner off; close this issue.

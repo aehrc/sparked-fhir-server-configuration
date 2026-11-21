@@ -9,7 +9,7 @@
 #   freeze_start, freeze_end       the freeze window (date and time)
 #   sandbox_opens                  first moment a sandbox can be created
 #   sandbox_creation_closes        last moment a sandbox can be created
-#   sandbox_expires                when every event sandbox expires
+#   sandbox_expires                the morning after the night every event sandbox expires
 # Tasks may use the same {{ placeholders }} as the participant guide, plus the
 # freeze.* values the sparked-argo freeze blocks render (freeze.cron_local,
 # freeze.cron_utc, freeze.duration, freeze.timezone, freeze.node_expiry_window).
@@ -325,7 +325,7 @@ items:
 
   - anchor: sandbox_expires
     offset_days: 0
-    task: "Sandbox expiry ran at {{ sandbox.expires }}: every event sandbox is disabled and its data deleted; retire the access code."
+    task: "Sandbox expiry ran {{ sandbox.expires }}: every event sandbox is disabled and its data deleted; retire the access code."
   - anchor: sandbox_expires
     offset_days: 0
     task: "Turn the loader banner off; close this issue."
