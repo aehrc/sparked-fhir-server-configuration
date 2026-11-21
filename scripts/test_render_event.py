@@ -126,7 +126,7 @@ class RenderingTests(unittest.TestCase):
 
     def test_sandbox_expiry_matches_the_service(self):
         """The sandbox service expires event sandboxes at midnight at the end
-        of the last event day plus the expiry days, and a nightly job applies
+        of the last event day plus the expiry days, and an hourly job applies
         it, so the guide names the night rather than a time."""
         _, manifest = first_manifest()
         expiry = r.sandbox_expiry(manifest)

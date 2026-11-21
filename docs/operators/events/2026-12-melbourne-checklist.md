@@ -19,7 +19,7 @@ Open the tracking issue with `gh issue create --title "Operator checklist: Melbo
 
 ## Fri 27 Nov 2026 (T-11)
 
-- [ ] **Smile node roll and AMQ fix (one-off; one weekday, one restart; before the sandbox scratch run below and any other bulk write, and by Mon 30 Nov at the latest, or Smile restarts at 12:29 AEDT on Thu 10 Dec).** The live NodeClaim `on-demand-prod-pr76v` was created 2026-11-10T01:29:08Z with `expireAfter: 720h` and expires 2026-12-10T01:29:08Z; disruption budgets cannot stop expiration in Karpenter v1. Separately, until aehrc/sparked-fhir-server-configuration#123 is applied, every resource write adds about 1.6 KB to a broker queue nothing drains, and Smile is evicted at about 65,000 messages, so the scratch run, the sandbox batch and any test-data reload wait for this item.
+- [ ] **Smile node roll and AMQ fix (one-off; one day, any day of the week, since the Drifted budget opens daily 08:00 to 19:00 AEDT; one restart; before the sandbox scratch run below and any other bulk write, and by Mon 30 Nov at the latest, or Smile restarts at 12:29 AEDT on Thu 10 Dec).** The live NodeClaim `on-demand-prod-pr76v` was created 2026-11-10T01:29:08Z with `expireAfter: 720h` and expires 2026-12-10T01:29:08Z; disruption budgets cannot stop expiration in Karpenter v1. Separately, until aehrc/sparked-fhir-server-configuration#123 is applied, every resource write adds about 1.6 KB to a broker queue nothing drains, and Smile is evicted at about 65,000 messages, so the scratch run, the sandbox batch and any test-data reload wait for this item.
   1. Between 08:00 and 18:00 AEDT, merge aehrc/sparked-argo#384 (`on-demand-prod` `expireAfter: Never`). The node now counts as drifted, but the Drifted budget holds it until 19:00 AEDT.
   2. Confirm Argo synced it: `kubectl --context sparkey get nodepool on-demand-prod -o jsonpath='{.spec.template.spec.expireAfter}{"\n"}'` prints `Never`.
   3. Before 19:00 AEDT the same day, run the local Smile `terraform apply` of #123 (merged), and watch:
@@ -32,19 +32,37 @@ Open the tracking issue with `gh issue create --title "Operator checklist: Melbo
   4. Check: `kubectl --context sparkey get nodeclaims -l karpenter.sh/nodepool=on-demand-prod -o jsonpath='{.items[*].spec.expireAfter}{"\n"}'` prints `Never`.
   5. Do not reverse the order: an apply first and #384 later restarts Smile twice, the second time by eviction at 19:00 (about 7 to 10 minutes down). If #123 is not merged in time, merge #384 alone in the same slot: at 19:00 AEDT Karpenter launches the new node, then evicts the single pod (eviction ignores `maxSurge`), about 7 to 10 minutes down; announce it. Merged outside the slot, that roll starts within a few minutes of Argo's poll.
   6. If #384 is not merged by Mon 30 Nov, the fallback is a forceful roll at a chosen hour, `kubectl --context sparkey delete nodeclaim on-demand-prod-pr76v` (no pre-spun node, so a longer gap: node launch plus startup, up to the 20-minute startup probe ceiling), any time after 2026-11-11 17:00 AEDT so the new 30-day clock ends after the freeze. It is a cluster write: the operator's call. A #123 apply on its own also moves Smile to a fresh node whose 30 days end after the freeze, with no eviction.
-- [ ] Sandbox service shown end to end on a scratch tenant: create, token, write, reset, expire. Confirm the service's `deploy/config.yaml` (aehrc/sparked-sandbox) is the source of the manifest's `sandbox.caps`: `max_live` 30, `creates_per_ip_per_day` 60, `pre_event.creates_per_ip_per_day` 3, `resource_ceiling` 10,000; if they differ, change the service's config to the agreed value first, then copy its values here and re-render.
+- [ ] Sandbox service shown end to end on a scratch tenant: create, token, write, reset, expire. Then confirm the one source of the sandbox caps and dates, the ConfigMap in aehrc/sparked-argo `apps/sparked-sandbox/manifests/config.yaml` (#393), says what the manifest mirrors: `max_live` 30, `resource_ceiling` 10,000, `pool_target` 0, `sandboxes_expire` at the start of the expiry day (overnight from Thu 17 to Fri 18 Dec 2026 (AEDT)), and for web creations only `creates_per_ip_per_day` 60 and `pre_event.creates_per_ip_per_day` 3. If they differ, change the ConfigMap first (a sparked-argo PR), then copy its values to the manifest and re-render. Once Gate A is deployed, the cluster holds the same:
+  ```sh
+  kubectl --context sparkey -n sparked-sandbox get configmap sandbox-config -o jsonpath='{.data.config\.yaml}' \
+    | grep -E '^ *(max_live|creates_per_ip_per_day|resource_ceiling|pool_target|sandboxes_expire):'
+  ```
 
 ## Mon 30 Nov 2026 (T-8)
 
 - [ ] Sandbox go/no-go. Set `sandbox.status` in the manifest to `open` (self-serve with the access code), `on-request` (the Sparked team issues sandboxes from a pre-made batch by Zulip direct message) or `cancelled`, re-render, open the PR.
-- [ ] If sandboxes are on request: make the batch, after the Smile node roll and AMQ fix item (every sandbox write needs it). In an aehrc/sparked-sandbox checkout (docs/runbook.md, "Fallback: operator-issued sandboxes"):
-  ```sh
-  source scripts/operator-env.sh
-  sandboxctl create --count 30 --batch 2026-12-melbourne --out-dir <a directory outside any repository>
-  sandboxctl list --status active
-  operator_env_close
-  ```
-  One 0600 JSON file per sandbox holds its credentials; the terminal shows only ids and FHIR bases. Keep a private register of which sandbox id went to whom (never in a repository or a Zulip channel).
+- [ ] If sandboxes are on request: make the batch, after the Smile node roll and AMQ fix item (every sandbox write needs it), in the one register: the in-cluster register of aehrc/sparked-argo `apps/sparked-sandbox.yaml` Gate A, through a port-forward. Never in a register on a workstation: the expire and enforce CronJobs would never see those sandboxes.
+  1. Gate A is deployed, with no web front:
+     ```sh
+     kubectl --context sparkey -n sparked-sandbox get statefulset,cronjob,deployment
+     ```
+     Expect StatefulSet `sandbox-postgres` 1/1, CronJobs `sandbox-expire`, `sandbox-enforce` and `sandbox-register-backup` with SUSPEND `False`, and no Deployment.
+  2. In a dedicated terminal, in an aehrc/sparked-sandbox checkout of the reviewed commit (docs/runbook.md, operator-issued sandboxes):
+     ```sh
+     export SANDBOX_REGISTER=cluster   # the in-cluster register, through a port-forward
+     source scripts/operator-env.sh    # the deployed engine principal, as the CronJobs use it; never changes it
+     RUN_START="$(TZ=Australia/Melbourne date +%Y-%m-%dT%H:%M)"
+     sandboxctl create --count 30 --batch 2026-12-melbourne --out-dir <a new directory outside any repository>
+     ```
+  3. The runbook's after-each-run check, then close:
+     ```sh
+     sandboxctl list --created-after "$RUN_START"   # every new sandbox active, DATA ready
+     sandboxctl list --status provisioning,failed   # must list nothing
+     sandboxctl reconcile                           # must report no orphan clients
+     operator_env_close                             # stops the forwards, unsets the credentials; the principal stays enabled
+     ```
+     A sandbox in `provisioning` or `failed`, or `active` with DATA not `ready`: `sandboxctl expire <id>`, rerun until it prints `expired <id>`, then `sandboxctl create --count 1` with the same `--batch` for a replacement. An orphan client: `sandboxctl reconcile --fix`, as the runbook says.
+  One 0600 JSON file per sandbox holds its credentials; the terminal shows only ids and FHIR bases. Keep a hand-out list of which sandbox id went to whom (never in a repository or a Zulip channel). `create` refuses to pass `max_live` (30), so with the batch issued, any further sandbox needs a free slot first.
 
 ## Tue 1 Dec 2026 (T-7)
 
@@ -90,7 +108,7 @@ Open the tracking issue with `gh issue create --title "Operator checklist: Melbo
   prints `Synced Healthy` and a `master` revision at or after that promotion PR's merge commit, and `https://inferno.hl7.org.au/suites/api/test_suites` lists every suite in the manifest at the manifest's kit versions. Then set `inferno.release.status: live` and re-render.
 - [ ] Merge the rendered guide; check that https://sandbox.sparked-fhir.com accepts the access code (if the sandbox is open).
 - [ ] If the sandbox is open or on request: run each Auth recipe in the guide verbatim against a sandbox (backend services, bearer token on each request, SMART App Launch with PKCE) and fix the guide where a step differs.
-- [ ] If sandboxes are on request: in the Sparked FHIR Server topic on Zulip, say that sandboxes are issued on request and how to ask (in the topic or at the Sparked desk). Answer each request with a Zulip direct message to the person who asked, holding one batch file's credentials, and note the sandbox id against them in the private register. Resets: `sandboxctl reset <id>`; a new backend secret: `sandboxctl rotate-secret <id> --out-dir <the batch directory>`. Redirect URIs: `sandboxctl` sets them only at creation (`--redirect-uri`, repeatable); until it can change an issued sandbox's, create a new sandbox for that person with all their URIs and expire the old one (`sandboxctl expire <id>`). Never post credentials in a Zulip channel.
+- [ ] If sandboxes are on request: in the Sparked FHIR Server topic on Zulip, say that sandboxes are issued on request and how to ask (in the topic or at the Sparked desk). Answer each request with a Zulip direct message to the person who asked, holding one batch file's credentials, and note the sandbox id against them in the hand-out list. Resets: `sandboxctl reset <id>`; a new backend secret: `sandboxctl rotate-secret <id> --out-dir <a new directory>`. Redirect URIs: `sandboxctl` sets them only at creation (`--redirect-uri`, repeatable) and cannot change an issued sandbox's, so whoever asks for them (first or later) gets a new sandbox with all their URIs: a new FHIR base URL, new credentials and fresh starter data. Free a slot under `max_live` first by expiring a batch sandbox nobody holds yet (the hand-out list says which; `sandboxctl expire <id>` until it prints `expired <id>`), then `sandboxctl create --count 1 --batch 2026-12-melbourne --redirect-uri <uri> --out-dir <a new directory>`; expire their old sandbox once they have moved over. Never post credentials in a Zulip channel.
 - [ ] If the sandbox is open: send the event access code to the organisers for their pre-event message to registered participants. In the Sparked FHIR Server topic on Zulip, say that the code is in that message and that anyone without it can ask in the topic for a direct message; answer each request with a Zulip direct message to the person who asked. Never post the code in a Zulip channel (chat.fhir.org channels can be web-public, and the code exists to keep crawlers off the sandbox front), and never commit it.
 - [ ] Loader banner: feed `loader_banner` to the loader's values and check https://loader.sparked-fhir.com/api/v1/public/event shows it.
 - [ ] Post the guide link in the Sparked FHIR Server topic on Zulip and ask the track leads to link it from their track pages.
@@ -169,6 +187,14 @@ Open the tracking issue with `gh issue create --title "Operator checklist: Melbo
 ## Tue 8 Dec 2026 (T)
 
 - [ ] Each event morning: status checks, Inferno suite list, sandbox count against the cap of 30 live; watch the Zulip topics in the guide's Help section and answer access code and sandbox requests by direct message only; note problems for the retro.
+- [ ] If sandboxes are on request, each event morning and evening (every event day): the CronJobs run against the register. `enforce` (every 15 minutes) suspends a sandbox over 10,000 resources; `expire` runs hourly at :37; the register backup at 01:07.
+  ```sh
+  kubectl --context sparkey -n sparked-sandbox get cronjob sandbox-enforce sandbox-expire sandbox-register-backup \
+    -o custom-columns=NAME:.metadata.name,SUSPEND:.spec.suspend,LAST:.status.lastScheduleTime,SUCCESS:.status.lastSuccessfulTime
+  kubectl --context sparkey -n sparked-sandbox get jobs --sort-by=.status.startTime \
+    -o custom-columns=JOB:.metadata.name,START:.status.startTime,SUCCEEDED:.status.succeeded,FAILED:.status.failed
+  ```
+  Expect SUSPEND `false` for all three; for `sandbox-enforce`, LAST within the past 15 minutes and SUCCESS the same or one run earlier (times are UTC); for `sandbox-expire`, within the past hour; for the backup, after 01:07 today. In the jobs list, SUCCEEDED `1` and FAILED `<none>` on every finished job. A failed job: `kubectl --context sparkey -n sparked-sandbox logs job/<name>`. Sandboxes `enforce` suspended: in an operator shell (`export SANDBOX_REGISTER=cluster; source scripts/operator-env.sh`), `sandboxctl list --status suspended`; tell each holder, and `sandboxctl reset <id>` when they ask.
 
 ## Wed 9 Dec 2026 (T+1)
 
@@ -209,5 +235,26 @@ Open the tracking issue with `gh issue create --title "Operator checklist: Melbo
 
 ## Fri 18 Dec 2026 (T+10)
 
-- [ ] Sandbox expiry ran overnight from Thu 17 to Fri 18 Dec 2026 (AEDT): every event sandbox is disabled and its data deleted; retire the access code, or delete the batch credential files and the private register (on request).
+- [ ] Sandbox expiry ran overnight from Thu 17 to Fri 18 Dec 2026 (AEDT): every event sandbox is disabled and its data deleted. If the sandbox was open: retire the access code. If sandboxes were on request, the `sandbox-expire` CronJob did it (hourly at :37; the first run after midnight disables every event sandbox, then clears them, about 2m20s each):
+  1. The expire runs after midnight succeeded:
+     ```sh
+     kubectl --context sparkey -n sparked-sandbox get cronjob sandbox-expire \
+       -o custom-columns=SUSPEND:.spec.suspend,LAST:.status.lastScheduleTime,SUCCESS:.status.lastSuccessfulTime
+     kubectl --context sparkey -n sparked-sandbox get jobs --sort-by=.status.startTime \
+       -o custom-columns=JOB:.metadata.name,START:.status.startTime,SUCCEEDED:.status.succeeded,FAILED:.status.failed
+     ```
+     Expect SUCCESS after midnight local time (times are UTC, so after 13:00 the previous day in AEDT), and no `sandbox-expire-*` job with FAILED set since then.
+  2. Nothing is left, in an operator shell:
+     ```sh
+     export SANDBOX_REGISTER=cluster
+     source scripts/operator-env.sh
+     sandboxctl list --status pooled,provisioning,active,suspended,failed   # must list nothing
+     sandboxctl list --status expired                                       # CLEARED yes on every row
+     sandboxctl reconcile                                                   # must report no orphan clients
+     operator_env_close
+     ```
+     A row with CLEARED `no`: the next hourly run retries it; check again after the next :37, and follow the runbook if it stays `no`. A sandbox still live: `sandboxctl expire <id>` until it prints `expired <id>`. Do not go on until every row says `yes`.
+  3. Suspend the CronJobs: an aehrc/sparked-argo PR setting `suspend: true` on the `expire` and `enforce` entries of `cronJobs` in `apps/sparked-sandbox/values.yaml` (the freeze is over). After Argo CD syncs it, the first command in step 1 with `sandbox-enforce` added prints SUSPEND `true` for both, and no job of theirs is running.
+  4. Disable the engine principal, in a new operator shell (as in step 2): `sandboxctl principal disable --pid <the sandbox-engine pid, aehrc/sparked-sandbox docs/live-check-2026-11.md>`, then `operator_env_close`. A minute or two later the engine credential no longer works on aucore: a new `source scripts/operator-env.sh` stops at "not ready".
+  5. Delete the batch credential files and the hand-out list.
 - [ ] Turn the loader banner off; close this issue.

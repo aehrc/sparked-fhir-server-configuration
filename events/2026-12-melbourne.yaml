@@ -209,29 +209,35 @@ sandbox:
   # The code is never posted in a Zulip channel: chat.fhir.org channels can be
   # web-public, which would hand it to the crawlers it keeps out.
   access_code_distribution: "in the organisers' pre-event message to registered participants. If you did not get that message, ask in the Sparked FHIR Server topic on Zulip (see [Help](#help)) and the Sparked team sends you the code by Zulip direct message. During the event it is also on the venue slides and in the printed guide. Please do not post the code in a Zulip channel"
-  # The sandbox service takes dates only: it opens creation at 00:00 on the
-  # opens date and closes it at 24:00 on the closing date. The times here are
-  # the published ones, inside that window.
+  # The one source of truth for the sandbox dates and caps is the deployed
+  # service config: the ConfigMap in apps/sparked-sandbox/manifests/config.yaml
+  # in aehrc/sparked-argo (PR #393). Its event block and `sandbox` block are
+  # what these values and key names mirror; change the ConfigMap first, then
+  # copy here and re-render.
+  #
+  # ConfigMap event.sandbox_opens and event.creation_closes (exact times).
   opens: "2026-12-02T09:00:00+11:00"
   creation_closes: "2026-12-10T17:00:00+11:00"
   # Sandboxes expire at midnight at the end of dates.end plus this many days
-  # (here 2026-12-18 00:00), applied by the service's nightly job, so the
-  # guide says "overnight from Thu 17 to Fri 18 Dec".
+  # (here 2026-12-18 00:00, the ConfigMap's event.sandboxes_expire). The
+  # service's expire job runs hourly, so the first run after midnight disables
+  # every event sandbox and clears them within about two hours; the guide says
+  # "overnight from Thu 17 to Fri 18 Dec".
   expiry_days_after_event_end: 7
-  # The sandbox service's config is the source of truth for these caps: the
-  # `sandbox` block of deploy/config.yaml in aehrc/sparked-sandbox, whose key
-  # names these mirror. Change the service first, then copy the values here.
-  # max_live is 30 until the scratch run and the first event morning show the
-  # cluster carries more.
   caps:
+    # The live ceiling at all times (Kyle, 22 Nov: 30 until the cluster has
+    # carried 30 under event load). Operator creates are held to it too.
     max_live: 30
-    # Venue Wi-Fi puts many participants behind one address, so this is a
-    # guard against scripts, not a per-person limit.
+    # Web creations only (an open sandbox front): the guide publishes these
+    # under `open`, not under `on-request`. Venue Wi-Fi puts many participants
+    # behind one address, so this is a guard against scripts, not a
+    # per-person limit.
     creates_per_ip_per_day: 60
     # From sandbox.opens until the first event day the access code is out but
-    # nobody is at the venue yet, so one address gets few.
+    # nobody is at the venue yet, so one address gets few. Web only.
     pre_event:
       creates_per_ip_per_day: 3
+    # The enforce job suspends a sandbox holding more.
     resource_ceiling: 10000
   fallback: Ask the Sparked team in the Sparked FHIR Server Zulip topic or at the venue for a sandbox issued by hand.
 

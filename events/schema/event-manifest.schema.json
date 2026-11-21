@@ -236,13 +236,13 @@
         "opens": { "$ref": "#/$defs/datetime" },
         "creation_closes": { "$ref": "#/$defs/datetime" },
         "expiry_days_after_event_end": {
-          "description": "Event sandboxes expire at midnight at the end of dates.end plus this many days, in the event timezone (the sandbox service's expiry_after_event_days). The service's nightly job applies it, so the guide names the night, not a time.",
+          "description": "Event sandboxes expire at midnight at the end of dates.end plus this many days, in the event timezone (the sandbox service's expiry_after_event_days). The service's hourly expire job applies it within about two hours, so the guide names the night, not a time.",
           "type": "integer",
           "minimum": 0,
           "maximum": 90
         },
         "caps": {
-          "description": "The caps the sandbox service enforces, named as in its deploy/config.yaml `sandbox` block (aehrc/sparked-sandbox), which is the source of truth: copy them from there.",
+          "description": "The caps the sandbox service enforces, named as in the `sandbox` block of its deployed ConfigMap (aehrc/sparked-argo apps/sparked-sandbox/manifests/config.yaml), which is the one source of truth: copy them from there. creates_per_ip_per_day and pre_event apply to web creations only.",
           "type": "object",
           "additionalProperties": false,
           "required": ["max_live", "creates_per_ip_per_day", "pre_event", "resource_ceiling"],

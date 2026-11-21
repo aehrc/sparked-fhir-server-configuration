@@ -232,8 +232,9 @@ def tidy(text: str) -> str:
 def sandbox_expiry(manifest: dict) -> dt.datetime:
     """When every event sandbox expires: midnight at the end of the last event
     day plus sandbox.expiry_days_after_event_end, in the event timezone. The
-    sandbox service computes the same moment (expiry_after_event_days); its
-    nightly job applies it a few hours later, so the text says "overnight"."""
+    sandbox service is configured with the same moment (event.sandboxes_expire);
+    its hourly expire job applies it within about two hours, so the text says
+    "overnight"."""
     tz = ZoneInfo(manifest["timezone"])
     day = _date(manifest["dates"]["end"]) + dt.timedelta(
         days=manifest["sandbox"]["expiry_days_after_event_end"] + 1
