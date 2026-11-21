@@ -1,0 +1,103 @@
+# Operator checklist for a Sparked event, T-2 weeks to T+1 week.
+#
+# scripts/render_event.py turns this into docs/operators/events/<event>-checklist.md
+# with real dates from the event manifest. The operator opens a GitHub issue
+# from the rendered file (gh issue create --body-file ...).
+#
+# Each item has an anchor, an offset in days from it, and a task. Anchors:
+#   event_start, event_end         the first and last event days
+#   freeze_start, freeze_end       the freeze window (date and time)
+#   sandbox_opens                  first moment a sandbox can be created
+#   sandbox_creation_closes        last moment a sandbox can be created
+#   sandbox_expires                when every event sandbox expires
+# Tasks may use the same {{ placeholders }} as the participant guide.
+#
+# An item with `todo: true` is a gap still to be written; it renders as a
+# clearly marked TODO so nobody mistakes it for a finished step.
+
+items:
+  - anchor: event_start
+    offset_days: -14
+    task: "Re-check every fact in `events/{{ event.id }}.yaml` against the live services (version map, Inferno suites, data commits, known issues); update `last_checked`; run `python scripts/render_event.py --check-links events/{{ event.id }}.yaml` and fix any link that fails."
+  - anchor: event_start
+    offset_days: -14
+    task: "Confirm the version map with the track leads: Sparked serves the ballots, {{ server.hl7au-reference.fhir_base }} serves the stable releases. Make sure each track page links the right server."
+  - anchor: event_start
+    offset_days: -14
+    task: "Ask the HL7 AU test data maintainers whether an event tag of hl7au/au-fhir-test-data is planned (as for earlier events); if it is, record it in `data` of the manifest."
+  - anchor: event_start
+    offset_days: -14
+    task: "Turn the previous event's loader banner off at loader.sparked-fhir.com until git sets it from `loader_banner`."
+
+  - anchor: event_start
+    offset_days: -11
+    task: "Sandbox service shown end to end on a scratch tenant: create, token, write, reset, expire."
+
+  - anchor: event_start
+    offset_days: -8
+    task: "Sandbox go/no-go. Set `sandbox.status` to `open` or `cancelled` in the manifest, re-render, open the PR."
+
+  - anchor: event_start
+    offset_days: -6
+    task: "Inferno: the promotion ({{ inferno.release.tracking }}) is merged; `{{ inferno.url }}/suites/api/test_suites` lists every suite in the manifest at the manifest's kit versions, including the SMART App Launch suites. Then set `inferno.release.status: live` and re-render."
+  - anchor: sandbox_opens
+    offset_days: 0
+    task: "Merge the rendered guide; check that {{ sandbox.url }} accepts the access code (if the sandbox is open)."
+  - anchor: event_start
+    offset_days: -6
+    task: "Loader banner: feed `loader_banner` to the loader's values and check https://loader.sparked-fhir.com/api/v1/public/event shows it."
+  - anchor: event_start
+    offset_days: -6
+    task: "Post the guide link in the Sparked FHIR Server topic on Zulip and ask the track leads to link it from their track pages."
+
+  - anchor: freeze_start
+    offset_days: 0
+    task: "Freeze starts at {{ freeze.start }}."
+  - anchor: freeze_start
+    offset_days: 0
+    todo: true
+    task: "Freeze steps (Argo sync windows, Karpenter disruption freeze, tx.dev preload pause, Renovate pause, no Smile applies) with their exact commands and checks: to be added from the freeze checklist."
+
+  - anchor: event_start
+    offset_days: -1
+    task: "Run the smoke suite from CI; every status check green."
+  - anchor: event_start
+    offset_days: -1
+    task: "Warm the validator: one `$validate?profile=<canonical>|<version>` per IG version in the version map on {{ server.sparked.fhir_base }}."
+  - anchor: event_start
+    offset_days: -1
+    task: "Print the guide with the access code (`EVENT_ACCESS_CODE=... python scripts/render_event.py --print-copy <file outside the repo> events/{{ event.id }}.yaml`) and put the code on the venue slides. Never commit the code."
+  - anchor: event_start
+    offset_days: -1
+    task: "Run `--check-links` once more."
+
+  - anchor: event_start
+    offset_days: 0
+    task: "Each event morning: status checks, Inferno suite list, sandbox count against the cap of {{ sandbox.max_live }}; watch the Zulip topics in the guide's Help section; note problems for the retro."
+  - anchor: event_start
+    offset_days: 1
+    task: "Morning checks as on day 1."
+  - anchor: event_end
+    offset_days: 0
+    task: "Morning checks as on day 1."
+  - anchor: sandbox_creation_closes
+    offset_days: 0
+    task: "Sandbox creation closes at {{ sandbox.creation_closes }}; check the front refuses new sandboxes."
+
+  - anchor: freeze_end
+    offset_days: 0
+    task: "Freeze ends at {{ freeze.end }}."
+  - anchor: freeze_end
+    offset_days: 0
+    todo: true
+    task: "Unfreeze steps, the reverse of the freeze steps, with their checks: to be added from the freeze checklist."
+  - anchor: freeze_end
+    offset_days: 0
+    task: "Retro from the status history, the sandbox register and the Zulip topics."
+
+  - anchor: sandbox_expires
+    offset_days: 0
+    task: "Sandbox expiry ran at {{ sandbox.expires }}: every event sandbox is disabled and its data deleted; retire the access code."
+  - anchor: sandbox_expires
+    offset_days: 0
+    task: "Turn the loader banner off; close this issue."
