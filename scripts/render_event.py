@@ -314,8 +314,14 @@ def build_context(manifest: dict, access_code: str | None = None) -> dict[str, s
                 dt.datetime.fromisoformat(sandbox["creation_closes"]), tz
             ),
             "sandbox.expires": fmt_overnight(sandbox_expiry(manifest), tz),
-            "sandbox.max_live": f"{sandbox['caps']['max_live_sandboxes']:,}",
-            "sandbox.max_resources": f"{sandbox['caps']['max_resources_per_sandbox']:,}",
+            "sandbox.max_live": f"{sandbox['caps']['max_live']:,}",
+            "sandbox.creates_per_ip_per_day": f"{sandbox['caps']['creates_per_ip_per_day']:,}",
+            "sandbox.pre_event.creates_per_ip_per_day": (
+                f"{sandbox['caps']['pre_event']['creates_per_ip_per_day']:,}"
+            ),
+            # The service's pre-event cap holds until 00:00 on the first event day.
+            "sandbox.pre_event_until": fmt_date(start),
+            "sandbox.resource_ceiling": f"{sandbox['caps']['resource_ceiling']:,}",
             "sandbox.access_code_line": (
                 f"**Event access code: `{access_code}`**"
                 if access_code

@@ -32,7 +32,7 @@ Open the tracking issue with `gh issue create --title "Operator checklist: Melbo
   4. Check: `kubectl --context sparkey get nodeclaims -l karpenter.sh/nodepool=on-demand-prod -o jsonpath='{.items[*].spec.expireAfter}{"\n"}'` prints `Never`.
   5. Do not reverse the order: an apply first and #384 later restarts Smile twice, the second time by eviction at 19:00 (about 7 to 10 minutes down). If #123 is not merged in time, merge #384 alone in the same slot: at 19:00 AEDT Karpenter launches the new node, then evicts the single pod (eviction ignores `maxSurge`), about 7 to 10 minutes down; announce it. Merged outside the slot, that roll starts within a few minutes of Argo's poll.
   6. If #384 is not merged by Mon 30 Nov, the fallback is a forceful roll at a chosen hour, `kubectl --context sparkey delete nodeclaim on-demand-prod-pr76v` (no pre-spun node, so a longer gap: node launch plus startup, up to the 20-minute startup probe ceiling), any time after 2026-11-11 17:00 AEDT so the new 30-day clock ends after the freeze. It is a cluster write: the operator's call. A #123 apply on its own also moves Smile to a fresh node whose 30 days end after the freeze, with no eviction.
-- [ ] Sandbox service shown end to end on a scratch tenant: create, token, write, reset, expire.
+- [ ] Sandbox service shown end to end on a scratch tenant: create, token, write, reset, expire. Confirm the service's `deploy/config.yaml` (aehrc/sparked-sandbox) is the source of the manifest's `sandbox.caps`: `max_live` 30, `creates_per_ip_per_day` 60, `pre_event.creates_per_ip_per_day` 3, `resource_ceiling` 10,000; if they differ, the service wins: copy its values into the manifest and re-render.
 
 ## Mon 30 Nov 2026 (T-8)
 
@@ -159,7 +159,7 @@ Open the tracking issue with `gh issue create --title "Operator checklist: Melbo
 
 ## Tue 8 Dec 2026 (T)
 
-- [ ] Each event morning: status checks, Inferno suite list, sandbox count against the cap of 60; watch the Zulip topics in the guide's Help section and answer access code requests by direct message only; note problems for the retro.
+- [ ] Each event morning: status checks, Inferno suite list, sandbox count against the cap of 30 live; watch the Zulip topics in the guide's Help section and answer access code requests by direct message only; note problems for the retro.
 
 ## Wed 9 Dec 2026 (T+1)
 

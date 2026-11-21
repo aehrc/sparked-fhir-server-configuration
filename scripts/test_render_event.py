@@ -188,6 +188,14 @@ class SandboxStatusTests(unittest.TestCase):
         self.assertIn("### Backend services: client credentials", guide)
         self.assertIn("SANDBOX_BASE", guide)
 
+    def test_limits_come_from_the_caps(self):
+        _, manifest = first_manifest()
+        caps = manifest["sandbox"]["caps"]
+        guide = self.render("open")
+        self.assertIn(f"at most {caps['max_live']:,} sandboxes live at once", guide)
+        self.assertIn(f"Up to {caps['resource_ceiling']:,} resources", guide)
+        self.assertIn(f"up to {caps['pre_event']['creates_per_ip_per_day']:,} sandboxes a day until", guide)
+
     def test_guide_template_leaves_sandboxes_to_the_partials(self):
         """participant-guide.md may name the Sandboxes section but never
         describe sandboxes: that text belongs in the status partials."""

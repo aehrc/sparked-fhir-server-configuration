@@ -242,13 +242,35 @@
           "maximum": 90
         },
         "caps": {
+          "description": "The caps the sandbox service enforces, named as in its deploy/config.yaml `sandbox` block (aehrc/sparked-sandbox), which is the source of truth: copy them from there.",
           "type": "object",
           "additionalProperties": false,
-          "required": ["max_live_sandboxes", "max_creations_per_ip_per_hour", "max_resources_per_sandbox"],
+          "required": ["max_live", "creates_per_ip_per_day", "pre_event", "resource_ceiling"],
           "properties": {
-            "max_live_sandboxes": { "type": "integer", "minimum": 1 },
-            "max_creations_per_ip_per_hour": { "type": "integer", "minimum": 1 },
-            "max_resources_per_sandbox": { "type": "integer", "minimum": 1 }
+            "max_live": {
+              "description": "Most sandboxes live at once for the event.",
+              "type": "integer",
+              "minimum": 1
+            },
+            "creates_per_ip_per_day": {
+              "description": "Sandboxes one client address may create per day from the first event day.",
+              "type": "integer",
+              "minimum": 1
+            },
+            "pre_event": {
+              "description": "The per-address cap from sandbox.opens until the first event day.",
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["creates_per_ip_per_day"],
+              "properties": {
+                "creates_per_ip_per_day": { "type": "integer", "minimum": 1 }
+              }
+            },
+            "resource_ceiling": {
+              "description": "Most resources in one sandbox.",
+              "type": "integer",
+              "minimum": 1
+            }
           }
         },
         "fallback": { "type": "string", "minLength": 1 }

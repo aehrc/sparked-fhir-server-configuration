@@ -62,7 +62,7 @@ items:
 
   - anchor: event_start
     offset_days: -11
-    task: "Sandbox service shown end to end on a scratch tenant: create, token, write, reset, expire."
+    task: "Sandbox service shown end to end on a scratch tenant: create, token, write, reset, expire. Confirm the service's `deploy/config.yaml` (aehrc/sparked-sandbox) is the source of the manifest's `sandbox.caps`: `max_live` {{ sandbox.max_live }}, `creates_per_ip_per_day` {{ sandbox.creates_per_ip_per_day }}, `pre_event.creates_per_ip_per_day` {{ sandbox.pre_event.creates_per_ip_per_day }}, `resource_ceiling` {{ sandbox.resource_ceiling }}; if they differ, the service wins: copy its values into the manifest and re-render."
 
   - anchor: event_start
     offset_days: -8
@@ -229,7 +229,7 @@ items:
 
   - anchor: event_start
     offset_days: 0
-    task: "Each event morning: status checks, Inferno suite list, sandbox count against the cap of {{ sandbox.max_live }}; watch the Zulip topics in the guide's Help section and answer access code requests by direct message only; note problems for the retro."
+    task: "Each event morning: status checks, Inferno suite list, sandbox count against the cap of {{ sandbox.max_live }} live; watch the Zulip topics in the guide's Help section and answer access code requests by direct message only; note problems for the retro."
   - anchor: event_start
     offset_days: 1
     task: "Morning checks as on day 1."

@@ -216,12 +216,21 @@ sandbox:
   # (here 2026-12-18 00:00), applied by the service's nightly job, so the
   # guide says "overnight from Thu 17 to Fri 18 Dec".
   expiry_days_after_event_end: 7
+  # The sandbox service's config is the source of truth for these caps: the
+  # `sandbox` block of deploy/config.yaml in aehrc/sparked-sandbox, whose key
+  # names these mirror. Change the service first, then copy the values here.
+  # max_live is 30 until the scratch run and the first event morning show the
+  # cluster carries more.
   caps:
-    max_live_sandboxes: 60
+    max_live: 30
     # Venue Wi-Fi puts many participants behind one address, so this is a
     # guard against scripts, not a per-person limit.
-    max_creations_per_ip_per_hour: 30
-    max_resources_per_sandbox: 10000
+    creates_per_ip_per_day: 60
+    # From sandbox.opens until the first event day the access code is out but
+    # nobody is at the venue yet, so one address gets few.
+    pre_event:
+      creates_per_ip_per_day: 3
+    resource_ceiling: 10000
   fallback: Ask the Sparked team in the Sparked FHIR Server Zulip topic or at the venue for a sandbox issued by hand.
 
 status_page:

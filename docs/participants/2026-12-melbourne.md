@@ -137,7 +137,7 @@ The code is not in this guide.
 
 **Dates.** Sandboxes can be created from Wed 2 Dec 2026, 09:00 AEDT until Thu 10 Dec 2026, 17:00 AEDT. Sandboxes for this event expire overnight from Thu 17 to Fri 18 Dec 2026 (AEDT); their clients and login users are disabled and their data is deleted then.
 
-**Limits.** Up to 10,000 resources in one sandbox, and 60 sandboxes in total for the event. Synthetic data only: the Sparked team can see everything in every sandbox.
+**Limits.** Up to 10,000 resources in one sandbox, and at most 30 sandboxes live at once for the event. One network address can create up to 3 sandboxes a day until Tue 8 Dec 2026, and up to 60 a day from then (the venue Wi-Fi puts everyone behind one address). Synthetic data only: the Sparked team can see everything in every sandbox.
 
 ## Auth recipes
 

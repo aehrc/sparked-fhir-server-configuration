@@ -14,4 +14,4 @@ A sandbox is your own writable space on the Sparked FHIR server, with its own FH
 
 **Dates.** Sandboxes can be created from {{ sandbox.opens }} until {{ sandbox.creation_closes }}. Sandboxes for this event expire {{ sandbox.expires }}; their clients and login users are disabled and their data is deleted then.
 
-**Limits.** Up to {{ sandbox.max_resources }} resources in one sandbox, and {{ sandbox.max_live }} sandboxes in total for the event. Synthetic data only: the Sparked team can see everything in every sandbox.
+**Limits.** Up to {{ sandbox.resource_ceiling }} resources in one sandbox, and at most {{ sandbox.max_live }} sandboxes live at once for the event. One network address can create up to {{ sandbox.pre_event.creates_per_ip_per_day }} sandboxes a day until {{ sandbox.pre_event_until }}, and up to {{ sandbox.creates_per_ip_per_day }} a day from then (the venue Wi-Fi puts everyone behind one address). Synthetic data only: the Sparked team can see everything in every sandbox.
