@@ -219,8 +219,8 @@
       ],
       "properties": {
         "status": {
-          "description": "planned before the go/no-go; open once participants can create one; cancelled on a no-go (the guide then describes the fallback).",
-          "enum": ["planned", "open", "cancelled"]
+          "description": "planned before the go/no-go; open once participants can create one at sandbox.url with the access code; on-request when the Sparked team issues sandboxes from a pre-made batch by Zulip direct message (no web address, no access code); cancelled on a no-go (the guide then describes the fallback).",
+          "enum": ["planned", "open", "on-request", "cancelled"]
         },
         "decision": { "type": "string", "minLength": 1 },
         "url": { "$ref": "#/$defs/url" },

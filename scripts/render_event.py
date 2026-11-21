@@ -56,7 +56,9 @@ PLACEHOLDER = re.compile(r"\{\{\s*([A-Za-z0-9_.-]+)\s*\}\}")
 # file per sandbox status, split into these slots by `<!-- slot: name -->`
 # lines. The guide template uses them as {{ sandbox.slot.<name> }}, so a
 # planned or cancelled sandbox never renders a sentence that assumes one.
-SANDBOX_STATUSES = ("planned", "open", "cancelled")
+# open is self-serve at sandbox.url with the access code; on-request is
+# operator-issued from a pre-made batch, with no web address and no code.
+SANDBOX_STATUSES = ("planned", "open", "on-request", "cancelled")
 SANDBOX_SLOTS = ("summary", "services", "writes", "section", "auth")
 SLOT_MARKER = re.compile(r"^<!-- slot: ([a-z_]+) -->[ \t]*$", re.MULTILINE)
 
@@ -356,10 +358,12 @@ def build_context(manifest: dict, access_code: str | None = None) -> dict[str, s
     ctx["other_endpoints"] = other_endpoints(manifest)
 
     # Sandbox text: the slots of the partial for the current status, which
-    # may include the shared details partial.
-    ctx["sandbox_details"] = substitute(
-        (TEMPLATES_DIR / "sandbox-details.md").read_text(encoding="utf-8"), ctx, "sandbox-details.md"
-    ).strip()
+    # may include the shared partials (the self-serve plan, and the auth
+    # recipes every status with a sandbox client shows).
+    for key, name in (("sandbox_details", "sandbox-details.md"), ("sandbox_recipes", "sandbox-recipes.md")):
+        ctx[key] = substitute(
+            (TEMPLATES_DIR / name).read_text(encoding="utf-8"), ctx, name
+        ).strip()
     for name, text in sandbox_slots(sandbox["status"]).items():
         ctx[f"sandbox.slot.{name}"] = substitute(
             text, ctx, f"sandbox-{sandbox['status']}.md ({name})"

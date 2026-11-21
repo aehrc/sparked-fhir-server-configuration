@@ -21,7 +21,8 @@ file differs from what its manifest renders to.
 | `schema/event-manifest.schema.json` | JSON Schema for a manifest |
 | `templates/participant-guide.md` | Hand-written guide prose, with `{{ placeholders }}` |
 | `templates/sandbox-<status>.md` | Every sentence about sandboxes, one file per sandbox status, split into slots |
-| `templates/sandbox-details.md` | The sandbox plan, shared by the `planned` and `open` files |
+| `templates/sandbox-details.md` | The self-serve sandbox plan, shared by the `planned` and `open` files |
+| `templates/sandbox-recipes.md` | The sandbox auth recipes, shared by the `open` and `on-request` files |
 | `templates/operator-checklist.yaml` | Checklist items, each dated relative to the event |
 | `requirements.txt` | The renderer's pinned dependencies |
 
@@ -78,10 +79,13 @@ which refuses to write inside the repository.
 
 ## Statuses that change the guide
 
-- `sandbox.status`: `planned` until the go/no-go, then `open` or `cancelled`.
-  Each has its own text in `templates/sandbox-<status>.md`, one block per
-  slot, each block starting with a `<!-- slot: name -->` line: `summary`
-  (the At a glance cell), `services` (the opening sentence), `writes`
+- `sandbox.status`: `planned` until the go/no-go, then `open` (self-serve at
+  `sandbox.url` with the access code), `on-request` (the Sparked team issues
+  sandboxes from a pre-made batch by Zulip direct message; no web address,
+  no access code) or `cancelled`. Each has its own text in
+  `templates/sandbox-<status>.md`, one block per slot, each block starting
+  with a `<!-- slot: name -->` line: `summary` (the At a glance cell),
+  `services` (the opening sentence), `writes`
   (Endpoints), `section` (Sandboxes) and `auth` (the sandbox recipes under
   Auth recipes). Every file must define every slot.
 - `inferno.release.status`: `planned` until the promotion merges and the site

@@ -79,7 +79,7 @@ class RenderingTests(unittest.TestCase):
     def test_access_code_only_in_print_copy(self):
         _, manifest = first_manifest()
         self.assertNotIn("TEST-CODE-123", r.render_guide(manifest))
-        if manifest["sandbox"]["status"] != "cancelled":
+        if manifest["sandbox"]["status"] in ("planned", "open"):
             self.assertIn("TEST-CODE-123", r.render_guide(manifest, access_code="TEST-CODE-123"))
 
     def test_print_copy_refuses_a_path_in_the_repo(self):
@@ -187,6 +187,32 @@ class SandboxStatusTests(unittest.TestCase):
         guide = self.render("open")
         self.assertIn("### Backend services: client credentials", guide)
         self.assertIn("SANDBOX_BASE", guide)
+
+    def test_on_request_guide_has_the_recipes_and_no_web_front(self):
+        """Operator-issued sandboxes: credentials come by Zulip direct
+        message, so the guide names no web address and no access code, even
+        in a print copy, but shows every auth recipe."""
+        _, manifest = first_manifest()
+        variant = r.with_sandbox_status(manifest, "on-request")
+        for guide in (r.render_guide(variant), r.render_guide(variant, access_code="TEST-CODE-123")):
+            self.assertNotIn("TEST-CODE-123", guide)
+            self.assertNotRegex(guide.lower(), r"access[ -]code")
+            self.assertNotIn("sandbox.sparked-fhir.com", guide)
+            self.assertNotIn(manifest["sandbox"]["url"], guide)
+            for heading in (
+                "### Backend services: client credentials",
+                "### Bearer token on each request",
+                "### SMART App Launch with PKCE (standalone launch)",
+            ):
+                self.assertIn(heading, guide)
+            self.assertIn("Zulip direct message", guide)
+            self.assertIn("issued **on request**", guide)
+
+    def test_open_and_on_request_share_the_recipes(self):
+        recipes = r.build_context(first_manifest()[1])["sandbox_recipes"]
+        for status in ("open", "on-request"):
+            with self.subTest(status=status):
+                self.assertIn(recipes, self.render(status))
 
     def test_limits_come_from_the_caps(self):
         _, manifest = first_manifest()

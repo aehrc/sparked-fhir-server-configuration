@@ -32,11 +32,19 @@ Open the tracking issue with `gh issue create --title "Operator checklist: Melbo
   4. Check: `kubectl --context sparkey get nodeclaims -l karpenter.sh/nodepool=on-demand-prod -o jsonpath='{.items[*].spec.expireAfter}{"\n"}'` prints `Never`.
   5. Do not reverse the order: an apply first and #384 later restarts Smile twice, the second time by eviction at 19:00 (about 7 to 10 minutes down). If #123 is not merged in time, merge #384 alone in the same slot: at 19:00 AEDT Karpenter launches the new node, then evicts the single pod (eviction ignores `maxSurge`), about 7 to 10 minutes down; announce it. Merged outside the slot, that roll starts within a few minutes of Argo's poll.
   6. If #384 is not merged by Mon 30 Nov, the fallback is a forceful roll at a chosen hour, `kubectl --context sparkey delete nodeclaim on-demand-prod-pr76v` (no pre-spun node, so a longer gap: node launch plus startup, up to the 20-minute startup probe ceiling), any time after 2026-11-11 17:00 AEDT so the new 30-day clock ends after the freeze. It is a cluster write: the operator's call. A #123 apply on its own also moves Smile to a fresh node whose 30 days end after the freeze, with no eviction.
-- [ ] Sandbox service shown end to end on a scratch tenant: create, token, write, reset, expire. Confirm the service's `deploy/config.yaml` (aehrc/sparked-sandbox) is the source of the manifest's `sandbox.caps`: `max_live` 30, `creates_per_ip_per_day` 60, `pre_event.creates_per_ip_per_day` 3, `resource_ceiling` 10,000; if they differ, the service wins: copy its values into the manifest and re-render.
+- [ ] Sandbox service shown end to end on a scratch tenant: create, token, write, reset, expire. Confirm the service's `deploy/config.yaml` (aehrc/sparked-sandbox) is the source of the manifest's `sandbox.caps`: `max_live` 30, `creates_per_ip_per_day` 60, `pre_event.creates_per_ip_per_day` 3, `resource_ceiling` 10,000; if they differ, change the service's config to the agreed value first, then copy its values here and re-render.
 
 ## Mon 30 Nov 2026 (T-8)
 
-- [ ] Sandbox go/no-go. Set `sandbox.status` to `open` or `cancelled` in the manifest, re-render, open the PR.
+- [ ] Sandbox go/no-go. Set `sandbox.status` in the manifest to `open` (self-serve with the access code), `on-request` (the Sparked team issues sandboxes from a pre-made batch by Zulip direct message) or `cancelled`, re-render, open the PR.
+- [ ] If sandboxes are on request: make the batch, after the Smile node roll and AMQ fix item (every sandbox write needs it). In an aehrc/sparked-sandbox checkout (docs/runbook.md, "Fallback: operator-issued sandboxes"):
+  ```sh
+  source scripts/operator-env.sh
+  sandboxctl create --count 30 --batch 2026-12-melbourne --out-dir <a directory outside any repository>
+  sandboxctl list --status active
+  operator_env_close
+  ```
+  One 0600 JSON file per sandbox holds its credentials; the terminal shows only ids and FHIR bases. Keep a private register of which sandbox id went to whom (never in a repository or a Zulip channel).
 
 ## Tue 1 Dec 2026 (T-7)
 
@@ -81,7 +89,8 @@ Open the tracking issue with `gh issue create --title "Operator checklist: Melbo
   ```
   prints `Synced Healthy` and a `master` revision at or after that promotion PR's merge commit, and `https://inferno.hl7.org.au/suites/api/test_suites` lists every suite in the manifest at the manifest's kit versions. Then set `inferno.release.status: live` and re-render.
 - [ ] Merge the rendered guide; check that https://sandbox.sparked-fhir.com accepts the access code (if the sandbox is open).
-- [ ] If the sandbox is open: run each Auth recipe in the guide verbatim against a sandbox (backend services, bearer token on each request, SMART App Launch with PKCE) and fix the guide where a step differs.
+- [ ] If the sandbox is open or on request: run each Auth recipe in the guide verbatim against a sandbox (backend services, bearer token on each request, SMART App Launch with PKCE) and fix the guide where a step differs.
+- [ ] If sandboxes are on request: in the Sparked FHIR Server topic on Zulip, say that sandboxes are issued on request and how to ask (in the topic or at the Sparked desk). Answer each request with a Zulip direct message to the person who asked, holding one batch file's credentials, and note the sandbox id against them in the private register. Resets: `sandboxctl reset <id>`; a new backend secret: `sandboxctl rotate-secret <id> --out-dir <the batch directory>`. Redirect URIs: `sandboxctl` sets them only at creation (`--redirect-uri`, repeatable); until it can change an issued sandbox's, create a new sandbox for that person with all their URIs and expire the old one (`sandboxctl expire <id>`). Never post credentials in a Zulip channel.
 - [ ] If the sandbox is open: send the event access code to the organisers for their pre-event message to registered participants. In the Sparked FHIR Server topic on Zulip, say that the code is in that message and that anyone without it can ask in the topic for a direct message; answer each request with a Zulip direct message to the person who asked. Never post the code in a Zulip channel (chat.fhir.org channels can be web-public, and the code exists to keep crawlers off the sandbox front), and never commit it.
 - [ ] Loader banner: feed `loader_banner` to the loader's values and check https://loader.sparked-fhir.com/api/v1/public/event shows it.
 - [ ] Post the guide link in the Sparked FHIR Server topic on Zulip and ask the track leads to link it from their track pages.
@@ -154,12 +163,12 @@ Open the tracking issue with `gh issue create --title "Operator checklist: Melbo
 
 - [ ] Run the smoke suite from CI; every status check green.
 - [ ] Warm the validator: one `$validate?profile=<canonical>|<version>` per IG version in the version map on https://smile.sparked-fhir.com/aucore/fhir/DEFAULT.
-- [ ] Print the guide with the access code (`EVENT_ACCESS_CODE=... python scripts/render_event.py --print-copy <file outside the repo> events/2026-12-melbourne.yaml`) and put the code on the venue slides. Never commit the code.
+- [ ] If the sandbox is open: print the guide with the access code (`EVENT_ACCESS_CODE=... python scripts/render_event.py --print-copy <file outside the repo> events/2026-12-melbourne.yaml`) and put the code on the venue slides. Never commit the code.
 - [ ] Run `--check-links` once more.
 
 ## Tue 8 Dec 2026 (T)
 
-- [ ] Each event morning: status checks, Inferno suite list, sandbox count against the cap of 30 live; watch the Zulip topics in the guide's Help section and answer access code requests by direct message only; note problems for the retro.
+- [ ] Each event morning: status checks, Inferno suite list, sandbox count against the cap of 30 live; watch the Zulip topics in the guide's Help section and answer access code and sandbox requests by direct message only; note problems for the retro.
 
 ## Wed 9 Dec 2026 (T+1)
 
@@ -168,7 +177,7 @@ Open the tracking issue with `gh issue create --title "Operator checklist: Melbo
 ## Thu 10 Dec 2026 (T+2)
 
 - [ ] Morning checks as on day 1.
-- [ ] Sandbox creation closes at Thu 10 Dec 2026, 17:00 AEDT; check the front refuses new sandboxes.
+- [ ] Sandbox creation closes at Thu 10 Dec 2026, 17:00 AEDT; check the front refuses new sandboxes (open), or stop issuing from the batch (on request).
 
 ## Fri 11 Dec 2026 (T+3)
 
@@ -200,5 +209,5 @@ Open the tracking issue with `gh issue create --title "Operator checklist: Melbo
 
 ## Fri 18 Dec 2026 (T+10)
 
-- [ ] Sandbox expiry ran overnight from Thu 17 to Fri 18 Dec 2026 (AEDT): every event sandbox is disabled and its data deleted; retire the access code.
+- [ ] Sandbox expiry ran overnight from Thu 17 to Fri 18 Dec 2026 (AEDT): every event sandbox is disabled and its data deleted; retire the access code, or delete the batch credential files and the private register (on request).
 - [ ] Turn the loader banner off; close this issue.

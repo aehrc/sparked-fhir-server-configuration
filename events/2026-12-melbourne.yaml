@@ -196,8 +196,10 @@ data:
   note: No reload is planned before the event; the data stays as loaded through the freeze.
 
 sandbox:
-  # planned until the go/no-go; then open, or cancelled (the guide then
-  # describes the fallback).
+  # planned until the go/no-go; then open (self-serve at `url` with the
+  # access code), on-request (the Sparked team issues sandboxes from a
+  # pre-made batch by Zulip direct message; no web address, no access code),
+  # or cancelled (the guide then describes the fallback).
   status: planned
   decision: Go/no-go on Mon 30 Nov 2026
   url: https://sandbox.sparked-fhir.com

@@ -62,11 +62,23 @@ items:
 
   - anchor: event_start
     offset_days: -11
-    task: "Sandbox service shown end to end on a scratch tenant: create, token, write, reset, expire. Confirm the service's `deploy/config.yaml` (aehrc/sparked-sandbox) is the source of the manifest's `sandbox.caps`: `max_live` {{ sandbox.max_live }}, `creates_per_ip_per_day` {{ sandbox.creates_per_ip_per_day }}, `pre_event.creates_per_ip_per_day` {{ sandbox.pre_event.creates_per_ip_per_day }}, `resource_ceiling` {{ sandbox.resource_ceiling }}; if they differ, the service wins: copy its values into the manifest and re-render."
+    task: "Sandbox service shown end to end on a scratch tenant: create, token, write, reset, expire. Confirm the service's `deploy/config.yaml` (aehrc/sparked-sandbox) is the source of the manifest's `sandbox.caps`: `max_live` {{ sandbox.max_live }}, `creates_per_ip_per_day` {{ sandbox.creates_per_ip_per_day }}, `pre_event.creates_per_ip_per_day` {{ sandbox.pre_event.creates_per_ip_per_day }}, `resource_ceiling` {{ sandbox.resource_ceiling }}; if they differ, change the service's config to the agreed value first, then copy its values here and re-render."
 
   - anchor: event_start
     offset_days: -8
-    task: "Sandbox go/no-go. Set `sandbox.status` to `open` or `cancelled` in the manifest, re-render, open the PR."
+    task: "Sandbox go/no-go. Set `sandbox.status` in the manifest to `open` (self-serve with the access code), `on-request` (the Sparked team issues sandboxes from a pre-made batch by Zulip direct message) or `cancelled`, re-render, open the PR."
+  - anchor: event_start
+    offset_days: -8
+    task: |
+      If sandboxes are on request: make the batch, after the Smile node roll and AMQ fix item (every sandbox write needs it). In an aehrc/sparked-sandbox checkout (docs/runbook.md, "Fallback: operator-issued sandboxes"):
+      ```sh
+      source scripts/operator-env.sh
+      sandboxctl create --count {{ sandbox.max_live }} --batch {{ event.id }} --out-dir <a directory outside any repository>
+      sandboxctl list --status active
+      operator_env_close
+      ```
+      One 0600 JSON file per sandbox holds its credentials; the terminal shows only ids and FHIR bases. Keep a private register of which sandbox id went to whom (never in a repository or a Zulip channel).
+
   - anchor: freeze_start
     offset_days: -3
     only_for: [2026-12-melbourne]
@@ -125,7 +137,10 @@ items:
     task: "Merge the rendered guide; check that {{ sandbox.url }} accepts the access code (if the sandbox is open)."
   - anchor: sandbox_opens
     offset_days: 0
-    task: "If the sandbox is open: run each Auth recipe in the guide verbatim against a sandbox (backend services, bearer token on each request, SMART App Launch with PKCE) and fix the guide where a step differs."
+    task: "If the sandbox is open or on request: run each Auth recipe in the guide verbatim against a sandbox (backend services, bearer token on each request, SMART App Launch with PKCE) and fix the guide where a step differs."
+  - anchor: sandbox_opens
+    offset_days: 0
+    task: "If sandboxes are on request: in the Sparked FHIR Server topic on Zulip, say that sandboxes are issued on request and how to ask (in the topic or at the Sparked desk). Answer each request with a Zulip direct message to the person who asked, holding one batch file's credentials, and note the sandbox id against them in the private register. Resets: `sandboxctl reset <id>`; a new backend secret: `sandboxctl rotate-secret <id> --out-dir <the batch directory>`. Redirect URIs: `sandboxctl` sets them only at creation (`--redirect-uri`, repeatable); until it can change an issued sandbox's, create a new sandbox for that person with all their URIs and expire the old one (`sandboxctl expire <id>`). Never post credentials in a Zulip channel."
   - anchor: sandbox_opens
     offset_days: 0
     task: "If the sandbox is open: send the event access code to the organisers for their pre-event message to registered participants. In the Sparked FHIR Server topic on Zulip, say that the code is in that message and that anyone without it can ask in the topic for a direct message; answer each request with a Zulip direct message to the person who asked. Never post the code in a Zulip channel (chat.fhir.org channels can be web-public, and the code exists to keep crawlers off the sandbox front), and never commit it."
@@ -222,14 +237,14 @@ items:
     task: "Warm the validator: one `$validate?profile=<canonical>|<version>` per IG version in the version map on {{ server.sparked.fhir_base }}."
   - anchor: event_start
     offset_days: -1
-    task: "Print the guide with the access code (`EVENT_ACCESS_CODE=... python scripts/render_event.py --print-copy <file outside the repo> events/{{ event.id }}.yaml`) and put the code on the venue slides. Never commit the code."
+    task: "If the sandbox is open: print the guide with the access code (`EVENT_ACCESS_CODE=... python scripts/render_event.py --print-copy <file outside the repo> events/{{ event.id }}.yaml`) and put the code on the venue slides. Never commit the code."
   - anchor: event_start
     offset_days: -1
     task: "Run `--check-links` once more."
 
   - anchor: event_start
     offset_days: 0
-    task: "Each event morning: status checks, Inferno suite list, sandbox count against the cap of {{ sandbox.max_live }} live; watch the Zulip topics in the guide's Help section and answer access code requests by direct message only; note problems for the retro."
+    task: "Each event morning: status checks, Inferno suite list, sandbox count against the cap of {{ sandbox.max_live }} live; watch the Zulip topics in the guide's Help section and answer access code and sandbox requests by direct message only; note problems for the retro."
   - anchor: event_start
     offset_days: 1
     task: "Morning checks as on day 1."
@@ -238,7 +253,7 @@ items:
     task: "Morning checks as on day 1."
   - anchor: sandbox_creation_closes
     offset_days: 0
-    task: "Sandbox creation closes at {{ sandbox.creation_closes }}; check the front refuses new sandboxes."
+    task: "Sandbox creation closes at {{ sandbox.creation_closes }}; check the front refuses new sandboxes (open), or stop issuing from the batch (on request)."
 
   - anchor: freeze_end
     offset_days: 0
@@ -280,7 +295,7 @@ items:
 
   - anchor: sandbox_expires
     offset_days: 0
-    task: "Sandbox expiry ran {{ sandbox.expires }}: every event sandbox is disabled and its data deleted; retire the access code."
+    task: "Sandbox expiry ran {{ sandbox.expires }}: every event sandbox is disabled and its data deleted; retire the access code, or delete the batch credential files and the private register (on request)."
   - anchor: sandbox_expires
     offset_days: 0
     task: "Turn the loader banner off; close this issue."
