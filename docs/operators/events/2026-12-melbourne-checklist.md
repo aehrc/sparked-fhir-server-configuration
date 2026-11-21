@@ -25,7 +25,7 @@ Open the tracking issue with `gh issue create --title "Operator checklist: Melbo
 
 - [ ] Sandbox go/no-go. Set `sandbox.status` to `open` or `cancelled` in the manifest, re-render, open the PR.
 - [ ] **Smile node roll (one-off; must happen, or Smile restarts at 12:29 AEDT on Thu 10 Dec).** The live NodeClaim `on-demand-prod-pr76v` was created 2026-11-10T01:29:08Z with `expireAfter: 720h` and expires 2026-12-10T01:29:08Z; disruption budgets cannot stop expiration in Karpenter v1.
-  1. On a weekday before Tue 1 Dec, merge aehrc/sparked-argo#384 (`on-demand-prod` `expireAfter: Never`) during the day. It is not inert: Karpenter replaces the node gracefully (new node first) at 19:00 AEDT that evening, when the Drifted budget opens, and Smile restarts once (cold boot up to about 30 minutes).
+  1. On a weekday by Mon 30 Nov, merge aehrc/sparked-argo#384 (`on-demand-prod` `expireAfter: Never`) **between 08:00 and 18:00 AEDT**. It is not inert: Karpenter replaces the node gracefully (new node first) at 19:00 AEDT that evening, when the Drifted budget opens. Merged outside that slot, the roll starts within a few minutes of Argo's poll. Smile has one replica and eviction ignores `maxSurge`, so it is down for the gap: expect **about 7 to 10 minutes** (60 s termination, image pull on the fresh node, startup; the last restart took 5 min 36 s to Ready), starting a few minutes after 19:00.
   2. At 19:00 AEDT, watch:
      ```sh
      kubectl --context sparkey get nodeclaims -l karpenter.sh/nodepool=on-demand-prod -w
@@ -34,11 +34,29 @@ Open the tracking issue with `gh issue create --title "Operator checklist: Melbo
      ```
      Expect one new NodeClaim, the old one gone, the pod Ready, then `200`.
   3. Check: `kubectl --context sparkey get nodeclaims -l karpenter.sh/nodepool=on-demand-prod -o jsonpath='{.items[*].spec.expireAfter}{"\n"}'` prints `Never`.
-  4. If #384 is not merged by Tue 1 Dec, the fallback is a forceful roll at a chosen hour, `kubectl --context sparkey delete nodeclaim on-demand-prod-pr76v` (no pre-spun node, so a longer gap). It is a cluster write: Kyle's call.
+  4. If #384 is not merged by Mon 30 Nov, the fallback is a forceful roll at a chosen hour, `kubectl --context sparkey delete nodeclaim on-demand-prod-pr76v` (no pre-spun node, so a longer gap: node launch plus startup, up to the 20-minute startup probe ceiling), any time after 2026-11-11 17:00 AEDT so the new 30-day clock ends after the freeze. It is a cluster write: Kyle's call.
 
 ## Tue 1 Dec 2026 (T-7)
 
-- [ ] **Inferno prod ref (one-off; before the promotion merges).**
+- [ ] **Stacked PRs (one-off; read before merging the freeze PRs).** aehrc/sparked-argo keeps merged branches (`delete_branch_on_merge: false`), so GitHub does **not** retarget #383 and #386 when #382 merges. Merged as they stand they would land on the dead `freeze/event-sync-windows` branch, and after a squash of #382 they conflict. Right after #382 squash-merges, restack each one (whoever owns the #383 and #386 branches does this):
+  ```sh
+  cd ~/Documents/repos/sparked-worktrees/w4-karpenter      # freeze/karpenter-event-budgets, #383
+  git fetch origin && git merge --ff-only origin/freeze/karpenter-event-budgets
+  OLD=$(gh pr view 382 -R aehrc/sparked-argo --json headRefOid -q .headRefOid)   # #382's last head
+  git rebase --onto origin/main "$OLD"
+  git push --force-with-lease origin freeze/karpenter-event-budgets
+  gh pr edit 383 -R aehrc/sparked-argo --base main
+  gh pr checks 383 -R aehrc/sparked-argo --watch           # wait for green before merging
+
+  cd ~/Documents/repos/sparked-worktrees/w4-renovate       # freeze/renovate-pause, #386
+  git fetch origin && git merge --ff-only origin/freeze/renovate-pause
+  git rebase --onto origin/main "$OLD"
+  git push --force-with-lease origin freeze/renovate-pause
+  gh pr edit 386 -R aehrc/sparked-argo --base main
+  gh pr checks 386 -R aehrc/sparked-argo --watch
+  ```
+  Tested 21 Nov on a simulated squash of #382: both rebases apply cleanly.
+- [ ] **Inferno prod ref (one-off; any day, before the next promotion PR merges is cleanest).**
   1. Merge hl7au/au-fhir-inferno#226 (`prod-release.yaml` fast-forwards a `prod` branch to each promotion merge).
   2. Bootstrap the branch at the current `master` head, which is what prod renders today:
      ```sh
@@ -47,24 +65,43 @@ Open the tracking issue with `gh issue create --title "Operator checklist: Melbo
      git rev-parse origin/master
      kubectl --context sparkey -n argocd get app inferno-prod -o jsonpath='{.status.sync.revision}{"\n"}'
      ```
-     The two SHAs must match. If `master` moved after Argo's last sync, wait for `inferno-prod` to sync it first. **Record this SHA in this issue:** it is the rollback target for the first promotion after the switch (https://github.com/hl7au/au-fhir-inferno/pull/223), because the previous tag's chart predates chart changes that prod already runs.
-  3. Merge aehrc/sparked-argo#381 (`inferno-prod` renders `targetRevision: prod`) straight after. Check: `kubectl --context sparkey -n argocd get app inferno-prod -o jsonpath='{.spec.source.targetRevision} {.status.sync.status} {.status.health.status} {.status.sync.revision}{"\n"}'` prints `prod Synced Healthy <same SHA>`.
-  4. `PROMOTE_TOKEN` needs Contents and Workflows read and write; without Workflows, a promotion whose range changes a workflow file fails at the move step and a release owner pushes `prod` by hand.
+     The two SHAs must match. If `master` moved after Argo's last sync, wait for `inferno-prod` to sync it first. **Record this SHA in this issue:** it is the rollback target for the first promotion after the switch (the promotion PR that supersedes hl7au/au-fhir-inferno#223, see the Inferno promotion item), because the `v1.2.2` tag's chart predates five chart changes that prod already runs (#211, #213, #216, #222, #225: `git log v1.2.2..origin/master -- infra/helm/inferno` without the `values-dev.yaml` and `values-ci-build.yaml` commits).
+  3. **Kyle (repository admin), straight after the bootstrap: protect `prod`** with the ruleset in the "Kyle's admin actions" item (K1). Check: `gh api repos/hl7au/au-fhir-inferno/rules/branches/prod --jq '.[].type'` lists `deletion`, `update`, `non_fast_forward`.
+  4. Merge aehrc/sparked-argo#381 (`inferno-prod` renders `targetRevision: prod`) straight after. Check: `kubectl --context sparkey -n argocd get app inferno-prod -o jsonpath='{.spec.source.targetRevision} {.status.sync.status} {.status.health.status} {.status.sync.revision}{"\n"}'` prints `prod Synced Healthy <same SHA>`.
+  5. `PROMOTE_TOKEN` needs Contents and Workflows read and write (K2 in the "Kyle's admin actions" item); without Workflows, a promotion whose range changes a workflow file fails at the move step and a repository admin pushes `prod` by hand.
+- [ ] **Kyle's admin actions (one-off).**
+  - **K1. `prod` ruleset on hl7au/au-fhir-inferno (repository admin), right after the Inferno prod ref bootstrap.** Moving `prod` is the prod deploy, and five collaborators hold `maintain`. This blocks deleting, pushing and force-pushing `prod` for everyone but the repository admin role. The promotion step pushes with `PROMOTE_TOKEN || GITHUB_TOKEN`, and `PROMOTE_TOKEN` is a repository admin's PAT, so it needs no GitHub Actions bypass:
+    ```sh
+    gh api -X POST repos/hl7au/au-fhir-inferno/rulesets --input - <<'EOF'
+    {
+      "name": "prod environment branch",
+      "target": "branch",
+      "enforcement": "active",
+      "conditions": {"ref_name": {"include": ["refs/heads/prod"], "exclude": []}},
+      "rules": [{"type": "deletion"}, {"type": "update"}, {"type": "non_fast_forward"}],
+      "bypass_actors": [{"actor_id": 5, "actor_type": "RepositoryRole", "bypass_mode": "always"}]
+    }
+    EOF
+    gh api repos/hl7au/au-fhir-inferno/rules/branches/prod --jq '.[].type'   # deletion, update, non_fast_forward
+    ```
+    `actor_id` 5 is the repository admin role, the same bypass as the existing `master trunk protection` ruleset.
+  - **K2. `PROMOTE_TOKEN` permissions.** Confirm the fine-grained PAT behind `PROMOTE_TOKEN` has Contents and Workflows read and write on hl7au/au-fhir-inferno (its Workflows permission is unverified; the secret is not readable). Without Workflows, only a promotion whose range changes `.github/workflows/` fails, closed.
 - [ ] **Freeze PRs (one-off setup; merge by Wed 2 Dec).** None acts on the cluster before Fri 4 Dec 2026, 17:00 AEDT, except that #383's business-hours budget is live on merge (it rolls no node).
   1. Argo CD sync windows: merge aehrc/sparked-argo#382 (deny windows plus `scripts/event-freeze.py`). Check:
      ```sh
      kubectl --context sparkey -n argocd get appproject inferno sparked -o jsonpath='{range .items[*]}{.metadata.name}: {.spec.syncWindows[*].schedule} {.spec.syncWindows[*].timeZone} {.spec.syncWindows[*].duration}{"\n"}{end}'
      ```
      Expect `0 17 4 12 * Australia/Sydney 168h` for both.
-  2. Karpenter budgets: merge aehrc/sparked-argo#383 after #382 (GitHub retargets it to `main`). Check:
+  2. Karpenter budgets: after #382 merges, restack aehrc/sparked-argo#383 (the "Stacked PRs" item: rebase, force-push, `gh pr edit 383 --base main`, green), then merge it. Check:
      ```sh
      kubectl --context sparkey get nodepools -o custom-columns=NAME:.metadata.name,BUDGETS:.spec.disruption.budgets
      ```
-     Expect on `on-demand` and `spot`: `nodes:1`, the `0 21 * * *` 11h budget, and the `0 6 4 12 *` 168h budget; `on-demand-prod`: the `0 6 4 12 *` 168h budget with no reasons; `spot-arm64`: the `0 21 * * *` budget. No NodeClaim should change.
-  3. tx.dev preload overlay and Renovate pause: merge aehrc/sparked-argo#385 (the overlay, commented out; renders nothing new) and #386 (Renovate skips scheduled runs inside a rendered freeze; after #382).
+     Expect on `on-demand` and `spot`: `nodes:1`, the `0 21 * * *` 11h budget, and the `0 6 4 12 *` 168h budget; `on-demand-overflow`: `nodes:1` and the `0 6 4 12 *` 168h budget (Underutilized, Drifted), no business-hours budget; `on-demand-prod`: the `0 6 4 12 *` 168h budget with no reasons; `spot-arm64`: the `0 21 * * *` budget. No NodeClaim should change.
+  3. tx.dev preload overlay and Renovate pause: merge aehrc/sparked-argo#385 (the overlay, commented out; renders nothing new). After #382 merges, restack #386 (Renovate skips scheduled runs inside a rendered freeze; the "Stacked PRs" item: rebase, force-push, `gh pr edit 386 --base main`, green), then merge it. Check: `gh pr view 386 -R aehrc/sparked-argo --json baseRefName,state -q '.baseRefName+" "+.state'` prints `main MERGED`.
 
 ## Wed 2 Dec 2026 (T-6)
 
+- [ ] **Inferno promotion (one-off; by Wed 2 Dec).** The promotion PR that supersedes hl7au/au-fhir-inferno#223 merges through the new path. Merging hl7au/au-fhir-inferno#227 (D5 SMART, changes `Gemfile.lock` and `lib/`) triggers a trunk build that opens a new promotion PR and closes #223 as superseded; that new PR is the one to merge (and the one the bootstrap SHA recorded in this issue rolls back). Before merging it, open its "What merging now ships" link (`compare/prod...master`; present when #226 merged before that build, otherwise open that compare URL by hand). Point `inferno.release.tracking` in the manifest at the new PR. Then run the check in the next item, which shows that promotion PR's merge commit.
 - [ ] Inferno: the promotion (https://github.com/hl7au/au-fhir-inferno/pull/223) is merged through the `prod` branch path. Check:
   ```sh
   git -C ~/Documents/repos/au-fhir-inferno fetch origin && git -C ~/Documents/repos/au-fhir-inferno log -1 --format='%h %s' origin/prod
@@ -87,6 +124,7 @@ Open the tracking issue with `gh issue create --title "Operator checklist: Melbo
      Spot nodes usually go sooner; if one is still there, decide whether to roll it this evening (`kubectl delete nodeclaim <name>`, a cluster write).
   2. Ask whoever publishes to the `hl7au-dev` and `hl7au-fragments` syndication feeds to hold from Fri 4 Dec 2026, 17:00 AEDT to Fri 11 Dec 2026, 17:00 AEDT: a replica restart still runs the startup preload.
   3. Tell maintainers: no merges to aehrc/sparked-argo `main` and no Smile `terraform apply` from Fri 4 Dec 2026, 17:00 AEDT except emergencies; no Inferno promotion merges.
+- [ ] NodeClaim ages, as seen on 21 Nov: two spot nodes were in that range, `spot-v5nwq` (loader, expires Sun 6 Dec 11:03 AEDT) and `spot-jdswt` (one of the two main-gateway Envoy proxies and one of the two ontoserver-gw proxies, expires Fri 11 Dec 08:58 AEDT). If either is still there, decide whether to roll it this evening.
 
 ## Fri 4 Dec 2026 (T-4)
 
@@ -100,7 +138,7 @@ Open the tracking issue with `gh issue create --title "Operator checklist: Melbo
   git commit -am "Pause tx.dev's nightly preload for the event freeze" && git push -u origin HEAD
   gh pr create --fill && gh pr merge --squash --delete-branch
   ```
-  Both replicas roll one at a time (about 2.5 minutes each). Check:
+  Both replicas roll one at a time (about 2.5 minutes each). Each roll runs the startup preload, so tx.dev's content is fixed at this switch, not when the freeze starts. If `ontoserver-statefulset-1` (rolled first) fails to start, Ontoserver rejected `"-"`: the roll stops with pod 0 still serving; revert the switch. Check:
   ```sh
   kubectl --context sparkey -n ontoserver get sts ontoserver-statefulset -o jsonpath='{.spec.template.spec.containers[?(@.name=="ontoserver-ontoserver")].env[?(@.name=="atom.preload.schedule.cron")].value}{"\n"}'   # prints -
   kubectl --context sparkey -n ontoserver get pods   # both Ready
@@ -108,21 +146,35 @@ Open the tracking issue with `gh issue create --title "Operator checklist: Melbo
   ```
 - [ ] Freeze starts at Fri 4 Dec 2026, 17:00 AEDT. Nothing to do at that moment: the Argo CD sync windows, Karpenter event budgets and Renovate skip all start on their own.
 - [ ] **From five minutes after the freeze starts: confirm.**
-  - Argo CD: the UI shows a red "Sync Denied" window on `inferno-prod`, `ontoserver`, `smilecdr-routes` and the rest of the list; or with the CLI, `argocd proj windows list sparked` and `argocd app get inferno-prod` (Sync Window: Sync Denied). One look that self-heal is held: `kubectl --context sparkey -n argocd get app inferno-prod -o jsonpath='{.status.conditions}{"\n"}'`.
+  - Argo CD (v3.6.2 sets no Application condition when a window blocks auto-sync or self-heal; it logs it once per reconcile):
+    ```sh
+    kubectl --context sparkey -n argocd logs sts/argocd-application-controller --since=10m \
+      | grep 'Sync prevented by sync window' | grep -c 'application=inferno-prod'   # more than 0
+    argocd app get inferno-prod | grep 'SyncWindow:'   # Manual Allowed (Sync Allowed = no active window)
+    ```
+    Repeat the log grep with `application=ontoserver` and `application=smilecdr-routes` for the `sparked` project.
   - Karpenter: in Grafana Explore (Mimir), `karpenter_nodepools_allowed_disruptions{nodepool=~"on-demand|on-demand-prod|spot"}` drops to 0 for the frozen reasons.
   - Smile: no `terraform apply` until the freeze ends (convention; Smile is not in Argo CD).
   - Inferno: no promotion merge until the freeze ends (`prod` only moves on one).
 - [ ] **During the freeze (keep for reference).**
-  - Emergency change to a frozen app: merge the fix, then sync it by hand: Argo CD UI, the Application, Sync (allowed because every window sets `manualSync: true`). With kubectl only:
+  - Emergency change to a frozen app: merge the fix, then sync it by hand (the windows set `syncOverrun: true`, so no automated sync is left stuck from the freeze start to terminate first): Argo CD UI, the Application, Sync (allowed because every window sets `manualSync: true`). With kubectl only:
     ```sh
     kubectl --context sparkey -n argocd patch application <app> --type merge \
       -p '{"operation":{"initiatedBy":{"username":"<you>"},"sync":{"syncStrategy":{"hook":{}}}}}'
     ```
-  - Emergency Inferno rollback: a release owner moves `prod` back to where it was before the last promotion, then syncs `inferno-prod` by hand. For the first promotion after the `prod` switch, that is the bootstrap SHA recorded in this issue, not the previous tag: `git -C ~/Documents/repos/au-fhir-inferno push --force origin <bootstrap sha>:refs/heads/prod`. For later releases, the previous tag: `git -C ~/Documents/repos/au-fhir-inferno push --force origin 'vX.Y.Z^{commit}:refs/heads/prod'`.
+  - Emergency Inferno rollback: a repository admin (the only role the `prod` ruleset lets force-push) moves `prod` back to where it was before the last promotion, then syncs `inferno-prod` by hand. For the first promotion after the `prod` switch (for this event, the promotion PR that superseded hl7au/au-fhir-inferno#223), that is the bootstrap SHA recorded in this issue, not the previous tag: `git -C ~/Documents/repos/au-fhir-inferno push --force origin <bootstrap sha>:refs/heads/prod`. For later releases, the previous tag: `git -C ~/Documents/repos/au-fhir-inferno push --force origin 'vX.Y.Z^{commit}:refs/heads/prod'`.
   - Emergency dependency bump: Actions, Renovate, Run workflow, tick `ignore_freeze`.
   - Emergency node repack: karpenter-config is not in a window; delete the event block from the NodePool and merge.
-  - Lift the whole freeze early: merge `python3 scripts/event-freeze.py clear` (the clear step at the freeze end) and resume the tx.dev preload.
+  - Lift the whole freeze early: merge `python3 scripts/event-freeze.py clear` (the clear step at the freeze end) and resume the tx.dev preload. Do not revert aehrc/sparked-argo#382 to lift it: once #386 is merged, that breaks every scheduled Renovate run. To remove the tooling, revert #386, then #383, then #382.
   - Renovate's scheduled runs inside the freeze should show as skipped: `gh run list -R aehrc/sparked-argo --workflow renovate.yaml -L 2`.
+
+## Sat 5 Dec 2026 (T-3)
+
+- [ ] **After 02:00 AEDT: Ontoserver logs show no `Commenced scheduled preload job`.** Each replica logs that line (`au.csiro.ontoserver.jobs.PreloadScheduler`) when the nightly cron fires at 15:00 UTC; the startup preload does not log it. Kubelet keeps only about two hours of Ontoserver logs, so ask Loki through the API server proxy (read-only):
+  ```sh
+  kubectl --context sparkey get --raw "/api/v1/namespaces/monitoring/services/lgtm-distributed-loki-gateway:80/proxy/loki/api/v1/query_range?query=%7Bnamespace%3D%22ontoserver%22%7D%20%7C%3D%20%22Commenced%20scheduled%20preload%20job%22&start=2026-12-04T14:55:00Z&end=2026-12-04T15:30:00Z&limit=10" | jq '[.data.result[].values[]] | length'
+  ```
+  Expect `0`. A normal night prints `2` (one per replica; checked for 19 and 20 Nov on 21 Nov). If it prints anything else, the cron is still on: check the freeze-start `kubectl get sts` output and sync `ontoserver` by hand.
 
 ## Mon 7 Dec 2026 (T-1)
 
