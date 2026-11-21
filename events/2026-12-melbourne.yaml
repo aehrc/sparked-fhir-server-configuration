@@ -149,7 +149,9 @@ inferno:
   url: https://inferno.hl7.org.au
   release:
     version: v1.2.3
-    # planned until hl7au/au-fhir-inferno#223 merges and the site serves v1.2.3.
+    # planned until the promotion PR, hl7au/au-fhir-inferno#223, merges and
+    # the site serves v1.2.3. inferno-prod tracks master and the event freeze
+    # holds it with the Argo CD sync window (aehrc/sparked-argo#382).
     status: planned
     live_today: v1.2.2
     tracking: https://github.com/hl7au/au-fhir-inferno/pull/223
@@ -174,21 +176,6 @@ inferno:
       suites:
         - id: au_ps_v100
           title: AU PS 1.0.0 Test Suite
-    - name: SMART App Launch Test Kit
-      version: 0.4.6
-      live_today: 0.4.6
-      suites:
-        - id: smart_stu2_2
-          title: SMART App Launch STU2.2
-        - id: smart_stu2
-          title: SMART App Launch STU2
-        - id: smart
-          title: SMART App Launch STU1
-        - id: smart_access_brands
-          title: SMART User-access Brands and Endpoints STU2.2
-      # No `page` until hl7au/au-fhir-inferno#227 adds the kit page to the
-      # site; the operator checklist adds it once that page answers.
-      note: hosted on purpose from v1.2.3 onwards.
 
 # The DEFAULT partition's curated data, as recorded by the loader
 # (loader.sparked-fhir.com, /api/v1/public/nodes and /datasets).

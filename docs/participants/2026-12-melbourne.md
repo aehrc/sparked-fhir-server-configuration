@@ -173,9 +173,6 @@ Release v1.2.3 is planned for this event and is not on the site yet; the site ru
 |---|---|---|---|
 | [AU Core Test Kit](https://inferno.hl7.org.au/test-kits/au-core/) | 1.4.7 | 1.4.6 | [AU Core v3.0.0-ballot1](https://inferno.hl7.org.au/suites/au_core_v300_ballot1)<br>[AU Core v2.1.0-draft](https://inferno.hl7.org.au/suites/au_core_v210_draft)<br>[AU Core v2.0.0](https://inferno.hl7.org.au/suites/au_core_v200)<br>[AU Core v1.0.0](https://inferno.hl7.org.au/suites/au_core_v100) |
 | [AU PS Test Kit](https://inferno.hl7.org.au/test-kits/au-ps/) | 1.0.1 | 1.0.1 | [AU PS 1.0.0 Test Suite](https://inferno.hl7.org.au/suites/au_ps_v100) |
-| SMART App Launch Test Kit | 0.4.6 | 0.4.6 | [SMART App Launch STU2.2](https://inferno.hl7.org.au/suites/smart_stu2_2)<br>[SMART App Launch STU2](https://inferno.hl7.org.au/suites/smart_stu2)<br>[SMART App Launch STU1](https://inferno.hl7.org.au/suites/smart)<br>[SMART User-access Brands and Endpoints STU2.2](https://inferno.hl7.org.au/suites/smart_access_brands) |
-
-- SMART App Launch Test Kit: hosted on purpose from v1.2.3 onwards.
 
 The AU Core Test Kit's **FHIR Endpoint** input starts filled in with the HL7 AU reference server; change it to your own server. See [Known issues](#known-issues) before a dry run against Sparked.
 
