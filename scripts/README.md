@@ -75,7 +75,7 @@ Or use the individual workflows directly:
 
 Register SMART on FHIR / OIDC clients on the aucore node.
 
-The script calls the admin JSON API at `https://smile.sparked-fhir.com/aucore/admin-json`, which answers only to the CSIRO address ranges (CSIRO network or VPN). `SMILECDR_ADMIN_URL` (or `--admin-url`) points it elsewhere, with every `{node}` replaced by `--node`: the registration workflows set it to the in-cluster Service `http://smilecdr-scdrnode-{node}-admin-json.smile.svc.cluster.local:9000/{node}/admin-json`, reachable only from the `arc-runner-smile-admin` runners (a scale set reserved for the jobs that hold the admin credential, in a runner group that serves this repository only). The script refuses an admin URL whose path is not `/<node>/admin-json`, and checks that the address answers (one retry) before it registers anything.
+The script calls the admin JSON API at `https://smile.sparked-fhir.com/aucore/admin-json`, which is IP-restricted (use it from the CSIRO network or VPN). `SMILECDR_ADMIN_URL` (or `--admin-url`) points it elsewhere, with every `{node}` replaced by `--node`: the registration workflows set it to the in-cluster Service `http://smilecdr-scdrnode-{node}-admin-json.smile.svc.cluster.local:9000/{node}/admin-json`, reachable only from the `arc-runner-smile-admin` runners (a scale set reserved for the registration jobs, in a runner group that serves this repository only). The script refuses an admin URL whose path is not `/<node>/admin-json`, and checks that the address answers (one retry) before it registers anything.
 
 ```bash
 export CSIRO_FHIR_AUTH_64="your_base64_credentials"

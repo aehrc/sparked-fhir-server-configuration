@@ -49,8 +49,8 @@ Environment Variables:
         (default: <base URL>/<node>/admin-json). Every "{node}" is replaced with
         --node, so one value serves every node; the script refuses to run when
         the resulting path is not /<node>/admin-json. The registration workflows
-        set it to the in-cluster Service, because the public admin route answers
-        only to the CSIRO address ranges.
+        set it to the in-cluster Service; the public admin route is
+        IP-restricted.
 """
 
 import argparse
@@ -408,8 +408,8 @@ def check_admin_api_reachable(admin_url: str, timeout: float = 10.0,
         )
     else:
         message += (
-            " The public admin route answers only to the CSIRO address ranges"
-            " (aehrc/sparked-argo docs/runbooks/admin-allowlist.md)."
+            " The public admin route is IP-restricted; use it from the CSIRO network"
+            " or VPN (aehrc/sparked-argo docs/runbooks/admin-allowlist.md)."
         )
     return message
 
