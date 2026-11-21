@@ -105,13 +105,21 @@ permissions:
 # jobs do not depend on it, so
 # every job here must run on arc-runner-set, the only runners that NetworkPolicy
 # smile/allow-smilecdr-ingress admits to port 9000 (aehrc/sparked-argo,
-# network-policies/phase1-ingress/smile.yaml). register_smart_client.py checks
-# the address answers before it registers anything and fails with that message
-# if it does not. The endpoints shown to requesters still use the public
-# hostname (SMILECDR_BASE_URL, unchanged). The full cluster.local name, not the
-# short one, because job containers resolve through docker-in-docker.
+# network-policies/phase1-ingress/smile.yaml). register_smart_client.py
+# replaces {node} with --node, refuses a URL whose path names another node, and
+# checks the address answers (one retry) before it registers anything. The
+# endpoints shown to requesters still use the public hostname
+# (SMILECDR_BASE_URL, unchanged). The full cluster.local name, not the short
+# one, because job containers resolve through docker-in-docker.
+#
+# Docker network trap: the job container sits on the first user-defined docker
+# network inside dind (172.18.0.0/16; services: containers share it). Docker
+# hands out 172.19.0.0/16 next, then 172.20.0.0/16, which is the sparkey
+# Service CIDR. A job that creates two more docker networks (docker network
+# create, docker compose up) would route the ClusterIP locally and fail the
+# reachability check. Keep these jobs to the job container's own network.
 env:
-  SMILECDR_ADMIN_URL: http://smilecdr-scdrnode-aucore-admin-json.smile.svc.cluster.local:9000/aucore/admin-json
+  SMILECDR_ADMIN_URL: http://smilecdr-scdrnode-{node}-admin-json.smile.svc.cluster.local:9000/{node}/admin-json
 
 jobs:
   # ============================================================================

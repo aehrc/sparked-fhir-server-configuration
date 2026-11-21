@@ -1312,8 +1312,9 @@ jobs:
           CSIRO_FHIR_AUTH_64: ${{ secrets.CSIRO_FHIR_AUTH_64 }}
           # In-cluster admin JSON API: the public route answers only to the
           # CSIRO address ranges, and only arc-runner-set pods are admitted to
-          # port 9000 (see the env block in register-smart-clients.yml).
-          SMILECDR_ADMIN_URL: http://smilecdr-scdrnode-aucore-admin-json.smile.svc.cluster.local:9000/aucore/admin-json
+          # port 9000 (see the env block in register-smart-clients.yml). The
+          # script replaces {node} with each --node in the loop above.
+          SMILECDR_ADMIN_URL: http://smilecdr-scdrnode-{node}-admin-json.smile.svc.cluster.local:9000/{node}/admin-json
           CLIENT_TYPE: ${{ steps.issue.outputs.client_type }}
           CLIENT_ID: ${{ steps.issue.outputs.client_id }}
           CLIENT_NAME: ${{ steps.issue.outputs.client_name }}
