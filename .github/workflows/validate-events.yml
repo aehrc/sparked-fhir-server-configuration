@@ -1,0 +1,53 @@
+name: Validate Event Manifests
+
+# Validates every event manifest (events/*.yaml) against its JSON Schema and
+# fails if a rendered participant guide or operator checklist differs from what
+# its manifest renders to. Fix a failure by re-rendering:
+#   pip install -r events/requirements.txt
+#   python scripts/render_event.py
+
+on:
+  pull_request:
+    paths:
+      - 'events/**'
+      - 'docs/participants/**'
+      - 'docs/operators/events/**'
+      - 'scripts/render_event.py'
+      - 'scripts/test_render_event.py'
+      - '.github/workflows/validate-events.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'events/**'
+      - 'docs/participants/**'
+      - 'docs/operators/events/**'
+      - 'scripts/render_event.py'
+      - 'scripts/test_render_event.py'
+      - '.github/workflows/validate-events.yml'
+
+permissions:
+  contents: read
+
+# No secrets and no network beyond the package index, so this is fork-safe. Same
+# runner rule as validate-config.yml: a fork PR runs on a GitHub-hosted runner
+# and never on the self-hosted arc-runner-set; same-repo PRs and pushes use
+# vars.CI_RUNNER if set.
+jobs:
+  validate-events:
+    name: Validate event manifests and rendered guides
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || vars.CI_RUNNER || 'ubuntu-latest' }}
+    container:
+      image: python:3.15-slim
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Install dependencies
+        run: pip install --no-cache-dir -r events/requirements.txt
+
+      - name: Test the renderer
+        run: python scripts/test_render_event.py
+
+      - name: Check rendered files match their manifests
+        run: python scripts/render_event.py --check
