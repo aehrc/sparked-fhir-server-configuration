@@ -17,7 +17,16 @@
 #                       on its own DNS name before the smile.sparked-fhir.com record is
 #                       flipped to it (Gateway API migration, side-by-side testing).
 #
-# Requires: curl, jq, aws CLI with access to the smilecdr-user-passwords secret.
+# Exit status is 0 only when every check passed. Every FAIL line says what the
+# check expected and what came back (HTTP status plus the server's
+# OperationOutcome diagnostics, or the start of the body when it is not FHIR).
+#
+# Data checks search with _count=1 and expect at least one entry. The server
+# refuses search totals by design (HAPI-2038 for _summary=count, HAPI-2037 for
+# _total=accurate), so the results show which resource each search found rather
+# than a count.
+#
+# Requires: curl, jq, python3, aws CLI with access to the smilecdr-user-passwords secret.
 set -u
 
 BASE="https://smile.sparked-fhir.com"
@@ -27,6 +36,9 @@ NODES=(aucore)
 # step with the live tenant list (admin console, Partition Management). This was
 # the ereq tenant set until the decommission.
 AUCORE_TENANTS=(DEFAULT)
+# node/tenant pairs for the $summary (AU Patient Summary generator) check.
+SUMMARY_TARGETS=(aucore/DEFAULT)
+AU_CORE_PATIENT_SD="http://hl7.org.au/fhir/core/StructureDefinition/au-core-patient"
 RESULTS="upgrade-smoke-results.md"
 EXPECT_VERSION=""
 DO_WRITE=0
@@ -49,7 +61,8 @@ done
 ADMIN_PASS=$(aws secretsmanager get-secret-value --secret-id smilecdr-user-passwords \
   --query SecretString --output text | jq -r '."smilecdr-admin-password"')
 if [ -z "$ADMIN_PASS" ] || [ "$ADMIN_PASS" = "null" ]; then
-  echo "FATAL: could not fetch admin password from Secrets Manager"; exit 1
+  echo "FATAL: expected the smilecdr-admin-password key in Secrets Manager secret smilecdr-user-passwords, got nothing (is the AWS session current?)"
+  exit 1
 fi
 
 PASS=0; FAIL=0; SKIP=0
@@ -68,6 +81,76 @@ skip()  { SKIP=$((SKIP+1)); note "- SKIP: $1"; }
 acurl() { curl -s --max-time 60 ${CONNECT_TO[@]+"${CONNECT_TO[@]}"} -u "ADMIN:$ADMIN_PASS" -H "Content-Type: application/fhir+json" "$@"; }
 anoncurl() { curl -s --max-time 60 ${CONNECT_TO[@]+"${CONNECT_TO[@]}"} -H "Content-Type: application/fhir+json" "$@"; }
 
+# req admin|anon OUTFILE CURL_ARGS...: print the HTTP status ("000" when no response
+# arrived). The body file is removed first so a failed request can never be judged
+# on the body of an earlier one.
+req() {
+  local auth=$1 out=$2
+  shift 2
+  rm -f "$out"
+  if [ "$auth" = "admin" ]; then
+    acurl -o "$out" -w "%{http_code}" "$@"
+  else
+    anoncurl -o "$out" -w "%{http_code}" "$@"
+  fi
+}
+
+# got CODE BODYFILE: describe what came back, for a FAIL line.
+got() {
+  local code=$1 body=$2 diag
+  if [ "$code" = "000" ]; then
+    echo "no HTTP response (connection failed or timed out after 60 s)"
+    return
+  fi
+  if [ ! -s "$body" ]; then
+    echo "HTTP $code with an empty body"
+    return
+  fi
+  if ! jq -e . "$body" >/dev/null 2>&1; then
+    echo "HTTP $code with a non-JSON body: $(head -c 160 "$body" | tr -s '\r\n\t' '   ')"
+    return
+  fi
+  diag=$(jq -r 'select(.resourceType == "OperationOutcome")
+    | [.issue[]? | .diagnostics // .details.text // empty] | first // empty' "$body")
+  if [ -n "$diag" ]; then
+    echo "HTTP $code: $diag"
+  else
+    echo "HTTP $code with a $(jq -r '.resourceType // "non-FHIR JSON"' "$body" 2>/dev/null) body"
+  fi
+}
+
+# expect_200 LABEL URL: pass on HTTP 200 (anonymous; these endpoints are public).
+expect_200() {
+  local label=$1 url=$2 code
+  code=$(req anon "$TMP/get.json" "$url")
+  if [ "$code" = "200" ]; then
+    ok "$label HTTP 200"
+  else
+    bad "$label: expected HTTP 200, got $(got "$code" "$TMP/get.json")"
+  fi
+}
+
+# expect_data LABEL SEARCH_URL: the search must return HTTP 200 and a Bundle with at
+# least one entry, i.e. data of that type is loaded. Reports the first match.
+expect_data() {
+  local label=$1 url=$2 code n first
+  code=$(req admin "$TMP/search.json" "$url")
+  if [ "$code" != "200" ]; then
+    bad "$label: expected HTTP 200 and a Bundle with at least 1 entry, got $(got "$code" "$TMP/search.json")"
+    return
+  fi
+  n=$(jq -r 'if .resourceType == "Bundle" then (.entry // [] | length) else empty end' \
+    "$TMP/search.json" 2>/dev/null)
+  if [ -z "$n" ]; then
+    bad "$label: expected HTTP 200 and a Bundle with at least 1 entry, got $(got "$code" "$TMP/search.json")"
+  elif [ "$n" -eq 0 ]; then
+    bad "$label: expected a Bundle with at least 1 entry, got HTTP 200 with 0 entries (no data loaded?)"
+  else
+    first=$(jq -r '.entry[0].resource | "\(.resourceType)/\(.id)"' "$TMP/search.json")
+    ok "$label: data present (search found $first)"
+  fi
+}
+
 # ---------------------------------------------------------------------------
 # Per-node checks
 # ---------------------------------------------------------------------------
@@ -77,45 +160,37 @@ for node in "${NODES[@]}"; do
   fhir="$BASE/$node/fhir/DEFAULT"
 
   # 1. metadata + version
-  code=$(anoncurl -o "$TMP/meta.json" -w "%{http_code}" "$fhir/metadata")
+  code=$(req anon "$TMP/meta.json" "$fhir/metadata")
   if [ "$code" = "200" ]; then
-    ver=$(jq -r '.software.version // empty' "$TMP/meta.json")
+    ver=$(jq -r '.software.version // empty' "$TMP/meta.json" 2>/dev/null)
     ok "metadata HTTP 200 (software.version: ${ver:-unknown})"
     if [ -n "$EXPECT_VERSION" ]; then
       case "$ver" in
         *"$EXPECT_VERSION"*) ok "version matches expected $EXPECT_VERSION" ;;
-        *) bad "version is '$ver', expected $EXPECT_VERSION" ;;
+        *) bad "version: expected $EXPECT_VERSION, got '${ver:-none}' in software.version" ;;
       esac
     fi
   else
-    bad "metadata HTTP $code"
+    bad "metadata: expected HTTP 200, got $(got "$code" "$TMP/meta.json")"
   fi
 
   # 2. SMART / OIDC discovery
-  code=$(anoncurl -o "$TMP/smart.json" -w "%{http_code}" "$fhir/.well-known/smart-configuration")
-  [ "$code" = "200" ] && ok "smart-configuration HTTP 200" || bad "smart-configuration HTTP $code"
-  code=$(anoncurl -o "$TMP/oidc.json" -w "%{http_code}" "$BASE/$node/smartauth/.well-known/openid-configuration")
-  [ "$code" = "200" ] && ok "openid-configuration HTTP 200" || bad "openid-configuration HTTP $code"
+  expect_200 "smart-configuration" "$fhir/.well-known/smart-configuration"
+  expect_200 "openid-configuration" "$BASE/$node/smartauth/.well-known/openid-configuration"
 
-  # 3. resource counts (compare across runs by eye)
+  # 3. data loaded (bounded search; the server refuses search totals)
   for rt in Patient StructureDefinition; do
-    code=$(acurl -o "$TMP/count.json" -w "%{http_code}" "$fhir/$rt?_summary=count")
-    if [ "$code" = "200" ]; then
-      total=$(jq -r '.total // "?"' "$TMP/count.json")
-      ok "$rt count on DEFAULT: $total"
-    else
-      bad "$rt count on DEFAULT: HTTP $code"
-    fi
+    expect_data "$rt on DEFAULT" "$fhir/$rt?_count=1&_elements=id"
   done
 
   # 4. request validation still active: an invalid resource must not validate cleanly
-  code=$(acurl -o "$TMP/val.json" -w "%{http_code}" -X POST "$fhir/Patient/\$validate" \
+  code=$(req admin "$TMP/val.json" -X POST "$fhir/Patient/\$validate" \
     -d '{"resourceType":"Patient","gender":"not-a-valid-gender"}')
   issues=$(jq -r '[.issue[]? | select(.severity=="error" or .severity=="fatal")] | length' "$TMP/val.json" 2>/dev/null)
-  if [ "$code" = "422" ] || { [ "$code" = "200" ] && [ "${issues:-0}" -gt 0 ]; } || [ "$code" = "400" ]; then
+  if [ "$code" = "422" ] || [ "$code" = "400" ] || { [ "$code" = "200" ] && [ "${issues:-0}" -gt 0 ]; }; then
     ok "\$validate rejects invalid resource (HTTP $code, ${issues:-?} error issues)"
   else
-    bad "\$validate unexpected result (HTTP $code, ${issues:-?} error issues)"
+    bad "\$validate of an invalid Patient: expected HTTP 400 or 422, or HTTP 200 with at least 1 error issue, got $(got "$code" "$TMP/val.json") (${issues:-?} error issues)"
   fi
 done
 
@@ -126,14 +201,8 @@ note ""
 note "## aucore tenants"
 for tenant in "${AUCORE_TENANTS[@]}"; do
   fhir="$BASE/aucore/fhir/$tenant"
-  code=$(anoncurl -o "$TMP/meta.json" -w "%{http_code}" "$fhir/metadata")
-  [ "$code" = "200" ] && ok "$tenant metadata HTTP 200" || bad "$tenant metadata HTTP $code"
-  code=$(acurl -o "$TMP/count.json" -w "%{http_code}" "$fhir/Patient?_summary=count")
-  if [ "$code" = "200" ]; then
-    ok "$tenant Patient count: $(jq -r '.total // "?"' "$TMP/count.json")"
-  else
-    bad "$tenant Patient count: HTTP $code"
-  fi
+  expect_200 "$tenant metadata" "$fhir/metadata"
+  expect_data "$tenant Patient" "$fhir/Patient?_count=1&_elements=id"
 done
 
 # ---------------------------------------------------------------------------
@@ -141,16 +210,20 @@ done
 # ---------------------------------------------------------------------------
 note ""
 note "## IG package seeding"
-code=$(acurl -o "$TMP/sd.json" -w "%{http_code}" \
-  "$BASE/aucore/fhir/DEFAULT/StructureDefinition?url=http://hl7.org.au/fhir/core/StructureDefinition/au-core-patient&_summary=count")
-if [ "$code" = "200" ] && [ "$(jq -r '.total // 0' "$TMP/sd.json")" -ge 1 ]; then
-  ok "au-core-patient StructureDefinition present on aucore"
+code=$(req admin "$TMP/sd.json" \
+  "$BASE/aucore/fhir/DEFAULT/StructureDefinition?url=$AU_CORE_PATIENT_SD&_elements=url,version")
+n=$(jq -r 'if .resourceType == "Bundle" then (.entry // [] | length) else empty end' "$TMP/sd.json" 2>/dev/null)
+if [ "$code" = "200" ] && [ "${n:-0}" -ge 1 ]; then
+  versions=$(jq -r '[.entry[].resource.version // "no version"] | join(", ")' "$TMP/sd.json")
+  ok "au-core-patient StructureDefinition present on aucore (versions: $versions)"
+elif [ "$code" = "200" ] && [ -n "$n" ]; then
+  bad "au-core-patient StructureDefinition: expected at least 1 match for url $AU_CORE_PATIENT_SD, got HTTP 200 with 0 entries (AU Core package not installed?)"
 else
-  bad "au-core-patient StructureDefinition lookup (HTTP $code, total $(jq -r '.total // "?"' "$TMP/sd.json" 2>/dev/null))"
+  bad "au-core-patient StructureDefinition: expected HTTP 200 and a Bundle with at least 1 entry, got $(got "$code" "$TMP/sd.json")"
 fi
 
 # ---------------------------------------------------------------------------
-# Ingress body-size limit: ~3 MiB request must pass nginx (anything but 413)
+# Ingress body-size limit: ~3 MiB request must pass the proxy (anything but 413)
 # ---------------------------------------------------------------------------
 note ""
 note "## Ingress body-size limit"
@@ -160,10 +233,12 @@ pad = 'x' * (3 * 1024 * 1024)
 print(json.dumps({'resourceType':'Patient','text':{'status':'generated','div':'<div xmlns=\"http://www.w3.org/1999/xhtml\">'+pad+'</div>'}}))
 " > "$TMP/big.json" 2>/dev/null
 if [ -s "$TMP/big.json" ]; then
-  code=$(acurl -o "$TMP/bigresp.json" -w "%{http_code}" -X POST \
+  code=$(req admin "$TMP/bigresp.json" -X POST \
     "$BASE/aucore/fhir/DEFAULT/Patient/\$validate" --data-binary "@$TMP/big.json")
   if [ "$code" = "413" ]; then
-    bad "3 MiB request rejected with HTTP 413 (proxy-body-size regression)"
+    bad "3 MiB request: expected any HTTP status but 413, got HTTP 413 (proxy body-size regression)"
+  elif [ "$code" = "000" ]; then
+    bad "3 MiB request: expected any HTTP status but 413, got $(got "$code" "$TMP/bigresp.json")"
   else
     ok "3 MiB request passed the ingress (HTTP $code)"
   fi
@@ -176,21 +251,23 @@ fi
 # ---------------------------------------------------------------------------
 note ""
 note "## AU Patient Summary (\$summary, custom AUPS generator)"
-for target in "aucore DEFAULT"; do
-  set -- $target; node=$1; tenant=$2
+for target in "${SUMMARY_TARGETS[@]}"; do
+  node=${target%%/*}; tenant=${target#*/}
   fhir="$BASE/$node/fhir/$tenant"
-  code=$(acurl -o "$TMP/p.json" -w "%{http_code}" "$fhir/Patient?_count=1")
+  code=$(req admin "$TMP/p.json" "$fhir/Patient?_count=1&_elements=id")
   pid=$(jq -r '.entry[0].resource.id // empty' "$TMP/p.json" 2>/dev/null)
   if [ "$code" != "200" ] || [ -z "$pid" ]; then
-    skip "$node/$tenant: no patient available to test \$summary (HTTP $code)"
+    skip "$node/$tenant: no patient available to test \$summary ($(got "$code" "$TMP/p.json"))"
     continue
   fi
-  code=$(acurl -o "$TMP/sum.json" -w "%{http_code}" "$fhir/Patient/$pid/\$summary")
+  code=$(req admin "$TMP/sum.json" "$fhir/Patient/$pid/\$summary")
   btype=$(jq -r '.type // empty' "$TMP/sum.json" 2>/dev/null)
   if [ "$code" = "200" ] && [ "$btype" = "document" ]; then
     ok "$node/$tenant: \$summary returned a document Bundle for Patient/$pid"
+  elif [ "$code" = "200" ]; then
+    bad "$node/$tenant: \$summary for Patient/$pid: expected a Bundle of type document, got HTTP 200 with type '${btype:-none}'"
   else
-    bad "$node/$tenant: \$summary failed (HTTP $code, bundle type '${btype:-none}') for Patient/$pid"
+    bad "$node/$tenant: \$summary for Patient/$pid: expected HTTP 200 and a document Bundle, got $(got "$code" "$TMP/sum.json")"
   fi
 done
 
@@ -206,7 +283,7 @@ if [ "$DO_WRITE" = "1" ]; then
   note ""
   note "## Write round-trip (aucore DEFAULT)"
   fhir="$BASE/aucore/fhir/DEFAULT"
-  code=$(acurl -o "$TMP/create.json" -w "%{http_code}" -X POST "$fhir/Patient" -d '{
+  code=$(req admin "$TMP/create.json" -X POST "$fhir/Patient" -d '{
     "resourceType":"Patient",
     "identifier":[{"system":"urn:sparked:upgrade-smoke","value":"upgrade-smoke-test"}],
     "name":[{"family":"UpgradeSmokeTest"}],
@@ -215,12 +292,22 @@ if [ "$DO_WRITE" = "1" ]; then
   pid=$(jq -r '.id // empty' "$TMP/create.json" 2>/dev/null)
   if [ "$code" = "201" ] && [ -n "$pid" ]; then
     ok "create Patient/$pid (HTTP 201)"
-    code=$(acurl -o /dev/null -w "%{http_code}" "$fhir/Patient/$pid")
-    [ "$code" = "200" ] && ok "read back Patient/$pid" || bad "read back Patient/$pid: HTTP $code"
-    code=$(acurl -o /dev/null -w "%{http_code}" -X DELETE "$fhir/Patient/$pid")
-    { [ "$code" = "200" ] || [ "$code" = "204" ]; } && ok "delete Patient/$pid" || bad "delete Patient/$pid: HTTP $code"
+    code=$(req admin "$TMP/readback.json" "$fhir/Patient/$pid")
+    if [ "$code" = "200" ]; then
+      ok "read back Patient/$pid"
+    else
+      bad "read back Patient/$pid: expected HTTP 200, got $(got "$code" "$TMP/readback.json")"
+    fi
+    code=$(req admin "$TMP/delete.json" -X DELETE "$fhir/Patient/$pid")
+    if [ "$code" = "200" ] || [ "$code" = "204" ]; then
+      ok "delete Patient/$pid"
+    else
+      bad "delete Patient/$pid: expected HTTP 200 or 204, got $(got "$code" "$TMP/delete.json")"
+    fi
+  elif [ "$code" = "201" ]; then
+    bad "create test Patient: expected HTTP 201 with the new id in the body, got HTTP 201 without an id"
   else
-    bad "create test Patient: HTTP $code"
+    bad "create test Patient: expected HTTP 201, got $(got "$code" "$TMP/create.json")"
   fi
 fi
 
