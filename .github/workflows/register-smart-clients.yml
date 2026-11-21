@@ -100,6 +100,19 @@ permissions:
   contents: read
   issues: write
 
+# The Smile admin JSON API, reached over the cluster network. The public route
+# (https://smile.sparked-fhir.com/aucore/admin-json) is IP-restricted, and these
+# jobs do not depend on it, so
+# every job here must run on arc-runner-set, the only runners that NetworkPolicy
+# smile/allow-smilecdr-ingress admits to port 9000 (aehrc/sparked-argo,
+# network-policies/phase1-ingress/smile.yaml). register_smart_client.py checks
+# the address answers before it registers anything and fails with that message
+# if it does not. The endpoints shown to requesters still use the public
+# hostname (SMILECDR_BASE_URL, unchanged). The full cluster.local name, not the
+# short one, because job containers resolve through docker-in-docker.
+env:
+  SMILECDR_ADMIN_URL: http://smilecdr-scdrnode-aucore-admin-json.smile.svc.cluster.local:9000/aucore/admin-json
+
 jobs:
   # ============================================================================
   # Bulk Registration (connectathon clients from JSON file)
