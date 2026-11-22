@@ -131,12 +131,40 @@ cdrNodes:
           # ig_support.ips.generation_strategy_class below plugs into. Without it
           # the generator jar is loaded and never invoked.
           ig_support.ips.enabled: true
-          # Restricts subscription resthook targets to http/https URLs.
-          subscription.resthook.url_validation_regex: "((((http?|https?)://))([-%()_.!~*';/?:@&=+$,A-Za-z0-9])+)"
           dao_config.client_id_mode: "ANY"
-          subscription.rest_hook_enabled: true
-          subscription.message.enabled: true
-          subscription.cross_partition_enabled: false # need to check with heath on this
+          # Subscription channel types are OFF because this node has no
+          # Subscription Matcher module (the chart's default `subscription`
+          # module is disabled under `modules:` at the bottom of this file).
+          #
+          # With any channel type enabled, the storage module puts EVERY resource
+          # change on the subscription-matching queue of the embedded ActiveMQ
+          # broker, and only a matcher module drains that queue. With no
+          # matcher the queue only ever grows, and its KahaDB store lives in
+          # the scdr-volume-amq emptyDir. On 2026-11-21 it reached 65,218
+          # messages (0 consumers) after about 2 hours of test loads, the
+          # volume passed its sizeLimit, and the kubelet evicted the pod: about
+          # 3.5 minutes of 503s. Smile CDR's own docs mark each of these
+          # settings "Requires a Subscription Matching module".
+          #
+          # This node has never run a matcher module, so no subscription was
+          # ever delivered from it and turning the types off removes no working
+          # feature. A client that POSTs a Subscription sees what it saw
+          # before: the Subscription is validated, stored (201), stays
+          # `requested` and delivers nothing, because only the matcher side
+          # activates a Subscription.
+          #
+          # To support subscriptions, add a SUBSCRIPTION_MATCHER module AND move
+          # off the embedded broker first: per-subscription delivery queues back
+          # up into the same volume whenever an endpoint is down, and the
+          # url_validation_regex below lets a Subscription point the server at
+          # any http(s) address, in-cluster ones included.
+          subscription.rest_hook_enabled: false
+          subscription.message.enabled: false
+          # Both still applied when a Subscription is submitted; no effect on
+          # delivery while no matcher module runs. Kept so re-enabling
+          # subscriptions starts from the reviewed values.
+          subscription.resthook.url_validation_regex: "((((http?|https?)://))([-%()_.!~*';/?:@&=+$,A-Za-z0-9])+)"
+          subscription.cross_partition_enabled: false
           versioned_references.allow_at_paths: "AuditEvent.entity.what, MessageHeader.focusProvenance.target"
           versioned.references.respect_for_search_includes: true
           partitioning.enabled: true
