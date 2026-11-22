@@ -257,4 +257,5 @@ Open the tracking issue with `gh issue create --title "Operator checklist: Melbo
   3. Suspend the CronJobs: an aehrc/sparked-argo PR setting `suspend: true` on the `expire` and `enforce` entries of `cronJobs` in `apps/sparked-sandbox/values.yaml` (the freeze is over). After Argo CD syncs it, the first command in step 1 with `sandbox-enforce` added prints SUSPEND `true` for both, and no job of theirs is running.
   4. Disable the engine principal, in a new operator shell (as in step 2): `sandboxctl principal disable --pid <the sandbox-engine pid, aehrc/sparked-sandbox docs/live-check-2026-11.md>`, then `operator_env_close`. A minute or two later the engine credential no longer works on aucore: a new `source scripts/operator-env.sh` stops at "not ready".
   5. Delete the batch credential files and the hand-out list.
+  Owner: the event operator; if they are away on this day, they name a stand-in before the event. Step 4 is not optional: the engine principal stays enabled on aucore until someone disables it.
 - [ ] Turn the loader banner off; close this issue.
