@@ -1,0 +1,348 @@
+# yaml-language-server: $schema=schema/event-manifest.schema.json
+#
+# Event manifest: HL7 Australia WGM and Melbourne FHIR Connectathon #28.
+# The participant guide and the operator checklist are rendered from this file
+# by scripts/render_event.py; CI fails if either drifts from it. After any edit:
+#
+#   python scripts/render_event.py events/2026-12-melbourne.yaml
+#
+# This repository is public. Never put the sandbox access code, a secret, an
+# account id or a participant's name in this file.
+
+schema_version: 1
+id: 2026-12-melbourne
+name: HL7 Australia Work Group Meeting and FHIR Melbourne Connectathon
+short_name: "Melbourne FHIR Connectathon #28"
+timezone: Australia/Sydney
+venue: Melbourne Connect, 700 Swanston Street, Carlton VIC 3053
+# HL7 AU Confluence page "2026-12 HL7 Australia WGM & Melbourne FHIR Connectathon #28".
+event_page: https://confluence.hl7.org/pages/viewpage.action?pageId=494872196
+
+dates:
+  start: "2026-12-08"
+  end: "2026-12-10"
+  programme:
+    - date: "2026-12-08"
+      what: HL7 Australia Work Group Meeting
+    - date: "2026-12-09"
+      what: FHIR Connectathon, day 1
+    - date: "2026-12-10"
+      what: FHIR Connectathon, day 2
+
+freeze:
+  start: "2026-12-04T17:00:00+11:00"
+  end: "2026-12-11T17:00:00+11:00"
+  covers:
+    - "Sparked FHIR server: no configuration changes, IG loads or test data reloads"
+    - "Inferno (inferno.hl7.org.au): no new release; the test kits stay at the versions in the Inferno section of the participant guide"
+    - "Sparked development terminology server (tx.dev.hl7.org.au): the nightly content preload is paused"
+
+# What each server serves for this event. Sparked serves what it serves today
+# (the latest ballots); the HL7 AU reference server serves the stable releases.
+# Checked live on the last_checked date: StructureDefinition?url= searches and
+# $validate?profile=<canonical>|<version> on Sparked; StructureDefinition
+# searches on fhir.hl7.org.au.
+servers:
+  - id: sparked
+    name: Sparked FHIR Server (aucore)
+    run_by: CSIRO, for the Sparked program
+    fhir_base: https://smile.sparked-fhir.com/aucore/fhir/DEFAULT
+    access: "Anonymous read and search, $validate and $summary on the shared DEFAULT partition, which is read-only for participants."
+    software: Smile CDR 2026.05.R01
+    smart:
+      configuration: https://smile.sparked-fhir.com/aucore/fhir/DEFAULT/.well-known/smart-configuration
+      openid_configuration: https://smile.sparked-fhir.com/aucore/smartauth/.well-known/openid-configuration
+      issuer: https://smile.sparked-fhir.com/aucore/smartauth
+      authorize: https://smile.sparked-fhir.com/aucore/smartauth/oauth/authorize
+      token: https://smile.sparked-fhir.com/aucore/smartauth/oauth/token
+      jwks: https://smile.sparked-fhir.com/aucore/smartauth/jwk
+    igs:
+      - title: AU Core
+        package: hl7.fhir.au.core
+        version: 3.0.0-ballot1
+        status: ballot
+        profile_example: http://hl7.org.au/fhir/core/StructureDefinition/au-core-patient
+        unversioned_default: true
+      - title: AU Core
+        package: hl7.fhir.au.core
+        version: 2.1.0-draft
+        status: draft
+        profile_example: http://hl7.org.au/fhir/core/StructureDefinition/au-core-patient
+        note: Older draft, still loaded.
+      - title: AU Base
+        package: hl7.fhir.au.base
+        version: 7.0.0-ballot1
+        status: ballot
+        profile_example: http://hl7.org.au/fhir/StructureDefinition/au-patient
+        unversioned_default: true
+      - title: AU Base
+        package: hl7.fhir.au.base
+        version: 6.1.1-draft
+        status: draft
+        profile_example: http://hl7.org.au/fhir/StructureDefinition/au-patient
+        note: Older draft, still loaded.
+      - title: AU Patient Summary
+        package: hl7.fhir.au.ps
+        version: 1.0.0
+        status: trial-use
+        profile_example: http://hl7.org.au/fhir/ps/StructureDefinition/au-ps-patient
+      - title: International Patient Summary
+        package: hl7.fhir.uv.ips
+        version: 2.0.1
+        status: trial-use
+        profile_example: http://hl7.org/fhir/uv/ips/StructureDefinition/Patient-uv-ips
+    not_served:
+      - AU Core 2.0.0
+      - AU Base 6.0.0
+    last_checked: "2026-11-21"
+
+  - id: hl7au-reference
+    name: HL7 AU reference FHIR server
+    run_by: HL7 Australia (not run by Sparked)
+    fhir_base: https://fhir.hl7.org.au/aucore/fhir/DEFAULT
+    access: Anonymous read and search. The default target of the Inferno AU Core Test Kit.
+    software: Smile CDR 2026.02.R02
+    igs:
+      - title: AU Core
+        package: hl7.fhir.au.core
+        version: 2.0.0
+        status: trial-use
+        profile_example: http://hl7.org.au/fhir/core/StructureDefinition/au-core-patient
+        unversioned_default: true
+      - title: AU Patient Summary
+        package: hl7.fhir.au.ps
+        version: 1.0.0
+        status: trial-use
+        profile_example: http://hl7.org.au/fhir/ps/StructureDefinition/au-ps-patient
+    not_served:
+      - AU Core 3.0.0-ballot1
+    last_checked: "2026-11-21"
+
+# IGs an event track uses that Sparked does not serve, and where they are.
+not_on_sparked:
+  - title: AU eRequesting
+    version: 1.0.0
+    server_name: HL7 AU reference FHIR server (not run by Sparked)
+    fhir_base: https://fhir.hl7.org.au/ereq/fhir/DEFAULT
+    note: "Sparked's own eRequesting endpoint (`smile.sparked-fhir.com/ereq`) was retired in August 2026 and answers 404. Ask in the AU eRequesting track topic on Zulip (see [Help](#help)) which server the track uses."
+    # Sparked: /ereq/fhir/DEFAULT/metadata 404, no au-erequesting
+    # StructureDefinition on aucore. HL7 AU: metadata 200, 21 au-erequesting
+    # StructureDefinitions, all version 1.0.0.
+    last_checked: "2026-11-21"
+
+version_policy: >-
+  The Sparked FHIR server carries the latest AU ballots (AU Core 3.0.0-ballot1,
+  AU Base 7.0.0-ballot1), and the HL7 AU reference server carries the current
+  trial-use release (AU Core 2.0.0). Neither changes for this event. Build to
+  AU Core 2.0.0? Use fhir.hl7.org.au or a local validator. Trying the ballot?
+  Use Sparked.
+
+terminology:
+  - name: Sparked development terminology server
+    url: https://tx.dev.hl7.org.au/fhir
+    note: Ontoserver with SNOMED CT-AU and the AU terminology content. Its nightly content preload is paused for the freeze window.
+  - name: HL7 AU reference terminology server
+    url: https://tx.hl7.org.au/fhir
+    note: Ontoserver run for HL7 Australia; the stable counterpart.
+
+inferno:
+  url: https://inferno.hl7.org.au
+  release:
+    version: v1.2.3
+    # planned until the promotion PR, hl7au/au-fhir-inferno#223, merges and
+    # the site serves v1.2.3. inferno-prod tracks master and the event freeze
+    # holds it with the Argo CD sync window (aehrc/sparked-argo#382).
+    status: planned
+    live_today: v1.2.2
+    tracking: https://github.com/hl7au/au-fhir-inferno/pull/223
+  kits:
+    - name: AU Core Test Kit
+      version: 1.4.7
+      live_today: 1.4.6
+      page: https://inferno.hl7.org.au/test-kits/au-core/
+      suites:
+        - id: au_core_v300_ballot1
+          title: AU Core v3.0.0-ballot1
+        - id: au_core_v210_draft
+          title: AU Core v2.1.0-draft
+        - id: au_core_v200
+          title: AU Core v2.0.0
+        - id: au_core_v100
+          title: AU Core v1.0.0
+    - name: AU PS Test Kit
+      version: 1.0.1
+      live_today: 1.0.1
+      page: https://inferno.hl7.org.au/test-kits/au-ps/
+      suites:
+        - id: au_ps_v100
+          title: AU PS 1.0.0 Test Suite
+
+# The DEFAULT partition's curated data, as recorded by the loader
+# (loader.sparked-fhir.com, /api/v1/public/nodes and /datasets).
+data:
+  loaded_on: "2026-08-24"
+  sets:
+    - name: AU Core
+      repo: https://github.com/aehrc/au-fhir-test-data
+      ref: sparked-aucore-loadable
+      commit: 20fb5141d4433ca074f93f13cdcbb21b5477d8d7
+      path: au-fhir-test-data-set/au-core
+      note: "A Sparked branch of hl7au/au-fhir-test-data: upstream master at ecc2ff7 plus three commits that make the set loadable on this server."
+    - name: AU Patient Summary
+      repo: https://github.com/hl7au/au-fhir-test-data
+      ref: master
+      commit: ecc2ff75656354da5042cc4f72accd816859a511
+      path: au-fhir-test-data-set/au-patient-summary
+  note: No reload is planned before the event; the data stays as loaded through the freeze.
+
+sandbox:
+  # planned until the go/no-go; then open (self-serve at `url` with the
+  # access code), on-request (the Sparked team issues sandboxes from a
+  # pre-made batch by Zulip direct message; no web address, no access code),
+  # or cancelled (the guide then describes the fallback).
+  status: planned
+  decision: Go/no-go on Mon 30 Nov 2026
+  url: https://sandbox.sparked-fhir.com
+  mode: event
+  # Rendered as "From <opens>, the code is <this>." The code itself never
+  # goes in this public repository.
+  # The code is never posted in a Zulip channel: chat.fhir.org channels can be
+  # web-public, which would hand it to the crawlers it keeps out.
+  access_code_distribution: "in the organisers' pre-event message to registered participants. If you did not get that message, ask in the Sparked FHIR Server topic on Zulip (see [Help](#help)) and the Sparked team sends you the code by Zulip direct message. During the event it is also on the venue slides and in the printed guide. Please do not post the code in a Zulip channel"
+  # The one source of truth for the sandbox dates and caps is the deployed
+  # service config: the ConfigMap in apps/sparked-sandbox/manifests/config.yaml
+  # in aehrc/sparked-argo (PR #393). Its event block and `sandbox` block are
+  # what these values and key names mirror; change the ConfigMap first, then
+  # copy here and re-render.
+  #
+  # ConfigMap event.sandbox_opens and event.creation_closes (exact times).
+  opens: "2026-12-02T09:00:00+11:00"
+  creation_closes: "2026-12-10T17:00:00+11:00"
+  # Sandboxes expire at midnight at the end of dates.end plus this many days
+  # (here 2026-12-18 00:00, the ConfigMap's event.sandboxes_expire). The
+  # service's expire job runs hourly, so the first run after midnight disables
+  # every event sandbox and clears them within about two hours; the guide says
+  # "overnight from Thu 17 to Fri 18 Dec".
+  expiry_days_after_event_end: 7
+  caps:
+    # The live ceiling at all times (Kyle, 22 Nov: 30 until the cluster has
+    # carried 30 under event load). Operator creates are held to it too.
+    max_live: 30
+    # Web creations only (an open sandbox front): the guide publishes these
+    # under `open`, not under `on-request`. Venue Wi-Fi puts many participants
+    # behind one address, so this is a guard against scripts, not a
+    # per-person limit.
+    creates_per_ip_per_day: 60
+    # From sandbox.opens until the first event day the access code is out but
+    # nobody is at the venue yet, so one address gets few. Web only.
+    pre_event:
+      creates_per_ip_per_day: 3
+    # The enforce job suspends a sandbox holding more.
+    resource_ceiling: 10000
+  fallback: Ask the Sparked team in the Sparked FHIR Server Zulip topic or at the venue for a sandbox issued by hand.
+
+status_page:
+  public: false
+  url: null
+  note: There is no public status page yet. Service announcements go to the Sparked FHIR Server topic on Zulip.
+
+help:
+  - name: "Zulip: #australia > Sparked FHIR Server"
+    url: https://chat.fhir.org/#narrow/channel/179173-australia/topic/Sparked.20FHIR.20Server
+    use_for: The Sparked FHIR server, sandboxes and the test data on it
+  - name: "Zulip: #australia > AU Core Track - Melbourne FHIR Connectathon #28"
+    url: https://chat.fhir.org/#narrow/channel/179173-australia/topic/AU.20Core.20Track.20-.20Melbourne.20FHIR.20Connectathon.20.2328
+    use_for: AU Core track questions
+  - name: "Zulip: #australia > AU eRequesting Track - Melbourne FHIR Connectathon #28"
+    url: https://chat.fhir.org/#narrow/channel/179173-australia/topic/AU.20eRequesting.20Track.20-.20Melbourne.20FHIR.20Connectathon.20.2328
+    use_for: AU eRequesting track questions, including which server the track uses
+  - name: "Zulip: #australia > AU Patient Summary Track - Melbourne FHIR Connectathon #28"
+    url: https://chat.fhir.org/#narrow/channel/179173-australia/topic/AU.20Patient.20Summary.20Track.20-.20Melbourne.20FHIR.20Connectathon.20.2328
+    use_for: AU Patient Summary track questions
+  - name: "Zulip: #australia > SMART App Launch Track - Melbourne FHIR Connectathon #28"
+    url: https://chat.fhir.org/#narrow/channel/179173-australia/topic/SMART.20App.20Launch.20Track.20-.20Melbourne.20FHIR.20Connectathon.20.2328
+    use_for: SMART App Launch track questions
+  - name: "Zulip: #australia > Inferno Test Kit feedback and queries"
+    url: https://chat.fhir.org/#narrow/channel/179173-australia/topic/Inferno.20Test.20Kit.20feedback.20and.20queries
+    use_for: Inferno and the AU test kits
+  - name: Event page (HL7 AU Confluence)
+    url: https://confluence.hl7.org/pages/viewpage.action?pageId=494872196
+    use_for: Agenda, tracks, venue and registration
+  - name: Issues on this repository
+    url: https://github.com/aehrc/sparked-fhir-server-configuration/issues
+    use_for: A bug in the Sparked FHIR server configuration
+
+known_issues:
+  - id: smart-jwks-redirect
+    title: The jwks_uri in SMART discovery redirects to a sign-in page
+    detail: "`jwks_uri` in `.well-known/smart-configuration` (`/aucore/smartauth/.well-known/jwks.json`) answers 302 to `/aucore/smartauth/signin`, so a client that follows it cannot check id_token signatures."
+    workaround: "Use the `jwks_uri` from the OpenID configuration instead: `https://smile.sparked-fhir.com/aucore/smartauth/jwk`."
+    last_checked: "2026-11-21"
+  - id: smartauth-discovery-path
+    title: SMART discovery lives under the FHIR base, not under smartauth
+    detail: "`/aucore/smartauth/.well-known/smart-configuration` redirects to the sign-in page. Older Sparked handouts gave that address."
+    workaround: "Use `<FHIR base>/.well-known/smart-configuration`, for example `https://smile.sparked-fhir.com/aucore/fhir/DEFAULT/.well-known/smart-configuration`."
+    last_checked: "2026-11-21"
+  - id: unversioned-profile
+    title: An unversioned profile resolves to the ballot
+    detail: "On Sparked, `$validate?profile=http://hl7.org.au/fhir/core/StructureDefinition/au-core-patient` validates against 3.0.0-ballot1."
+    workaround: "Add the version to the canonical (`...au-core-patient|2.1.0-draft`) when you want another loaded version."
+    last_checked: "2026-11-21"
+  - id: validate-without-profile
+    title: $validate without a profile checks base FHIR only
+    detail: "The server does not apply AU Core profiles by default; a request without `profile` reports base FHIR R4 issues only."
+    workaround: "Always add `?profile=<canonical>|<version>`."
+    last_checked: "2026-11-21"
+  - id: au-core-2-not-on-sparked
+    title: AU Core 2.0.0 and AU Base 6.0.0 are not on Sparked
+    detail: "`$validate?profile=...|2.0.0` on Sparked returns \"Invalid profile. Failed to retrieve profile\"."
+    workaround: Validate against AU Core 2.0.0 with the HL7 FHIR Validator (`-ig hl7.fhir.au.core#2.0.0`) or against the HL7 AU reference server.
+    last_checked: "2026-11-21"
+  - id: hl7-reference-validate-timeouts
+    title: $validate on fhir.hl7.org.au timed out
+    detail: "On 21 Nov 2026 every `$validate` request to fhir.hl7.org.au returned HTTP 504 after about a minute; reads and searches answered. That server is not run by Sparked."
+    workaround: Use the HL7 FHIR Validator locally with `-ig hl7.fhir.au.core#2.0.0`.
+    last_checked: "2026-11-21"
+  - id: validate-cold-start
+    title: The first $validate after a quiet spell can time out
+    detail: The first `$validate` on Sparked after an idle period has been seen to return HTTP 504 after about 15 seconds while the validator loads; the next request answers in well under a second.
+    workaround: Retry once.
+    last_checked: "2026-11-21"
+  - id: everything-anonymous
+    title: $everything is not available anonymously
+    detail: "`GET Patient/<id>/$everything` on DEFAULT returns 403 \"Access denied\" without a token."
+    workaround: "Use `Patient/<id>/$summary` (AU Patient Summary document) or searches with `patient=<id>`."
+    last_checked: "2026-11-21"
+  - id: counts-disabled
+    title: Resource counts are switched off
+    detail: "`_summary=count` and `_total=accurate` return HTTP 400 (HAPI-2038, HAPI-2037)."
+    workaround: Page through the search results instead.
+    last_checked: "2026-11-21"
+  - id: binary-not-served
+    title: Binary is not served on DEFAULT
+    detail: "`Binary` is not an enabled resource type on the Sparked server (HAPI-0302), so the two AU Core PDF report attachments are not loaded."
+    workaround: Use the files in hl7au/au-fhir-test-data directly.
+    last_checked: "2026-11-21"
+  - id: inferno-default-target
+    title: The AU Core Test Kit points at fhir.hl7.org.au by default
+    detail: "The kit's FHIR Endpoint input defaults to the HL7 AU reference server, not to Sparked. Four of its default ids (Location `au-hospital`, Organization `dva-au` and `organization-medical-center-tc`, PractitionerRole `cardiologist-sallie-sutherland`) are not on Sparked."
+    workaround: "Set FHIR Endpoint to your own server. For a dry run against Sparked, use its FHIR base and remove those four ids."
+    last_checked: "2026-11-21"
+  - id: inferno-sessions-open
+    title: Inferno sessions are open to anyone with the link
+    detail: Session URLs need no login, results stay for about nine weeks, and resources the tests fetch from your server are kept with the session.
+    workaround: Point Inferno only at servers holding synthetic data, and share session links only with people you want to see the results.
+    last_checked: "2026-11-21"
+
+# The event block for loader.sparked-fhir.com. The loader reads the same four
+# fields from its own helm values (event: enabled, title, message, date); a
+# follow-up change feeds these values to it so git sets the banner.
+loader_banner:
+  enabled: true
+  title: the HL7 Australia WGM and Melbourne FHIR Connectathon
+  message: "The AU Core Sparked FHIR server is loaded with the HL7 AU test data set for the HL7 Australia WGM and Melbourne FHIR Connectathon, 8 to 10 December 2026. Participant guide: https://github.com/aehrc/sparked-fhir-server-configuration/blob/main/docs/participants/2026-12-melbourne.md. Reach out to the Sparked team on chat.fhir.org with any issues."
+  date: "2026-12-08"
+
+outputs:
+  guide: docs/participants/2026-12-melbourne.md
+  checklist: docs/operators/events/2026-12-melbourne-checklist.md

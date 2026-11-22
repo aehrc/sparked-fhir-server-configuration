@@ -1,0 +1,5 @@
+# Dependencies of scripts/render_event.py (event manifests and participant guides).
+# Pinned exactly so the CI drift check renders the same output everywhere.
+PyYAML==6.0.4
+jsonschema==4.26.0
+tzdata==2026.6
