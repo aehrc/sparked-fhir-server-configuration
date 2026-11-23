@@ -29,14 +29,12 @@ on:
 permissions:
   contents: read
 
-# No secrets and no network beyond the package index, so this is fork-safe. Same
-# runner rule as validate-config.yml: a fork PR runs on a GitHub-hosted runner
-# and never on the self-hosted arc-runner-set; same-repo PRs and pushes use
-# vars.CI_RUNNER if set.
+# No secrets and no network beyond the package index. Runs on a GitHub-hosted
+# runner, like validate-config.yml.
 jobs:
   validate-events:
     name: Validate event manifests and rendered guides
-    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || vars.CI_RUNNER || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     container:
       image: python:3.15-slim
     steps:

@@ -111,15 +111,9 @@ permissions:
 # replaces {node} with --node, refuses a URL whose path names another node, and
 # checks the address answers (one retry) before it registers anything. The
 # endpoints shown to requesters still use the public hostname
-# (SMILECDR_BASE_URL, unchanged). The full cluster.local name, not the short
-# one, because job containers resolve through docker-in-docker.
-#
-# Docker network trap: the job container sits on the first user-defined docker
-# network inside dind (172.18.0.0/16; services: containers share it). Docker
-# hands out 172.19.0.0/16 next, then 172.20.0.0/16, which is the sparkey
-# Service CIDR. A job that creates two more docker networks (docker network
-# create, docker compose up) would route the ClusterIP locally and fail the
-# reachability check. Keep these jobs to the job container's own network.
+# (SMILECDR_BASE_URL, unchanged). The steps run directly in the runner pod
+# (no job container, no Docker), so the address resolves through cluster DNS;
+# the full cluster.local name does not depend on the search list.
 env:
   SMILECDR_ADMIN_URL: http://smilecdr-scdrnode-{node}-admin-json.smile.svc.cluster.local:9000/{node}/admin-json
 
@@ -130,8 +124,6 @@ jobs:
   register-bulk:
     name: Register Connectathon Clients (Bulk)
     runs-on: arc-runner-smile-admin
-    container:
-      image: python:3.12-slim
     if: >-
       github.event_name == 'workflow_dispatch' &&
       inputs.mode == 'bulk-connectathon'
@@ -140,8 +132,17 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # The runner image has no pip; uv creates a virtual environment and puts
+      # it first on PATH for the later steps.
+      - name: Set up Python
+        uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+        with:
+          python-version: "3.12"
+          activate-environment: "true"
+          venv-path: ${{ runner.temp }}/venv
+
       - name: Install dependencies
-        run: pip install -r scripts/requirements.txt
+        run: uv pip install -r scripts/requirements.txt
 
       - name: Register clients
         shell: bash
@@ -210,8 +211,6 @@ jobs:
   register-single-dispatch:
     name: Register Single Client (Manual)
     runs-on: arc-runner-smile-admin
-    container:
-      image: python:3.12-slim
     if: >-
       github.event_name == 'workflow_dispatch' &&
       inputs.mode == 'single-client'
@@ -220,8 +219,17 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # The runner image has no pip; uv creates a virtual environment and puts
+      # it first on PATH for the later steps.
+      - name: Set up Python
+        uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+        with:
+          python-version: "3.12"
+          activate-environment: "true"
+          venv-path: ${{ runner.temp }}/venv
+
       - name: Install dependencies
-        run: pip install -r scripts/requirements.txt
+        run: uv pip install -r scripts/requirements.txt
 
       - name: Register client
         shell: bash
@@ -267,21 +275,23 @@ jobs:
   register-single-issue:
     name: Register Single Client (from Issue)
     runs-on: arc-runner-smile-admin
-    container:
-      image: python:3.12-slim
     if: github.event_name == 'workflow_call'
 
     steps:
-      - name: Install system dependencies
-        run: |
-          apt-get update
-          apt-get install -y git jq curl
-
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # The runner image has no pip; uv creates a virtual environment and puts
+      # it first on PATH for the later steps.
+      - name: Set up Python
+        uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+        with:
+          python-version: "3.12"
+          activate-environment: "true"
+          venv-path: ${{ runner.temp }}/venv
+
       - name: Install dependencies
-        run: pip install -r scripts/requirements.txt
+        run: uv pip install -r scripts/requirements.txt
 
       - name: Register client
         id: register
