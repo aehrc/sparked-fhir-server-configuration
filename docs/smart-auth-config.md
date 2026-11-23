@@ -25,7 +25,11 @@ Supporting pieces:
 - **Client registration**: GitHub issue template 05 feeds
   `.github/workflows/register-smart-clients.yml`, which runs
   `scripts/register_smart_client.py` against the Admin JSON API. Client
-  definitions live in `module-config/connectathon-clients.json`.
+  definitions live in `module-config/connectathon-clients.json`. The workflows
+  call the API at its in-cluster Service address (`SMILECDR_ADMIN_URL`), so they
+  must run on `arc-runner-smile-admin`, the scale set reserved for the
+  registration jobs. A run from a workstation uses the public admin route,
+  which is IP-restricted (CSIRO network or VPN).
 - **Users**: `scripts/manage_smart_users.py` creates users in
   `local_security` (definitions in `module-config/connectathon-users.json`).
 - **Anonymous access**: deliberately enabled for the public sandbox. The

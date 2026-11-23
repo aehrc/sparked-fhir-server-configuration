@@ -41,7 +41,16 @@ Usage:
 
 Environment Variables:
     CSIRO_FHIR_AUTH_64: Base64 encoded basic auth credentials (admin account)
-    SMILECDR_BASE_URL: Base URL (default: https://smile.sparked-fhir.com)
+    SMILECDR_BASE_URL: Base URL (default: https://smile.sparked-fhir.com). The
+        endpoints shown to the requester (FHIR base, well-known, authorize, token)
+        are always built from this.
+    SMILECDR_ADMIN_URL: Admin JSON API base the script calls, for example
+        http://smilecdr-scdrnode-{node}-admin-json.smile.svc.cluster.local:9000/{node}/admin-json
+        (default: <base URL>/<node>/admin-json). Every "{node}" is replaced with
+        --node, so one value serves every node; the script refuses to run when
+        the resulting path is not /<node>/admin-json. The registration workflows
+        set it to the in-cluster Service; the public admin route is
+        IP-restricted.
 """
 
 import argparse
@@ -54,6 +63,7 @@ import sys
 import time
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
+from urllib.parse import urlparse
 
 try:
     import requests
@@ -348,6 +358,62 @@ def create_session(auth_header: str) -> requests.Session:
     return session
 
 
+def check_admin_url_matches_node(admin_url: str, node: str) -> Optional[str]:
+    """Return None when the admin URL's path is the node's admin JSON path, else an error.
+
+    A fixed SMILECDR_ADMIN_URL that names one node, used in a loop over several
+    nodes, would register every client on that one node and report it as the
+    others. Refuse that instead.
+    """
+    expected = "/" + admin_json_path(node)
+    path = urlparse(admin_url).path.rstrip("/")
+    if path != expected:
+        return (
+            f"The admin URL {admin_url} is not node {node}'s admin JSON API (its path should be"
+            f" {expected}). Use {{node}} in SMILECDR_ADMIN_URL or --admin-url so it follows --node."
+        )
+    return None
+
+
+def check_admin_api_reachable(admin_url: str, timeout: float = 10.0,
+                              attempts: int = 2, retry_delay: float = 5.0) -> Optional[str]:
+    """Return None when the admin JSON API answers at all, else an error message.
+
+    Any HTTP response counts as reachable (the unauthenticated root returns the
+    API description). Only a connection failure or timeout is an error, so a
+    run that cannot reach the API stops before it registers anything, with a
+    message that says where the API answers from. The retry covers a runner pod
+    whose IP has not yet reached the Smile pod's NetworkPolicy endpoints.
+    """
+    error_name = ""
+    for attempt in range(attempts):
+        if attempt:
+            time.sleep(retry_delay)
+        try:
+            requests.get(f"{admin_url}/", timeout=timeout, allow_redirects=False)
+            return None
+        except requests.RequestException as exc:
+            error_name = exc.__class__.__name__
+
+    message = f"Cannot reach the Smile admin JSON API at {admin_url} ({error_name}, {attempts} attempts)."
+    host = urlparse(admin_url).hostname or ""
+    if host.endswith(".svc") or ".svc." in host:
+        message += (
+            " This is the in-cluster Service address. It answers only inside the sparkey"
+            " cluster, to pods that NetworkPolicy smile/allow-smilecdr-ingress admits on"
+            " port 9000: the arc-runner-smile-admin runners (aehrc/sparked-argo,"
+            " network-policies/phase1-ingress/smile.yaml). Run this job on"
+            " arc-runner-smile-admin,"
+            " or, from a CSIRO network, unset SMILECDR_ADMIN_URL to use the public route."
+        )
+    else:
+        message += (
+            " The public admin route is IP-restricted; use it from the CSIRO network"
+            " or VPN (aehrc/sparked-argo docs/runbooks/admin-allowlist.md)."
+        )
+    return message
+
+
 # =============================================================================
 # Registrar
 # =============================================================================
@@ -359,11 +425,19 @@ class SmartClientRegistrar:
                  dry_run: bool = False, skip_existing: bool = True,
                  update_existing: bool = False, tenant: str = DEFAULT_PARTITION,
                  allow_default_write: bool = False,
-                 replacement_secret: Optional[str] = None):
+                 replacement_secret: Optional[str] = None,
+                 admin_url: Optional[str] = None):
         self.base_url = base_url.rstrip("/")
         self.node_id = node_id
         self.tenant = tenant
-        self.admin_url = f"{self.base_url}/{admin_json_path(node_id)}"
+        # The admin API can live at a different address from the public
+        # endpoints (the in-cluster Service); base_url still drives every URL
+        # shown to the requester.
+        # A "{node}" in admin_url is this node, so one setting serves a loop
+        # over nodes (main() refuses a URL whose path names another node).
+        if admin_url:
+            admin_url = admin_url.replace("{node}", node_id)
+        self.admin_url = (admin_url or f"{self.base_url}/{admin_json_path(node_id)}").rstrip("/")
         self.dry_run = dry_run
         self.skip_existing = skip_existing
         self.update_existing = update_existing
@@ -864,6 +938,14 @@ def main():
         help=f"SmileCDR base URL (default: {DEFAULT_BASE_URL})",
     )
     parser.add_argument(
+        "--admin-url",
+        default=os.getenv("SMILECDR_ADMIN_URL") or None,
+        help="Admin JSON API base URL, where every {node} is replaced with --node, for example "
+             "http://smilecdr-scdrnode-{node}-admin-json.smile.svc.cluster.local:9000/{node}/admin-json "
+             "(or set SMILECDR_ADMIN_URL; default: <base URL>/<node>/admin-json). "
+             "Refused when its path is not /<node>/admin-json.",
+    )
+    parser.add_argument(
         "--auth-header",
         default=os.getenv("CSIRO_FHIR_AUTH_64"),
         help="Base64 encoded basic auth credentials (or set CSIRO_FHIR_AUTH_64 env var)",
@@ -943,7 +1025,21 @@ def main():
         tenant=args.tenant,
         allow_default_write=args.allow_default_write,
         replacement_secret=args.client_secret,
+        admin_url=args.admin_url,
     )
+
+    if urlparse(registrar.admin_url).scheme not in ("http", "https"):
+        print(f"Error: admin URL must be http or https, got {registrar.admin_url!r}")
+        sys.exit(1)
+    print(f"Admin JSON API: {registrar.admin_url}")
+    problem = (check_admin_url_matches_node(registrar.admin_url, args.node)
+               or check_admin_api_reachable(registrar.admin_url))
+    if problem:
+        if os.getenv("GITHUB_ACTIONS") == "true":
+            print(f"::error::{problem}")
+        else:
+            print(f"Error: {problem}")
+        sys.exit(1)
 
     if args.bulk:
         if not args.clients_file:

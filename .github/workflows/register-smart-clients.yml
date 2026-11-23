@@ -100,13 +100,36 @@ permissions:
   contents: read
   issues: write
 
+# The Smile admin JSON API, reached over the cluster network. The public route
+# (https://smile.sparked-fhir.com/aucore/admin-json) is IP-restricted, and these
+# jobs do not depend on it. Every job here must run on arc-runner-smile-admin,
+# the only runners that NetworkPolicy smile/allow-smilecdr-ingress admits to
+# port 9000 (aehrc/sparked-argo, network-policies/phase1-ingress/smile.yaml).
+# That scale set is in the org runner group sparked-smile-admin, which serves
+# this repository only, and it is reserved for the SMART client registration
+# jobs: do not put other jobs on it. register_smart_client.py
+# replaces {node} with --node, refuses a URL whose path names another node, and
+# checks the address answers (one retry) before it registers anything. The
+# endpoints shown to requesters still use the public hostname
+# (SMILECDR_BASE_URL, unchanged). The full cluster.local name, not the short
+# one, because job containers resolve through docker-in-docker.
+#
+# Docker network trap: the job container sits on the first user-defined docker
+# network inside dind (172.18.0.0/16; services: containers share it). Docker
+# hands out 172.19.0.0/16 next, then 172.20.0.0/16, which is the sparkey
+# Service CIDR. A job that creates two more docker networks (docker network
+# create, docker compose up) would route the ClusterIP locally and fail the
+# reachability check. Keep these jobs to the job container's own network.
+env:
+  SMILECDR_ADMIN_URL: http://smilecdr-scdrnode-{node}-admin-json.smile.svc.cluster.local:9000/{node}/admin-json
+
 jobs:
   # ============================================================================
   # Bulk Registration (connectathon clients from JSON file)
   # ============================================================================
   register-bulk:
     name: Register Connectathon Clients (Bulk)
-    runs-on: arc-runner-set
+    runs-on: arc-runner-smile-admin
     container:
       image: python:3.12-slim
     if: >-
@@ -186,7 +209,7 @@ jobs:
   # ============================================================================
   register-single-dispatch:
     name: Register Single Client (Manual)
-    runs-on: arc-runner-set
+    runs-on: arc-runner-smile-admin
     container:
       image: python:3.12-slim
     if: >-
@@ -243,7 +266,7 @@ jobs:
   # ============================================================================
   register-single-issue:
     name: Register Single Client (from Issue)
-    runs-on: arc-runner-set
+    runs-on: arc-runner-smile-admin
     container:
       image: python:3.12-slim
     if: github.event_name == 'workflow_call'

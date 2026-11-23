@@ -17,12 +17,16 @@ on:
       - '.github/workflows/validate-config.yml'
 
 # These jobs use NO secrets, so they are safe to run on PRs from forks (community
-# contributions). Runner selection enforces one invariant: untrusted fork code
-# must never execute on the self-hosted arc-runner-set. So a fork PR always runs
-# on a GitHub-hosted runner (free for public repos), while same-repo PRs and
-# pushes use vars.CI_RUNNER (the self-hosted runner) if set. Anything needing
-# secrets or live-server/AWS access is gated elsewhere behind maintainer-triggered
-# workflows, never on fork PR events.
+# contributions). The runs-on expression sends this file's jobs for a fork PR to
+# a GitHub-hosted runner (free for public repos), while same-repo PRs and pushes
+# use vars.CI_RUNNER (the self-hosted runner) if set. That is not a boundary
+# against an untrusted fork: in a pull_request run the workflow file comes from
+# the PR, so a fork can name any self-hosted runner this repository may use
+# (arc-runner-set, or arc-runner-smile-admin, which reaches the Smile admin JSON
+# port). What stops it is the repository's fork pull request approval setting,
+# which should require approval for all external contributors. Fork runs get
+# no secrets. Anything needing secrets or live-server/AWS access is gated
+# elsewhere behind maintainer-triggered workflows, never on fork PR events.
 jobs:
   validate-yaml:
     name: Validate YAML Configuration

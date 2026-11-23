@@ -1065,7 +1065,7 @@ jobs:
   # ============================================================================
   register-smart-client:
     name: Register SMART Client
-    runs-on: arc-runner-set
+    runs-on: arc-runner-smile-admin
     permissions:
       contents: read
       issues: write # comment on and label the issue
@@ -1310,6 +1310,11 @@ jobs:
           exit $FAILED
         env:
           CSIRO_FHIR_AUTH_64: ${{ secrets.CSIRO_FHIR_AUTH_64 }}
+          # In-cluster admin JSON API: only arc-runner-smile-admin pods (this
+          # job's runs-on) are admitted to port 9000 (see the env block in
+          # register-smart-clients.yml). The script replaces {node} with each
+          # --node in the loop above.
+          SMILECDR_ADMIN_URL: http://smilecdr-scdrnode-{node}-admin-json.smile.svc.cluster.local:9000/{node}/admin-json
           CLIENT_TYPE: ${{ steps.issue.outputs.client_type }}
           CLIENT_ID: ${{ steps.issue.outputs.client_id }}
           CLIENT_NAME: ${{ steps.issue.outputs.client_name }}
