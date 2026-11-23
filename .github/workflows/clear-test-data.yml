@@ -126,9 +126,9 @@ permissions:
 jobs:
   clear-data:
     name: Clear FHIR Test Data
-    runs-on: arc-runner-set
+    runs-on: ubuntu-latest
     # The loader image lives in a private ECR repo. A job-level `container:` is
-    # pulled before any step can authenticate, which fails on arc-runner-set
+    # pulled before any step can authenticate, which fails
     # ("no basic auth credentials"). Authenticate with OIDC first and run the
     # loader with `docker run` instead. The role in vars.ECR_PULL_ROLE_ARN can
     # only pull the sparked-test-data-loader image.
@@ -284,8 +284,8 @@ jobs:
           DATA_SOURCE: ${{ steps.inputs.outputs.data_source }}
           DATA_FOLDER: ${{ steps.inputs.outputs.data_folder }}
         run: |
-          # RUNNER_TEMP lives on the runner's work volume, which the dind
-          # daemon shares, so it can be bind-mounted into the loader container.
+          # RUNNER_TEMP is a path on the runner host, where the Docker daemon
+          # runs, so it can be bind-mounted into the loader container.
           WORK_DIR="$RUNNER_TEMP/fhir-data"
           rm -rf "$WORK_DIR" && mkdir -p "$WORK_DIR"
           git clone -- "$DATA_SOURCE" "$WORK_DIR"

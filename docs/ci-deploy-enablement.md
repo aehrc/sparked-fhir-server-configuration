@@ -28,8 +28,7 @@ Good properties already in place:
   no static credentials.
 - Apply consumes the plan job's `main.tfplan` artifact, so there is no plan/apply drift.
 - Apply is intended to be gated by a GitHub Environment (`infra-apply`, "required reviewers").
-- Runners are self-hosted ARC (`arc-runner-set`) on the `sparkey` cluster, with a `CI_RUNNER`
-  repo-var escape hatch to fall back to `ubuntu-latest`.
+- Runners are GitHub-hosted (`ubuntu-latest`).
 - Init does not use `-upgrade`; it respects the committed `.terraform.lock.hcl`.
 
 ## Blockers (must fix before enabling)
@@ -76,8 +75,8 @@ Good properties already in place:
 - `terraform fmt -check -recursive` is a hard gate. Fixed on this branch (was dirty on `main`).
 - `tflint --minimum-failure-severity=error` is a gate, run it locally against `terraform/` and clear
   any error-severity findings.
-- Confirm the self-hosted ARC runner has egress to the S3 backend and AWS APIs and can assume the
-  OIDC role; otherwise set `CI_RUNNER=ubuntu-latest`.
+- Confirm the GitHub-hosted runner can reach the S3 backend and AWS APIs and can assume the OIDC
+  role.
 
 ## Sequenced plan
 

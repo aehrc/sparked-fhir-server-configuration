@@ -70,8 +70,7 @@ jobs:
     # even if manually dispatched. Remove it (and restore the triggers above) only
     # if plan output is moved off public surfaces.
     if: ${{ false }}
-    # Defaults to GitHub-hosted; set repo var CI_RUNNER to use a self-hosted runner.
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     outputs:
       tfplanExitCode: ${{ steps.tf-plan.outputs.exitcode }}
     defaults:
@@ -194,7 +193,7 @@ jobs:
     # DISABLED: terraform runs locally, not in CI. `needs: terraform-plan` (itself
     # inert) plus this always-false guard keeps apply from ever running.
     if: ${{ false }}
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: terraform

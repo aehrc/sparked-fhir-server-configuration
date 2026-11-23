@@ -18,7 +18,7 @@ jobs:
   # ============================================================================
   post-merge-update:
     name: Update Issue After PR Merge
-    runs-on: arc-runner-set
+    runs-on: ubuntu-latest
     if: |
       github.event.pull_request.merged == true &&
       contains(github.event.pull_request.labels.*.name, 'auto-pr-created')

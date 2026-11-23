@@ -16,21 +16,13 @@ on:
       - 'scripts/test_consent_default_readonly.js'
       - '.github/workflows/validate-config.yml'
 
-# These jobs use NO secrets, so they are safe to run on PRs from forks (community
-# contributions). The runs-on expression sends this file's jobs for a fork PR to
-# a GitHub-hosted runner (free for public repos), while same-repo PRs and pushes
-# use vars.CI_RUNNER (the self-hosted runner) if set. That is not a boundary
-# against an untrusted fork: in a pull_request run the workflow file comes from
-# the PR, so a fork can name any self-hosted runner this repository may use
-# (arc-runner-set, or arc-runner-smile-admin, which reaches the Smile admin JSON
-# port). What stops it is the repository's fork pull request approval setting,
-# which should require approval for all external contributors. Fork runs get
-# no secrets. Anything needing secrets or live-server/AWS access is gated
-# elsewhere behind maintainer-triggered workflows, never on fork PR events.
+# These jobs use no secrets and run on GitHub-hosted runners (free for public
+# repositories). Anything needing secrets or live-server/AWS access lives in
+# maintainer-triggered workflows.
 jobs:
   validate-yaml:
     name: Validate YAML Configuration
-    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || vars.CI_RUNNER || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     container:
       image: python:3.12-slim
     steps:
@@ -87,7 +79,7 @@ jobs:
     # The consent service runs in front of every REST request on the node, so
     # its decision matrix is unit tested before it can be deployed. Node 24 is
     # the current LTS; the test has no dependencies.
-    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || vars.CI_RUNNER || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     container:
       image: node:24-slim
     steps:
@@ -101,10 +93,10 @@ jobs:
     name: Validate Terraform
     # Fork-safe: no backend, no credentials, no PR comment (fork tokens are
     # read-only). Contributors see the result via the check status.
-    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || vars.CI_RUNNER || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     # Run in a Debian container that we install Terraform into, rather than the
-    # setup-terraform action: this works identically on GitHub-hosted runners and
-    # on the self-hosted arc-runner-set (whose base image has no Terraform binary).
+    # setup-terraform action, so the job does not depend on what the runner image
+    # ships.
     container:
       image: debian:bookworm-slim
     defaults:
@@ -135,7 +127,7 @@ jobs:
 
   validate-packages:
     name: Validate FHIR Packages
-    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || vars.CI_RUNNER || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     container:
       image: python:3.12-slim
     steps:
@@ -176,7 +168,7 @@ jobs:
 
   security-scan:
     name: Security Scan
-    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || vars.CI_RUNNER || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4

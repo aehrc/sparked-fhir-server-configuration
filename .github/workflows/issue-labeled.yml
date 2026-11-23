@@ -48,7 +48,7 @@ jobs:
   # ============================================================================
   create-ig-pr:
     name: Generate IG Release PR
-    runs-on: arc-runner-set
+    runs-on: ubuntu-latest
     permissions:
       contents: write # push the release branch
       pull-requests: write # open and label the PR
@@ -486,7 +486,7 @@ jobs:
   # ============================================================================
   create-tx-pr:
     name: Generate TX Content Change PR
-    runs-on: arc-runner-set
+    runs-on: ubuntu-latest
     permissions:
       contents: write # push the change branch
       pull-requests: write # open and label the PR
@@ -934,7 +934,7 @@ jobs:
   # ============================================================================
   load-test-data:
     name: Prepare Test Data Load
-    runs-on: arc-runner-set
+    runs-on: ubuntu-latest
     permissions:
       issues: read
     if: |

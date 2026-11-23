@@ -32,7 +32,7 @@ jobs:
   # counts as no access, so the preview then waits for a maintainer dispatch.
   author-permission:
     name: Author permission
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     if: github.event_name == 'issues'
     permissions:
       contents: read
@@ -64,12 +64,9 @@ jobs:
   # ============================================================================
   welcome:
     name: Welcome & Auto-label
-    # Runs for every opened issue, including from the public. It uses only the
-    # default GITHUB_TOKEN (no secrets) and executes no untrusted code, just GitHub
-    # API calls via github-script, so the self-hosted runner is acceptable here.
-    # Falls back to a GitHub-hosted runner (free on public repos) when CI_RUNNER
-    # is unset.
-    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    # Runs for every opened issue. It uses only the default GITHUB_TOKEN (no
+    # secrets) and makes GitHub API calls via github-script.
+    runs-on: ubuntu-latest
     if: github.event_name == 'issues' && github.event.action == 'opened'
     steps:
       - name: Auto-label priority and post welcome
@@ -177,7 +174,7 @@ jobs:
   # ============================================================================
   validate-ig:
     name: Validate IG Request
-    runs-on: arc-runner-set
+    runs-on: ubuntu-latest
     container:
       image: python:3.12-slim
     # This job runs a live dry-run against the server with the
@@ -511,7 +508,7 @@ jobs:
   # ============================================================================
   validate-tx:
     name: Validate TX Content Request
-    runs-on: arc-runner-set
+    runs-on: ubuntu-latest
     container:
       image: python:3.12-slim
     # Same rule as validate-ig: on issue events this runs automatically only for
