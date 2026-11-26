@@ -122,7 +122,7 @@ Open the tracking issue with `gh issue create --title "Operator checklist: Melbo
      ```
      Spot nodes usually go sooner; if one is still there, decide whether to roll it this evening (`kubectl delete nodeclaim <name>`, a cluster write).
   2. Ask whoever publishes to the `hl7au-dev` and `hl7au-fragments` syndication feeds to hold from Fri 4 Dec 2026, 17:00 AEDT to Fri 11 Dec 2026, 17:00 AEDT: a replica restart still runs the startup preload.
-  3. Tell maintainers: no merges to aehrc/sparked-argo `main` and no Smile `terraform apply` from Fri 4 Dec 2026, 17:00 AEDT except emergencies; no Inferno promotion merges and no merges to hl7au/au-fhir-inferno `master` that change `infra/helm/inferno/` (prod renders `master`; the sync window holds them, but an emergency manual sync would ship them).
+  3. Tell maintainers: no merges to aehrc/sparked-argo `main` and no Smile sync or `terraform apply` from Fri 4 Dec 2026, 17:00 AEDT except emergencies; no Inferno promotion merges and no merges to hl7au/au-fhir-inferno `master` that change `infra/helm/inferno/` (prod renders `master`; the sync window holds them, but an emergency manual sync would ship them).
 - [ ] NodeClaim ages, as seen on 21 Nov: two spot nodes were in that range, `spot-v5nwq` (loader, expires Sun 6 Dec 11:03 AEDT) and `spot-jdswt` (one of the two main-gateway Envoy proxies and one of the two ontoserver-gw proxies, expires Fri 11 Dec 08:58 AEDT). If either is still there, decide whether to roll it this evening.
 
 ## Fri 4 Dec 2026 (T-4)
@@ -155,7 +155,7 @@ Open the tracking issue with `gh issue create --title "Operator checklist: Melbo
     ```
     Repeat the log grep with `application=ontoserver` and `application=smilecdr-routes` for the `sparked` project.
   - Karpenter: in Grafana Explore (Mimir), `karpenter_nodepools_allowed_disruptions{nodepool=~"on-demand|on-demand-prod|spot"}` drops to 0 for the frozen reasons.
-  - Smile: no `terraform apply` until the freeze ends (convention; Smile is not in Argo CD).
+  - Smile: the `smilecdr` Argo CD Application is in the `sparked` deny window (manual sync stays possible for an emergency); no `terraform apply` either (Aurora, IAM, secrets; convention).
   - Inferno: no promotion merge until the freeze ends. `inferno-prod` renders `master`, and the `inferno` sync window keeps it on the revision it had at the freeze start: the log grep above shows the window holding it.
 - [ ] **During the freeze (keep for reference).**
   - Emergency change to a frozen app: merge the fix, then sync it by hand (the windows set `syncOverrun: true`, so no automated sync is left stuck from the freeze start to terminate first): Argo CD UI, the Application, Sync (allowed because every window sets `manualSync: true`). With kubectl only:

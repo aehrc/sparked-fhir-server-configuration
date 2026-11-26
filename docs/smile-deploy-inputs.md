@@ -1,8 +1,9 @@
 # Smile deploy inputs in AWS Secrets Manager
 
-The Smile CDR stack is applied locally (see
-[sparkey-deploy-runbook.md](sparkey-deploy-runbook.md)), and a local apply needs
-two gitignored files that used to exist on one workstation only. This page
+The Smile CDR infrastructure (Aurora, IAM, secrets, generator jars) is applied
+locally (see [sparkey-deploy-runbook.md](sparkey-deploy-runbook.md), section B;
+the workload itself is the Argo CD Application `smilecdr` and needs none of
+this), and a local apply needs two gitignored files that used to exist on one workstation only. This page
 describes where they are kept instead, who can read them, and how
 `scripts/fetch-smile-tfvars.sh` moves them between Secrets Manager and a
 checkout.

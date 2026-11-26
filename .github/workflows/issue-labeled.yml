@@ -345,7 +345,7 @@ jobs:
             ### Rollback Plan
             If issues occur after merge:
             1. Revert this PR
-            2. Run \`cd terraform && terraform apply\`
+            2. Sync the \`smilecdr\` Application in Argo CD (docs/sparkey-deploy-runbook.md, section A)
             3. Update issue #${issueNumber} with rollback status
 
             ---
