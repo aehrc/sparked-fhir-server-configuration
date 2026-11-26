@@ -4,8 +4,9 @@
 The Smile CDR chart mounts each `mappedFiles` entry into the pod from a ConfigMap
 whose name carries a hash of the file's content. Helm values cannot read files,
 so the Argo CD Application (aehrc/sparked-argo apps/smilecdr.yaml) layers this
-generated values file over module-config/*.yaml instead. Terraform used to inline
-the same files with file() in terraform/main.tf.
+generated values file over module-config/*.yaml, and terraform/main.tf reads the
+same file for the sdh-deps module's helm_chart_values (the cross-check), so this
+script's list is the only list.
 
 The bytes must match the source files exactly: a changed trailing newline is a new
 ConfigMap name, a new pod template and a Smile CDR restart. Every write is parsed
@@ -20,7 +21,6 @@ both. CI (validate-config.yml) runs --check on every pull request.
 """
 
 import argparse
-import re
 import sys
 from pathlib import Path
 
@@ -98,28 +98,12 @@ def render() -> str:
     return text
 
 
-def terraform_names() -> list:
-    """The mapped file names still inlined by terraform/main.tf, if it still inlines any."""
-    main_tf = (ROOT / "terraform" / "main.tf").read_text(encoding="utf-8")
-    block = re.search(r"helm_chart_mapped_files\s*=\s*\[(.*?)\n  \]", main_tf, re.S)
-    if not block:
-        return []
-    return re.findall(r'name\s*=\s*"([^"]+)"', block.group(1))
-
-
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--check", action="store_true", help="exit 1 if the committed file is stale")
     args = ap.parse_args()
 
     text = render()
-    names = sorted(n for n, _, _ in MAPPED_FILES)
-    tf = sorted(terraform_names())
-    if tf and tf != names:
-        print("terraform/main.tf helm_chart_mapped_files and MAPPED_FILES name different files:", file=sys.stderr)
-        print("  only in terraform:", sorted(set(tf) - set(names)), file=sys.stderr)
-        print("  only in the script:", sorted(set(names) - set(tf)), file=sys.stderr)
-        return 1
 
     if args.check:
         current = OUT.read_text(encoding="utf-8") if OUT.exists() else ""

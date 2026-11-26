@@ -40,88 +40,42 @@ module "smile_cdr_dependencies" {
   # deployment, where readiness is reached in a couple of minutes.
   helm_chart_timeout = 1800
 
+  # The workload is the Argo CD Application smilecdr (aehrc/sparked-argo
+  # apps/smilecdr.yaml) since the adoption described in
+  # docs/design/smile-to-argo.md. This gates only the module's helm_release and
+  # its helm_template data source; Aurora, the database users, IRSA, KMS and the
+  # credential secrets stay here, and the module still computes its Helm values
+  # (output smilecdr_helm_values, the cross-check for the Application).
+  #
+  # NEVER set this to false while module.smile_cdr_dependencies.helm_release.smilecdr[0]
+  # is still in state: the plan would destroy the release, and a Helm uninstall
+  # deletes the Deployment. The release left state with `terraform state rm` in
+  # the adoption window. To go back, see the design's Rollback section.
+  helm_deploy = false
 
   # ORDER MATTERS: helm merges these left to right, so a later file overrides an
-  # earlier one. Overlays must come last.
+  # earlier one. Overlays must come last. The Argo CD Application lists the same
+  # files in the same order, followed by deploy/smilecdr/mapped-files.yaml and
+  # its account values; scripts/smile_argo_check.py values compares the two.
   helm_chart_values = concat(
     [
-      templatefile("../module-config/values-common.yaml", { s3_bucket = var.s3_bucket_name }),       #core - required
-      templatefile("../module-config/simplified-multinode.yaml", { s3_bucket = var.s3_bucket_name }) # per-node copyFiles reference the bucket
+      file("../module-config/values-common.yaml"), #core - required
+      file("../module-config/simplified-multinode.yaml")
     ],
-    # Per-deployment overlay, empty for the original dedicated-cluster deployment.
-    # The sparkey deployment passes ../module-config/values-sparkey.yaml here to
-    # disable the chart's own ingress (GitOps owns the HTTPRoutes there) and to
-    # target the dedicated prod NodePool.
-    [for f in var.extra_values_files : templatefile(f, { s3_bucket = var.s3_bucket_name })]
+    # Per-deployment overlay: ../module-config/values-sparkey.yaml for sparkey
+    # (no chart ingress, GitOps owns the HTTPRoutes; the dedicated prod NodePool).
+    [for f in var.extra_values_files : file(f)]
   )
 
+  # The package specs and scripts mounted into config_seeding, from the same
+  # generated file the Argo CD Application reads (scripts/render_smile_mapped_files.py
+  # writes it from module-config/; CI fails a stale copy). One list, not two.
   helm_chart_mapped_files = [
-    # Package specifications
-    {
-      name     = "package-international-patient-summary-2.0.1.json"
-      location = "classes/config_seeding"
-      data     = file("../module-config/packages/package-international-patient-summary-2.0.1.json")
-    },
-    {
-      name     = "package-international-patient-summary-2.0.0.json"
-      location = "classes/config_seeding"
-      data     = file("../module-config/packages/package-international-patient-summary-2.0.0.json")
-    },
-    {
-      name     = "package-aucore-2.1.0-draft.json"
-      location = "classes/config_seeding"
-      data     = file("../module-config/packages/package-aucore-2.1.0-draft.json")
-    },
-    {
-      name     = "package-au-base-6.1.1-draft.json"
-      location = "classes/config_seeding"
-      data     = file("../module-config/packages/package-au-base-6.1.1-draft.json")
-    },
-    {
-      name     = "package-au-erequesting-1.0.0.json"
-      location = "classes/config_seeding"
-      data     = file("../module-config/packages/package-au-erequesting-1.0.0.json")
-    },
-    # SMART auth callback script
-    {
-      name     = "smart-post-authorize.js"
-      location = "classes/config_seeding"
-      data     = file("../module-config/smart-post-authorize.js")
-    },
-    # Consent service enforcing the read-only DEFAULT partition (ADR 0001).
-    # Referenced by consent_service.script.file on the aucore fhir_endpoint
-    # module in simplified-multinode.yaml.
-    {
-      name     = "consent-default-readonly.js"
-      location = "classes/config_seeding"
-      data     = file("../module-config/consent-default-readonly.js")
-    },
-    {
-      name     = "package-au-patient-summary-1.0.0.json"
-      location = "classes/config_seeding"
-      data     = file("../module-config/packages/package-au-patient-summary-1.0.0.json")
-    },
-    {
-      name     = "package-au-base-7.0.0-ballot1.json"
-      location = "classes/config_seeding"
-      data     = file("../module-config/packages/package-au-base-7.0.0-ballot1.json")
-    },
-    {
-      name     = "package-aucore-3.0.0-ballot1.json"
-      location = "classes/config_seeding"
-      data     = file("../module-config/packages/package-aucore-3.0.0-ballot1.json")
-    },
-    {
-      name     = "package-hl7-terminology-7.3.0.json"
-      location = "classes/config_seeding"
-      data     = file("../module-config/packages/package-hl7-terminology-7.3.0.json")
-    },
-    {
-      name     = "package-smart-app-launch-2.2.0.json"
-      location = "classes/config_seeding"
-      data     = file("../module-config/packages/package-smart-app-launch-2.2.0.json")
-    },
-    # Users configuration moved to AWS Secrets Manager - see extra_secrets below
+    for name, f in yamldecode(file("../deploy/smilecdr/mapped-files.yaml")).mappedFiles : {
+      name     = name
+      location = trimprefix(f.path, "/home/smile/smilecdr/")
+      data     = f.data
+    }
   ]
 
   # users.json is mounted via the chart's `secrets.usersConfig` block in
@@ -129,19 +83,8 @@ module "smile_cdr_dependencies" {
   # granted in iam-users-secret.tf. The module's `extra_secrets` input is not used:
   # it would surface a second, redundant CSI secret mount of the same secret.
 
-  # Secret ARNs are injected here rather than committed to the values files.
-  # The tokenSigningKeystore entry is only meaningful when an overlay declares
-  # the matching mount; merging a stray key is harmless when it does not.
-  helm_chart_values_set_overrides = merge(
-    {
-      "replicaCount" = 1
-      # Set the secret ARN for users.json
-      "secrets.usersConfig.secretArn" = data.aws_secretsmanager_secret.smilecdr_users_json.arn
-    },
-    var.token_signing_secret_name == null ? {} : {
-      "secrets.tokenSigningKeystore.secretArn" = data.aws_secretsmanager_secret.token_signing[0].arn
-    }
-  )
+  # Secret ARNs as --set overrides; see local.helm_chart_values_set_overrides.
+  helm_chart_values_set_overrides = local.helm_chart_values_set_overrides
 
   s3_read_buckets = [var.s3_bucket_name]
 
@@ -324,6 +267,21 @@ module "smile_cdr_dependencies" {
 
 locals {
   route53_create_record = true
+
+  # Secret ARNs injected as --set overrides rather than committed to the values
+  # files. Kept in a local so output smilecdr_helm_values can expose exactly what
+  # the module would pass to Helm. The tokenSigningKeystore entry is only
+  # meaningful when an overlay declares the matching mount; merging a stray key
+  # is harmless when it does not.
+  helm_chart_values_set_overrides = merge(
+    {
+      "replicaCount"                  = 1
+      "secrets.usersConfig.secretArn" = data.aws_secretsmanager_secret.smilecdr_users_json.arn
+    },
+    var.token_signing_secret_name == null ? {} : {
+      "secrets.tokenSigningKeystore.secretArn" = data.aws_secretsmanager_secret.token_signing[0].arn
+    }
+  )
 
   # The IAM role the module builds for this deployment, needed by
   # iam-users-secret.tf to attach one extra policy.
