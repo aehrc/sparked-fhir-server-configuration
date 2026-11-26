@@ -9,6 +9,7 @@ on:
       - 'module-config/**'
       - 'terraform/**'
       - 'scripts/test_consent_default_readonly.js'
+      - 'scripts/test_smart_post_authorize.js'
       - '.github/workflows/validate-config.yml'
   push:
     branches:
@@ -20,6 +21,7 @@ on:
       - 'module-config/**'
       - 'terraform/**'
       - 'scripts/test_consent_default_readonly.js'
+      - 'scripts/test_smart_post_authorize.js'
       - '.github/workflows/validate-config.yml'
 
 # These jobs use no secrets and run on GitHub-hosted runners (free for public
@@ -108,6 +110,21 @@ jobs:
 
       - name: Run consent service tests
         run: node scripts/test_consent_default_readonly.js
+
+  validate-post-authorize-script:
+    name: Test SMART Post-Authorize Script
+    # The post-authorize script runs on every SMART login on the node, and
+    # aucore is the only Smile CDR node, so this unit test is the only check a
+    # change gets before it is deployed. No dependencies.
+    runs-on: ubuntu-latest
+    container:
+      image: node:24-slim
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run post-authorize script tests
+        run: node scripts/test_smart_post_authorize.js
 
   validate-terraform:
     name: Validate Terraform
