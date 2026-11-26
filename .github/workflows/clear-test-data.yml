@@ -367,7 +367,8 @@ jobs:
           fi
 
           if [ "$CONTINUE_ON_ERROR" != "true" ]; then
-            args+=(--fail-on-error)
+            # --fail-on-error is deprecated in the loader in favour of this.
+            args+=(--continue-on-error=false)
           fi
 
           set +e

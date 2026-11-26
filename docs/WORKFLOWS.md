@@ -508,7 +508,7 @@ Track your request through these stages:
 4. **Monitor execution**
    - Check workflow logs and GitHub Actions step summary
    - Verify completion
-   - Note: `vendor-demonstrator` folder is automatically excluded
+   - Note: the `vendor-demonstrator` and `au-erequesting` folders are excluded by default; the Starting comment on the issue lists the folders a load skipped
 
 5. **Confirm with requester**
    - Ask them to verify data loaded correctly

@@ -41,7 +41,10 @@ on:
       exclude_patterns:
         description: "Comma-separated directory patterns to exclude"
         required: false
-        default: "vendor-demonstrator"
+        # Same default as manage-test-data.yml: au-erequesting cannot load on
+        # aucore (hl7.fhir.au.ereq was seeded only on the decommissioned ereq
+        # node), so attempting it adds 46 failures that hide any real one.
+        default: "vendor-demonstrator,au-erequesting"
         type: string
       dry_run:
         description: "Dry run (parse files but do not upload)"
@@ -86,7 +89,7 @@ on:
       exclude_patterns:
         required: false
         type: string
-        default: "vendor-demonstrator"
+        default: "vendor-demonstrator,au-erequesting"
       dry_run:
         required: false
         type: boolean
@@ -227,6 +230,7 @@ jobs:
           DATA_SOURCE: ${{ steps.inputs.outputs.data_source }}
           UPLOAD_MODE: ${{ steps.inputs.outputs.upload_mode }}
           DRY_RUN: ${{ steps.inputs.outputs.dry_run }}
+          EXCLUDE_PATTERNS: ${{ steps.inputs.outputs.exclude_patterns }}
         with:
           script: |
             const issueNumber = parseInt(process.env.ISSUE_NUMBER, 10);
@@ -242,6 +246,7 @@ jobs:
             - Target: \`${process.env.FHIR_URL}\`
             - Data Source: \`${process.env.DATA_SOURCE}\`
             - Upload Mode: \`${process.env.UPLOAD_MODE}\`
+            - Excluded folders: \`${process.env.EXCLUDE_PATTERNS || 'none'}\`
             - Dry Run: \`${process.env.DRY_RUN}\`
             - Workflow Run: [View Progress](${runUrl})
 
@@ -322,7 +327,8 @@ jobs:
           fi
 
           if [ "$CONTINUE_ON_ERROR" != "true" ]; then
-            args+=(--fail-on-error)
+            # --fail-on-error is deprecated in the loader in favour of this.
+            args+=(--continue-on-error=false)
           fi
 
           set +e
