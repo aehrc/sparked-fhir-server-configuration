@@ -137,11 +137,17 @@ Your requested changes have been approved and merged.
 **Option A: Immediate Deployment**
 A repo admin can deploy immediately (2-5 minutes, no downtime)
 
-**Option B: Wait for the Next Terraform Apply**
-Changes are applied on the next terraform apply, which a repo admin runs locally. There is no scheduled restart, and a pod restart on its own does not pick up merged changes
+**Option B: Wait for Next Server Restart**
+Changes apply automatically on next restart (zero risk, may take hours/days)
 
 A repo admin will decide when to deploy based on urgency.
 ```
+
+Option B in that comment is wrong, and the bot still posts it: there is no scheduled
+restart, and a pod restart on its own does not pick up merged changes. A merged change
+reaches the server on the next deploy, which today is a local Terraform apply run by a
+repo admin ([runbook step 2.4](runbooks/ig-release.md#smile-argo-move), which also says
+what replaces it). Open #126 corrects the text `pr-merged.yml` posts.
 
 #### Step 7: Verification
 
@@ -197,12 +203,16 @@ well, with the step each one bites in.
 - **Replacing a large package triggers a long expunge**: pod CPU near 1 core and
   intermittent 15 s ingress timeouts for several minutes. It recovers without a restart;
   do not stack another install on top (#92).
-- **A live install is not persistent** until a local Terraform apply updates the seeded
-  `startup_installation_specs`; a restart before that reseeds the old versions. The apply
-  inputs come from Secrets Manager ([smile-deploy-inputs.md](smile-deploy-inputs.md));
-  see [runbook step 2.4](runbooks/ig-release.md#step-2-4).
+- **A live install is not persistent** until the next deploy (a local Terraform apply on
+  `main` today) updates the seeded `startup_installation_specs`; a restart before that
+  reseeds the old versions. The apply inputs come from Secrets Manager
+  ([smile-deploy-inputs.md](smile-deploy-inputs.md)); see
+  [runbook step 2.4](runbooks/ig-release.md#step-2-4), which also covers the coming move
+  to an Argo CD sync.
 - **Not during an event freeze.** No IG load, reload or apply while an event manifest's
   `freeze` window is open ([runbook constraint 9](runbooks/ig-release.md#4-ordering-constraints)).
+  That includes merging a `deploy-immediately` PR, which installs on merge with no dry
+  run ([runbook step 2.3](runbooks/ig-release.md#step-2-3)).
 - **Nothing feeds tx.dev automatically.** The tx-dev fhir-ig-feeder was decommissioned
   on 2026-09-29 (`aehrc/sparked-argo` #285), so every IG version, not only AU PS, reaches
   tx.dev only once someone adds it to the `hl7au-dev` Atomio feed by hand
