@@ -406,6 +406,163 @@ check('launch JSON string is read character by character, as before',
     [AUD + '/Practitioner/guthridge-jarred']]);
 
 // ---------------------------------------------------------------------------
+// onTokenGenerating: fhirUser from a sandbox's sbx-fhiruser context
+// ---------------------------------------------------------------------------
+
+console.log('--- token: sbx-fhiruser fallback ---');
+
+// aehrc/sparked-sandbox writes this context, and no practitioner context, on a
+// login whose deployment names a Patient as fhirUser.
+const sbxPatientFhirUser = { contextType: 'sbx-fhiruser', resourceId: 'Patient/abc123-pat-1' };
+
+t = token({ approvedScopes: 'openid fhirUser launch/patient', contexts: [sbxPatientFhirUser] }, {});
+check('standalone with sbx-fhiruser Patient/... and no practitioner sets fhirUser to that Patient',
+  [t.error, t.fhirUser], [null, [AUD + '/Patient/abc123-pat-1']]);
+
+t = token({ approvedScopes: 'openid fhirUser', contexts: [sbxPatientFhirUser] },
+  { audience: 'https://smile.sparked-fhir.com/aucore/fhir/VENDOR-A/' });
+check('the sbx-fhiruser reference is put under the (normalised) audience',
+  t.fhirUser, ['https://smile.sparked-fhir.com/aucore/fhir/VENDOR-A/Patient/abc123-pat-1']);
+
+t = token({ approvedScopes: 'openid fhirUser', contexts: [sbxPatientFhirUser, practitionerCtx] }, {});
+check('a practitioner context wins over sbx-fhiruser',
+  t.fhirUser, [AUD + '/Practitioner/guthridge-jarred']);
+
+t = token({ approvedScopes: 'openid fhirUser launch', contexts: [sbxPatientFhirUser] },
+  { launch: launchToken({ patient: 'pat-1' }) });
+check('EHR launch without a practitioner key falls back to sbx-fhiruser',
+  [t.error, t.fhirUser, t.launchResourceIds], [null, [AUD + '/Patient/abc123-pat-1'], [['patient', 'pat-1']]]);
+
+t = token({ approvedScopes: 'openid fhirUser launch', contexts: [sbxPatientFhirUser] },
+  { launch: launchToken({ patient: 'pat-1', practitioner: 'smith-jane' }) });
+check('EHR launch with a practitioner key ignores sbx-fhiruser',
+  t.fhirUser, [AUD + '/Practitioner/smith-jane']);
+
+t = token({ approvedScopes: 'openid fhirUser',
+  contexts: [{ contextType: 'sbx-fhiruser', resourceId: 'Practitioner/abc123-prac-1' }] }, {});
+check('sbx-fhiruser may name a Practitioner',
+  t.fhirUser, [AUD + '/Practitioner/abc123-prac-1']);
+
+t = token({ approvedScopes: 'openid fhirUser',
+  contexts: [{ contextType: 'SBX-FhirUser', resourceId: 'Patient/abc123-pat-1' }] }, {});
+check('the sbx-fhiruser context type matches case-insensitively',
+  t.fhirUser, [AUD + '/Patient/abc123-pat-1']);
+
+for (const type of ['sbx-fhiruser-2', 'fhiruser', 'my-sbx-fhiruser', 'patient']) {
+  t = token({ approvedScopes: 'openid fhirUser', contexts: [{ contextType: type, resourceId: 'Patient/abc123-pat-1' }] }, {});
+  check(`a context of type ${type} is not sbx-fhiruser and sets nothing`, t.fhirUser, []);
+}
+
+for (const resourceId of ['abc123-pat-1', 'Organization/x', 'Patient/a/b', 'Patient/a b', 'patient/abc123-pat-1',
+  'Patient/', '', null, 'Patient/' + 'a'.repeat(65), ' Patient/abc123-pat-1', 'Patient/abc123-pat-1\n',
+  '../Patient/x', 'Patient/x?_format=json']) {
+  t = token({ approvedScopes: 'openid fhirUser', contexts: [{ contextType: 'sbx-fhiruser', resourceId }] }, {});
+  check(`a malformed sbx-fhiruser resource id ${JSON.stringify(resourceId)} sets nothing`,
+    [t.error, t.fhirUser], [null, []]);
+}
+
+t = token({ approvedScopes: 'openid fhirUser',
+  contexts: [{ contextType: 'sbx-fhiruser', resourceId: 'Patient/' + 'a'.repeat(64) }] }, {});
+check('a 64-character id is accepted', t.fhirUser, [AUD + '/Patient/' + 'a'.repeat(64)]);
+
+t = token({ approvedScopes: 'openid fhirUser', contexts: [
+  { contextType: 'sbx-fhiruser', resourceId: 'Organization/x' },
+  { contextType: 'sbx-fhiruser', resourceId: 'Patient/abc123-pat-1' },
+] }, {});
+check('only the first sbx-fhiruser context counts', t.fhirUser, []);
+
+{
+  const loaded = load();
+  const s = userSession({ approvedScopes: 'openid fhirUser' });
+  s.session.defaultLaunchContexts = javaList([
+    { getContextType: () => 'sbx-fhiruser', getResourceId: () => 'Patient/abc123-pat-1' },
+  ]);
+  loaded.context.onTokenGenerating(s.session, requestDetails({}).details);
+  check('the sbx-fhiruser context is read through its getters', s.calls.fhirUser, [AUD + '/Patient/abc123-pat-1']);
+}
+
+{
+  const loaded = load();
+  const s = userSession({ approvedScopes: 'openid fhirUser' });
+  s.session.defaultLaunchContexts = [sbxPatientFhirUser];
+  loaded.context.onTokenGenerating(s.session, requestDetails({}).details);
+  check('default launch contexts given as a JS array are read for sbx-fhiruser',
+    s.calls.fhirUser, [AUD + '/Patient/abc123-pat-1']);
+}
+
+for (const launch of [undefined, launchToken({ patient: 'pat-1' })]) {
+  const flow = launch ? 'EHR launch' : 'standalone';
+  const loaded = load();
+  const s = userSession({ approvedScopes: 'openid fhirUser launch' });
+  Object.defineProperty(s.session, 'defaultLaunchContexts', { get: () => { throw new Error('boom'); } });
+  const r = requestDetails({ launch });
+  let error = null;
+  try { loaded.context.onTokenGenerating(s.session, r.details); } catch (e) { error = String(e); }
+  check(`${flow}: reading the contexts throws keeps today's behaviour and does not throw`,
+    [error, s.calls.fhirUser, r.calls.claims, s.calls.launchResourceIds],
+    [null, [], launch ? [['patient', 'pat-1']] : [], launch ? [['patient', 'pat-1']] : []]);
+  checkLog(`${flow}: a failed sbx-fhiruser read is logged as a warning`, loaded.logs, 'Sandbox fhirUser context skipped', true);
+}
+
+{
+  const loaded = load();
+  const s = userSession({ approvedScopes: 'openid fhirUser' });
+  const bad = { contextType: 'sbx-fhiruser' };
+  Object.defineProperty(bad, 'resourceId', { get: () => { throw new Error('boom'); } });
+  s.session.defaultLaunchContexts = javaList([bad]);
+  let error = null;
+  try { loaded.context.onTokenGenerating(s.session, requestDetails({}).details); } catch (e) { error = String(e); }
+  check('a resource id accessor that throws sets nothing and does not throw', [error, s.calls.fhirUser], [null, []]);
+}
+
+{
+  const loaded = load();
+  loaded.context.Log.warn = () => { throw new Error('log down'); };
+  const s = userSession({ approvedScopes: 'openid fhirUser' });
+  Object.defineProperty(s.session, 'defaultLaunchContexts', { get: () => { throw new Error('boom'); } });
+  let error = null;
+  try { loaded.context.onTokenGenerating(s.session, requestDetails({}).details); } catch (e) { error = String(e); }
+  check('a failed sbx-fhiruser read survives a Log.warn that throws', [error, s.calls.fhirUser], [null, []]);
+}
+
+// A user with no sbx-fhiruser context (every non-sandbox user) gets exactly the
+// fhirUser that main's script sets. mainFhirUser is main's rule, copied: the
+// launch's practitioner key, else the "practitioner" default context.
+function mainFhirUser(contexts, launchObj) {
+  if (launchObj && launchObj.practitioner) {
+    return [AUD + '/Practitioner/' + launchObj.practitioner];
+  }
+  const ctx = contexts.find((c) => c.contextType === 'practitioner');
+  return ctx && ctx.resourceId ? [AUD + '/' + ctx.resourceId] : [];
+}
+
+const noSbxFhirUserContexts = [
+  [],
+  [practitionerCtx],
+  [{ contextType: 'practitioner', resourceId: '' }],
+  [{ contextType: 'patient', resourceId: 'pat-a' }],
+  [{ contextType: 'patient', resourceId: 'pat-a' }, practitionerCtx, { contextType: 'sbx-patient-2', resourceId: 'pat-b' }],
+  [{ contextType: 'patient', resourceId: 'Patient/pat-a' }, { contextType: 'sbx-patient-2', resourceId: 'Patient/pat-b' }],
+];
+const launchValues = [undefined, { patient: 'pat-1' }, { patient: 'pat-1', practitioner: 'smith-jane' }];
+let unchanged = 0;
+let combos = 0;
+for (const contexts of noSbxFhirUserContexts) {
+  for (const launchObj of launchValues) {
+    combos++;
+    t = token({ approvedScopes: 'openid fhirUser launch launch/patient', contexts },
+      launchObj ? { launch: launchToken(launchObj) } : {});
+    if (t.error === null && JSON.stringify(t.fhirUser) === JSON.stringify(mainFhirUser(contexts, launchObj))) {
+      unchanged++;
+    } else {
+      console.log(`         differs: contexts ${JSON.stringify(contexts)}, launch ${JSON.stringify(launchObj)}: ${JSON.stringify(t.fhirUser)}`);
+    }
+  }
+}
+check(`a user with no sbx-fhiruser gets main's fhirUser (${combos} context and launch combinations)`,
+  unchanged, combos);
+
+// ---------------------------------------------------------------------------
 // onSmartLoginPreContextSelection: the sandbox patient picker
 // ---------------------------------------------------------------------------
 

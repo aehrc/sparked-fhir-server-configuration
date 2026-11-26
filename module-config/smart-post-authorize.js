@@ -6,16 +6,18 @@
  * 1. EHR Launch (launch token present): decodes the base64 launch parameter,
  *    injects patient/encounter context into the token, and sets fhirUser to
  *    the Practitioner from the launch token (or falls back to the user's
- *    default launch context).
+ *    default launch contexts, as in 2).
  *
  * 2. Standalone Launch (no launch token): sets fhirUser from the user's
- *    default launch context Practitioner.
+ *    default "practitioner" launch context or, for a sandbox login without
+ *    one, from its "sbx-fhiruser" context (defaultFhirUser below).
  *
  * It also offers a patient picker on standalone launches through sandbox
  * clients only (onSmartLoginPreContextSelection below).
  *
  * By default SmileCDR sets fhirUser to an auto-generated RelatedPerson.
- * This script overrides that with the correct Practitioner in both flows.
+ * This script overrides that with the correct Practitioner (or, for a
+ * sandbox login, the Patient its sbx-fhiruser context names) in both flows.
  *
  * Config key: post_authorize_script.file (SMART Outbound Security module)
  * Docs: https://smilecdr.com/docs/smart/user_profile.html
@@ -152,7 +154,6 @@ function onTokenGenerating(theUserSession, theAuthorizationRequestDetails) {
     }
     // Normalise trailing slashes: URLs are built as audience + "/Practitioner/..."
     audience = ("" + audience).replace(/\/+$/, "");
-    var ctx;
 
     // getLaunch() is the dedicated accessor; fall back to the whitelisted request
     // parameter if it returns null (can happen with externally-crafted launch tokens).
@@ -210,20 +211,99 @@ function onTokenGenerating(theUserSession, theAuthorizationRequestDetails) {
 
         // If launch token had no practitioner, fall back to default launch context
         if (!launchParams.practitioner) {
-            ctx = theUserSession.getOrCreateDefaultLaunchContext("practitioner");
-            if (ctx && ctx.resourceId) {
-                // resourceId is stored as "Practitioner/xxx" by manage_smart_users.py
-                theUserSession.setFhirUserUrl(audience + "/" + ctx.resourceId);
-            }
+            defaultFhirUser(theUserSession, audience);
         }
 
     } else {
         // Standalone launch: use the user's default launch context
-        ctx = theUserSession.getOrCreateDefaultLaunchContext("practitioner");
-        if (ctx && ctx.resourceId) {
-            // resourceId is stored as "Practitioner/xxx" by manage_smart_users.py
-            theUserSession.setFhirUserUrl(audience + "/" + ctx.resourceId);
+        defaultFhirUser(theUserSession, audience);
+    }
+}
+
+/**
+ * The context type a sandbox login carries when its deployment names a
+ * Patient (or a Practitioner) as fhirUser; Smile CDR ignores it.
+ */
+var SANDBOX_FHIRUSER_CONTEXT_TYPE = "sbx-fhiruser";
+
+/** A resource reference fit for fhirUser: Patient/<id> or Practitioner/<id>. */
+var SANDBOX_FHIRUSER_RESOURCE_ID = /^(Patient|Practitioner)\/[A-Za-z0-9.-]{1,64}$/;
+
+/**
+ * The user's default launch contexts as an array (empty when there are none).
+ * Accepts a JS array or a Java collection; throws when the session cannot be
+ * read, so each caller decides how to fail open.
+ */
+function defaultLaunchContextsOf(theUserSession) {
+    var contexts = beanProperty(theUserSession, "defaultLaunchContexts", "getDefaultLaunchContexts");
+    var list = [];
+    if (contexts !== null && contexts !== undefined) {
+        if (Array.isArray(contexts)) {
+            list = contexts;
+        } else if (typeof contexts.iterator === "function") {
+            var it = contexts.iterator();
+            while (it.hasNext()) {
+                list.push(it.next());
+            }
         }
+    }
+    return list;
+}
+
+/**
+ * The sandbox fhirUser reference ("Patient/<id>" or "Practitioner/<id>") from
+ * the first default launch context of type sbx-fhiruser, or null when there is
+ * none or its resource id is not such a reference. Never throws.
+ */
+function sandboxFhirUserOf(theUserSession) {
+    try {
+        var list = defaultLaunchContextsOf(theUserSession);
+        for (var i = 0; i < list.length; i++) {
+            var ctx = list[i];
+            if (!ctx) {
+                continue;
+            }
+            var type = beanProperty(ctx, "contextType", "getContextType");
+            if (type === null || type === undefined ||
+                    String(type).toLowerCase() !== SANDBOX_FHIRUSER_CONTEXT_TYPE) {
+                continue;
+            }
+            var resourceId = beanProperty(ctx, "resourceId", "getResourceId");
+            if (resourceId === null || resourceId === undefined) {
+                return null;
+            }
+            resourceId = String(resourceId);
+            return SANDBOX_FHIRUSER_RESOURCE_ID.test(resourceId) ? resourceId : null;
+        }
+    } catch (e) {
+        try {
+            Log.warn("Sandbox fhirUser context skipped: " + e);
+        } catch (ignored) {
+            // Logging must not fail token issuance either.
+        }
+    }
+    return null;
+}
+
+/**
+ * Set fhirUser from the user's default launch contexts, used when the launch
+ * names no practitioner. The "practitioner" context wins; without one, a
+ * sandbox login's "sbx-fhiruser" context (written by aehrc/sparked-sandbox,
+ * for example "Patient/<sandbox id>-<patient>" when the deployment names a
+ * Patient as fhirUser) is used. Non-sandbox users have no sbx-fhiruser
+ * context, so for them this is exactly the practitioner rule as before.
+ * Anything else leaves fhirUser unset here, as before.
+ */
+function defaultFhirUser(theUserSession, theAudience) {
+    var ctx = theUserSession.getOrCreateDefaultLaunchContext("practitioner");
+    if (ctx && ctx.resourceId) {
+        // resourceId is stored as "Practitioner/xxx" by manage_smart_users.py
+        theUserSession.setFhirUserUrl(theAudience + "/" + ctx.resourceId);
+        return;
+    }
+    var sandboxFhirUser = sandboxFhirUserOf(theUserSession);
+    if (sandboxFhirUser !== null) {
+        theUserSession.setFhirUserUrl(theAudience + "/" + sandboxFhirUser);
     }
 }
 
@@ -288,18 +368,7 @@ function onSmartLoginPreContextSelection(theUserSession, theContextSelectionChoi
             return;
         }
 
-        var contexts = beanProperty(theUserSession, "defaultLaunchContexts", "getDefaultLaunchContexts");
-        var list = [];
-        if (contexts !== null && contexts !== undefined) {
-            if (Array.isArray(contexts)) {
-                list = contexts;
-            } else if (typeof contexts.iterator === "function") {
-                var it = contexts.iterator();
-                while (it.hasNext()) {
-                    list.push(it.next());
-                }
-            }
-        }
+        var list = defaultLaunchContextsOf(theUserSession);
 
         var primary = null;
         var extras = [];
