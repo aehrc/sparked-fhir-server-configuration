@@ -337,11 +337,14 @@ check('a scope that only starts with launch/patient is not launch/patient',
 
 console.log('--- picker ---');
 
+// Smile CDR stores one default launch context per type per user, so a sandbox
+// writes its default patient as "patient" and the others as sbx-patient-<n>.
+// Listed out of number order on purpose: the picker orders by <n>.
 const patientCtxs = [
+  { contextType: 'sbx-patient-3', resourceId: 'pat-c' },
   { contextType: 'patient', resourceId: 'pat-a' },
-  { contextType: 'patient', resourceId: 'pat-b' },
   practitionerCtx,
-  { contextType: 'patient', resourceId: 'pat-c' },
+  { contextType: 'sbx-patient-2', resourceId: 'pat-b' },
 ];
 
 function pickerSession(opts) {
@@ -353,9 +356,9 @@ function pickerSession(opts) {
 }
 
 let p = pick(pickerSession({}));
-check('sbx client standalone with launch/patient and three patient contexts adds three persons',
+check('sbx client standalone with patient, sbx-patient-2 and sbx-patient-3 adds three persons',
   p.persons.length, 3);
-check('each person carries the context resource id exactly',
+check('persons are patient first, then sbx-patient-<n> by number, with the exact ids',
   p.persons.map((x) => x.associatedPatientContextResourceId), ['pat-a', 'pat-b', 'pat-c']);
 check('each person is named Patient <resource id>',
   p.persons.map((x) => [x.givenName, x.familyName]),
@@ -384,6 +387,77 @@ check('sbx client standalone without launch/patient adds nothing', p.persons.len
 p = pick(pickerSession({ contexts: [{ contextType: 'patient', resourceId: 'pat-a' }, practitionerCtx] }));
 check('fewer than two patient contexts adds nothing', p.persons.length, 0);
 
+p = pick(pickerSession({ contexts: [{ contextType: 'sbx-patient-2', resourceId: 'pat-b' }, practitionerCtx] }));
+check('a single sbx-patient-<n> context and no patient context adds nothing', p.persons.length, 0);
+
+p = pick(pickerSession({ contexts: [
+  { contextType: 'sbx-patient-2', resourceId: 'pat-b' },
+  { contextType: 'sbx-patient-3', resourceId: 'pat-c' },
+] }));
+check('sbx-patient-<n> contexts without a patient context are still offered, by number',
+  p.persons.map((x) => x.associatedPatientContextResourceId), ['pat-b', 'pat-c']);
+
+p = pick(pickerSession({ contexts: [
+  { contextType: 'patient', resourceId: 'pat-a' },
+  { contextType: 'patient', resourceId: 'pat-b' },
+  { contextType: 'patient', resourceId: 'pat-c' },
+] }));
+check('several contexts of type patient alone offer only the first, so nothing is added',
+  p.persons.length, 0);
+
+p = pick(pickerSession({ contexts: [
+  { contextType: 'patient', resourceId: 'pat-a' },
+  { contextType: 'patient', resourceId: 'pat-x' },
+  { contextType: 'sbx-patient-2', resourceId: 'pat-b' },
+] }));
+check('only the first context of type patient is offered',
+  p.persons.map((x) => x.associatedPatientContextResourceId), ['pat-a', 'pat-b']);
+
+p = pick(pickerSession({ contexts: [
+  { contextType: 'patient', resourceId: 'pat-a' },
+  { contextType: 'sbx-patient-2', resourceId: 'pat-a' },
+  { contextType: 'sbx-patient-3', resourceId: 'pat-b' },
+  { contextType: 'sbx-patient-4', resourceId: 'pat-b' },
+] }));
+check('a resource id already offered is offered once',
+  p.persons.map((x) => x.associatedPatientContextResourceId), ['pat-a', 'pat-b']);
+
+p = pick(pickerSession({ contexts: [
+  { contextType: 'patient', resourceId: 'pat-a' },
+  { contextType: 'sbx-patient-2', resourceId: '' },
+  { contextType: 'sbx-patient-3', resourceId: null },
+] }));
+check('empty sbx-patient-<n> resource ids are skipped', p.persons.length, 0);
+
+p = pick(pickerSession({ contexts: [
+  { contextType: 'patient', resourceId: 'pat-a' },
+  { contextType: 'sbx-encounter-2', resourceId: 'enc-1' },
+  { contextType: 'sbx-patient', resourceId: 'pat-x' },
+  { contextType: 'sbx-patient-two', resourceId: 'pat-y' },
+  { contextType: 'my-sbx-patient-2', resourceId: 'pat-z' },
+  { contextType: 'sbx-patient-2-old', resourceId: 'pat-w' },
+] }));
+check('unrelated custom context types are ignored', p.persons.length, 0);
+
+p = pick(pickerSession({ contexts: [
+  { contextType: 'Patient', resourceId: 'pat-a' },
+  { contextType: 'SBX-Patient-10', resourceId: 'pat-j' },
+  { contextType: 'sbx-patient-9', resourceId: 'pat-i' },
+] }));
+check('context types match case-insensitively and order numerically (9 before 10)',
+  p.persons.map((x) => x.associatedPatientContextResourceId), ['pat-a', 'pat-i', 'pat-j']);
+
+{
+  const session = pickerSession({});
+  session.defaultLaunchContexts = javaList([
+    { getContextType: () => 'patient', getResourceId: () => 'pat-a' },
+    { getContextType: () => 'sbx-patient-2', getResourceId: () => 'pat-b' },
+  ]);
+  p = pick(session);
+  check('context type and resource id are read through their getters',
+    p.persons.map((x) => x.associatedPatientContextResourceId), ['pat-a', 'pat-b']);
+}
+
 p = pick(pickerSession({ contexts: [] }));
 check('no default launch contexts adds nothing', p.persons.length, 0);
 
@@ -411,9 +485,9 @@ check('an empty approved scope set adds nothing', p.persons.length, 0);
 
 {
   const session = pickerSession({});
-  const bad = { contextType: 'patient' };
+  const bad = { contextType: 'sbx-patient-4' };
   Object.defineProperty(bad, 'resourceId', { get: () => { throw new Error('boom'); } });
-  session.defaultLaunchContexts = javaList([patientCtxs[0], patientCtxs[1], bad]);
+  session.defaultLaunchContexts = javaList([patientCtxs[0], patientCtxs[1], patientCtxs[3], bad]);
   p = pick(session);
   check('an exception on the last context adds no person at all', [p.error, p.persons.length], [null, 0]);
 }

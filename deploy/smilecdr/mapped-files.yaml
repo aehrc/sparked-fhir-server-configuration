@@ -315,6 +315,9 @@ mappedFiles:
           }
       }
 
+      /** Matches the extra patient context types a sandbox writes: sbx-patient-<n>. */
+      var SANDBOX_PATIENT_CONTEXT_TYPE = /^sbx-patient-([0-9]+)$/i;
+
       /**
        * Standalone patient picker for sandbox logins.
        *
@@ -324,12 +327,25 @@ mappedFiles:
        * the patient launch context. When no person is added, no screen is shown and
        * the login continues as before.
        *
+       * Where the choices come from: Smile CDR stores at most one default launch
+       * context per context type per user (a user with three contexts of type
+       * "patient" is refused with HTTP 500, unique constraint
+       * idx_userdeflnchctx_user_ctyp on user and context type; measured on aucore
+       * 2026-11-27). It does accept context types of its users' own choosing and
+       * returns them unchanged. So a sandbox stores its default starter patient as
+       * the "patient" context, which Smile uses as the launch patient when no
+       * choice is made, and each further starter patient as a context of type
+       * sbx-patient-<n> (sbx-patient-2, sbx-patient-3, ...), which Smile ignores.
+       * The choices are the "patient" context first, then every sbx-patient-<n>
+       * context in ascending order of n, skipping empty resource ids and any
+       * resource id already offered. Only the first "patient" context counts, in
+       * case a build ever returns more than one.
+       *
        * Scope: it acts only for clients whose id starts with "sbx-" (the sandbox
        * clients that aehrc/sparked-sandbox registers as sbx-<id>-<kind>), only on a
        * standalone launch that asked for launch/patient (an EHR launch already
-       * names its patient), and only when the user has two or more default launch
-       * contexts of type patient (the sandbox writes one per starter patient, all
-       * in the sandbox's own partition). It offers nothing else and never changes
+       * names its patient), and only when that yields two or more choices (all in
+       * the sandbox's own partition). It offers nothing else and never changes
        * authorities or scopes, so every other client on aucore is untouched.
        *
        * Fail-open: any error is logged and swallowed, and persons are added only
@@ -364,7 +380,8 @@ mappedFiles:
                   }
               }
 
-              var choices = [];
+              var primary = null;
+              var extras = [];
               for (var i = 0; i < list.length; i++) {
                   var ctx = list[i];
                   if (!ctx) {
@@ -372,9 +389,34 @@ mappedFiles:
                   }
                   var type = beanProperty(ctx, "contextType", "getContextType");
                   var resourceId = beanProperty(ctx, "resourceId", "getResourceId");
-                  if (type !== null && type !== undefined && String(type).toLowerCase() === "patient" &&
-                          resourceId !== null && resourceId !== undefined && String(resourceId) !== "") {
-                      choices.push(String(resourceId));
+                  if (type === null || type === undefined || resourceId === null || resourceId === undefined ||
+                          String(resourceId) === "") {
+                      continue;
+                  }
+                  type = String(type);
+                  if (type.toLowerCase() === "patient") {
+                      if (primary === null) {
+                          primary = String(resourceId);
+                      }
+                      continue;
+                  }
+                  var match = SANDBOX_PATIENT_CONTEXT_TYPE.exec(type);
+                  if (match) {
+                      extras.push({ n: parseInt(match[1], 10), index: i, id: String(resourceId) });
+                  }
+              }
+              // Ascending by n; the list position breaks ties so the order is stable.
+              extras.sort(function (a, b) {
+                  return a.n !== b.n ? a.n - b.n : a.index - b.index;
+              });
+
+              var choices = [];
+              if (primary !== null) {
+                  choices.push(primary);
+              }
+              for (var k = 0; k < extras.length; k++) {
+                  if (choices.indexOf(extras[k].id) < 0) {
+                      choices.push(extras[k].id);
                   }
               }
               if (choices.length < 2) {
