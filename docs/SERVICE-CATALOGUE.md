@@ -50,21 +50,22 @@ the Sparked FHIR Server nodes.
   what they can; the team completes the technical details.
 - **Required inputs:** IG name, IG version, NPM package ID, urgency, request type.
 - **Optional inputs:** IG documentation URL, custom package `.tgz` URL, target node
-  (aucore, the only node since 2026-08-02), immediate-deployment preference, test-data/examples needs, and
+  (aucore, the only node since 2026-08-02), test-data/examples needs, and
   package install options.
 - **Fulfilment:** automated validation runs a dry-run and posts a preview comment. An admin
   gates the request by adding `ready-for-automation`, which triggers an automated PR that
-  edits the package and Terraform config. A human reviews and merges the PR. If
-  `deploy-immediately` was requested, deployment runs automatically after merge; otherwise
-  a repo admin runs the `Re/load IG Packages` workflow when it suits. Either way the
-  merge itself is the deploy of the seed config: the Argo CD Application `smilecdr`
-  syncs automatically and rolls the pod within minutes, after which the change persists
-  across restarts ([runbook step 2.4](runbooks/ig-release.md#step-2-4)).
-- **Automation level:** semi-automated (validate then auto-PR then human merge then optional
-  auto-deploy).
+  edits the package and Terraform config. A human reviews and merges the PR, outside an
+  event freeze. The merge is the deploy: the Argo CD Application `smilecdr` syncs
+  automatically and rolls the pod within about 2 minutes, and the new pod installs the
+  packages from its seed config as it starts (up to 20 minutes to be ready), after which
+  the change persists across restarts ([runbook step 2.4](runbooks/ig-release.md#step-2-4)).
+  A repo admin runs the `Re/load IG Packages` workflow only if something is missing after
+  the roll, never during it ([runbook step 2.3](runbooks/ig-release.md#step-2-3)).
+- **Automation level:** semi-automated (validate then auto-PR then human merge, which
+  deploys).
 - **SLA:** 1 to 2 weeks end-to-end (calendar lead time); roughly 20 minutes of hands-on time
   once `ready-for-automation` is applied. Add 1 to 2 weeks if an ADR is required.
-- **Example:** "Deploy IPS 2.0.1 to aucore, deploy immediately."
+- **Example:** "Deploy IPS 2.0.1 to aucore."
 - **Beyond the server:** this offering covers the FHIR server only. The maintainers track
   each published IG version through tx.dev, test data and the Inferno test kits with an
   IG Release Tracking issue, following the [IG release runbook](runbooks/ig-release.md).
@@ -193,10 +194,6 @@ stateDiagram-v2
     approved --> in_progress : manual path (configuration, most operations)
 
     ready_for_automation --> in_progress : auto-PR created (ig/tx) OR client registered (smart)
-    note right of ready_for_automation
-      'deploy-immediately' may be set here
-      as an optional flag (not a status)
-    end note
 
     in_progress --> deployed : PR merged / change applied / client live
     deployed --> complete : requestor verifies
@@ -221,8 +218,10 @@ stateDiagram-v2
 | `complete` | Verified and closed | Requestor confirms, Admin closes |
 | `blocked` | Waiting on an external dependency (orthogonal to the states above) | Admin |
 
-`deploy-immediately` is a **flag**, not a lifecycle state: it is a requestor preference that
-tells the automation to deploy an IG release as soon as the PR merges.
+The `deploy-immediately` flag was retired on 2026-11-27. Merging an IG release PR deploys it
+(the Argo CD Application `smilecdr` syncs `main` automatically), so there is no separate
+deployment to request, and the automation no longer dispatches `Re/load IG Packages` at the
+merge ([runbook step 2.3](runbooks/ig-release.md#step-2-3)).
 
 ---
 
@@ -242,14 +241,14 @@ environment; requires Brett Esler sign-off, see [Environment scrutiny](#environm
 **Priority:** `priority:critical`, `priority:high`, `priority:medium`, `priority:low`.
 
 **Automation gates / states:** `ready-for-automation`, `auto-pr-created`, `auto-registered`,
-`needs-manual-intervention`, `deploy-immediately`.
+`needs-manual-intervention`.
 
 **General / triage:** `bug`, `enhancement`, `question`, `documentation`, `duplicate`,
 `wontfix`, `automation`.
 
 > **Known colour collisions (disambiguate by name):**
 > `approved` and `ready-for-automation` share green (`0e8a16`); `deployed` and `complete`
-> share green (`28a745`); `deploy-immediately`, `blocked`, `priority:high`, and
+> share green (`28a745`); `blocked`, `priority:high`, and
 > `needs-manual-intervention` share red (`d93f0b`); `needs-review` and `priority:medium`
 > share yellow (`fbca04`).
 
@@ -300,8 +299,9 @@ is not enforced by automation.
      `auto-pr-created`; a human reviews and merges it.
    - SMART Client: the client is registered live on the target nodes (no PR).
    - Test-data load: the load runs automatically.
-5. **Deploy.** For IG releases, deployment runs automatically if `deploy-immediately` was set;
-   otherwise the team deploys on schedule. The issue is labelled `deployed`.
+5. **Deploy.** For IG releases, the merge deploys the change: Argo CD rolls the server within
+   about 2 minutes, and the new pod installs the packages as it starts. The issue is labelled
+   `deployed` once the roll has finished.
 6. **Verify.** You test the change and confirm on the issue so it can be marked `complete`.
 
 Configuration Changes and non-test-data Operations are handled manually end-to-end; they do

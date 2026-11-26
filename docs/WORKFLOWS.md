@@ -41,8 +41,6 @@ This repository uses GitHub Actions workflows to automate FHIR Implementation Gu
    - **NPM Package ID**: e.g., "hl7.fhir.uv.ips" (optional - can be auto-generated)
    - **Target Nodes**: `aucore` (AU Core FHIR Server), the only node since the `ereq`
      and `hl7au` nodes were decommissioned on 2026-08-02
-   - **Deployment Preferences**:
-     - ☐ Request immediate deployment after change is approved and merged
    - **Business Justification**: Why you need this
    - **Acceptance Criteria**: How you'll verify it works
 
@@ -119,33 +117,38 @@ Repo admins will:
 
 #### Step 6: Deployment
 
-**If you requested immediate deployment:**
-```markdown
-🚀 Your Deployment Request is Being Processed
-
-PR #45 has been merged and your request for immediate deployment is being fulfilled.
-
-You will receive another comment with deployment results.
-```
-
-**If you didn't request immediate deployment:**
-The comment says the merge deploys the change: the Argo CD Application `smilecdr` syncs
-automatically and rolls the pod within minutes
+The merge is the deploy. Nothing is dispatched at the merge; the Argo CD Application
+`smilecdr` syncs `main` automatically and starts a new Smile pod within about 2 minutes,
+and the new pod installs the packages from its seed config as it starts. It can take up to
+20 minutes to be ready, and the old pod serves until then
 ([runbook step 2.4](runbooks/ig-release.md#step-2-4)). A repo admin runs `Re/load IG
-Packages` only after that roll has finished.
+Packages` (dry run first) only if something is missing after that roll has finished, and
+never during it ([runbook step 2.3](runbooks/ig-release.md#step-2-3)).
 
 #### Step 7: Verification
 
-After deployment, you'll receive:
+When the PR merges, you'll receive:
 ```markdown
-## ✅ Package Deployment Successful
+## PR #45 Merged Successfully
 
-Your requested packages have been deployed successfully!
+Your requested changes have been approved and merged into the main branch.
 
-Please verify the deployment:
-1. Test that the IG packages are working as expected
-2. Verify your acceptance criteria are met
-3. Comment on this issue with verification results
+**What was merged:**
+Add International Patient Summary 2.0.0 to aucore (Issue #42)
+
+### The merge deploys it
+Argo CD syncs the Smile workload (the `smilecdr` Application) from `main` on its own, so nobody needs to run anything:
+- **Time**: Argo CD starts a new Smile pod within about 2 minutes, and the new pod can take up to 20 minutes to be ready
+- **Packages**: the new pod installs the packages from its seed config as it starts
+- **Downtime**: none expected (the old pod serves until the new one is ready)
+
+### If something is missing after the roll
+Only once the roll has finished (one pod, Ready), and only if a package is still missing, a repo admin runs the "Re/load IG Packages" workflow, dry run first. Never during the roll: the new pod is already installing the same packages, and a second install stacked on top of it is unsafe.
+
+### Event freezes
+Nothing merges during an event change freeze, except a fix for an outage.
+
+Once the new pod is ready, please verify the deployment meets your acceptance criteria and comment here with your results.
 ```
 
 Test and verify:
@@ -195,8 +198,9 @@ well, with the step each one bites in.
   [runbook step 2.4](runbooks/ig-release.md#step-2-4).
 - **Not during an event freeze.** No IG load, reload or apply while an event manifest's
   `freeze` window is open ([runbook constraint 9](runbooks/ig-release.md#4-ordering-constraints)).
-  That includes merging a `deploy-immediately` PR, which installs on merge with no dry
-  run ([runbook step 2.3](runbooks/ig-release.md#step-2-3)).
+  That includes merging an IG PR: the merge is the deploy, because the Argo CD
+  Application `smilecdr` syncs `main` and rolls Smile within about two minutes
+  ([runbook step 2.3](runbooks/ig-release.md#step-2-3)).
 - **Nothing feeds tx.dev automatically.** The tx-dev fhir-ig-feeder was decommissioned
   on 2026-09-29 (`aehrc/sparked-argo` #285), so every IG version, not only AU PS, reaches
   tx.dev only once someone adds it to the `hl7au-dev` Atomio feed by hand
@@ -414,7 +418,6 @@ Track your request through these stages:
 - `approved` → Approved, ready to implement
 - `ready-for-automation` → Approved for automated PR generation
 - `in-progress` → PR created, being reviewed
-- `deploy-immediately` → (optional flag) Deploy automatically once the PR merges
 - `deployed` → Deployed, awaiting your verification
 - `complete` → Verified and closed
 
@@ -423,8 +426,7 @@ Track your request through these stages:
 1. **Be specific** - Provide exact versions and package IDs when possible
 2. **Explain why** - Clear business justification helps prioritization
 3. **Select nodes carefully** - Only choose nodes that actually need the IG
-4. **Request immediate deployment** - If you need it urgently and can verify immediately
-5. **Verify promptly** - When deployment completes, test and report back quickly
+4. **Verify promptly** - When deployment completes, test and report back quickly
 
 ---
 
@@ -462,9 +464,15 @@ Track your request through these stages:
    - Confirm terraform/main.tf changes
    - Approve and merge
 
-5. **Handle deployment**
-   - **If `deploy-immediately` label**: Deployment triggers automatically
-   - **If not**: Comment will be posted with deployment options for admin to choose
+5. **Merge, then wait for the roll**
+   - Merge outside an event freeze: the merge is the deploy, and Argo CD rolls Smile
+     within about 2 minutes (up to 20 minutes for the new pod to be ready)
+   - The new pod installs the packages from its seed config; do not run `Re/load IG
+     Packages` during the roll
+   - Only if something is missing after the roll, run `Re/load IG Packages` by hand, dry
+     run first, passing the request's `issue_number`
+     ([runbook step 2.3](runbooks/ig-release.md#step-2-3))
+   - Label the issue `deployed` once the roll has finished
 
 6. **Monitor and close**
    - Watch for requester verification
@@ -546,8 +554,8 @@ Track your request through these stages:
 |----------|---------|---------|
 | `issue-opened.yml` (job: `validate-ig`) | Issue created/edited with `ig-release` label | Validates issue fields, runs dry-run preview |
 | `issue-labeled.yml` (job: `create-ig-pr`) | Issue labeled `ready-for-automation` | Creates PR with package config changes |
-| `pr-merged.yml` | PR merged | Posts deployment options or triggers auto-deployment |
-| `reload-ig-config.yml` | Manual or workflow_call | Deploys packages to SmileCDR nodes |
+| `pr-merged.yml` | PR merged | Posts the post-merge deployment notice (the merge is the deploy; nothing is dispatched) |
+| `reload-ig-config.yml` | Manual or workflow_call | Re/loads packages on a running node; by hand, only after the post-merge roll |
 | `load-test-data.yml` | Manual or workflow_call | Loads FHIR test data to a node |
 | `clear-test-data.yml` | Manual or workflow_call | Clears FHIR test data from a node |
 | `manage-test-data.yml` | Manual | Common multi-step operations (clear+load, expunge) |

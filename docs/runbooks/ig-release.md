@@ -455,22 +455,23 @@ what that guide leaves implicit.
 
 - **Who:** repo admin.
 - **Where:** the PR, then **Actions > Re/load IG Packages** (`reload-ig-config.yml`).
-- **When:** not inside an event freeze (constraint 9), and that includes the merge: a PR
-  labelled `deploy-immediately` installs on merge. Every merge of an IG PR is also the
-  Smile deploy of step 2.4: within about two minutes Argo CD rolls the pod onto the new
-  seed config, so merge at a moment a Smile restart is acceptable.
-- **Do:** remove the `deploy-immediately` label first, then merge. With the label,
-  `pr-merged.yml` dispatches `Re/load IG Packages` with `dry_run: 'false'` at the moment
-  of the merge (**no dry run and no freeze check on that path**), while Argo CD is
-  starting a new pod whose `startup_installation_specs` installs the same packages into
-  the same database: two installs stacked, which the expunge gotcha above forbids, and the
-  old pod is terminated when the new one turns Ready, possibly mid-install. Then wait for
-  the roll (step 2.4: the Application Synced and Healthy, the new pod Ready) before
-  running `Re/load IG Packages` by hand, dry run first.
-  Otherwise run `Re/load IG Packages` with `nodes: aucore`,
-  `package_source: config`, **`dry_run: true` first**, then `dry_run: false`, and pass the
-  request's `issue_number` so results are posted there. The workflow runs on a
-  GitHub-hosted runner (#124) and installs through the node's package registry endpoint
+- **When:** not inside an event freeze (constraint 9), and that includes the merge. Every
+  merge of an IG PR is the Smile deploy of step 2.4: within about two minutes Argo CD
+  rolls the pod onto the new seed config, so merge at a moment a Smile restart is
+  acceptable.
+- **Do:** merge, then wait for the roll (step 2.4: the Application Synced and Healthy, the
+  new pod Ready; the new pod can take up to 20 minutes). The new pod's
+  `startup_installation_specs` installs the packages as it starts, so usually nothing
+  else is needed. Nothing is dispatched at the merge: `pr-merged.yml` only posts a
+  notice on the request issue. The `deploy-immediately` label that used to dispatch
+  `Re/load IG Packages` with `dry_run: 'false'` at the merge was retired on 2026-11-27,
+  because that run stacked a second install on the new pod's seed install into the same
+  database, which the expunge gotcha above forbids, and the old pod could be terminated
+  mid-install. Only if something is missing after the roll, run `Re/load IG Packages` by
+  hand with `nodes: aucore`, `package_source: config`, **`dry_run: true` first**, then
+  `dry_run: false`, and pass the request's `issue_number` so results are posted there.
+  Never run it during the roll. The workflow runs on a GitHub-hosted runner (#124), which
+  cannot see the cluster, and installs through the node's package registry endpoint
   under `https://smile.sparked-fhir.com/aucore/package/` (`npm/...` to read, `write/...` to
   install) with the repo's basic-auth secret; that endpoint is not on the gateway's admin
   allowlist. Anonymously, an `npm/...` path answers Smile's own `403 Access is denied`
