@@ -456,7 +456,7 @@ what that guide leaves implicit.
 - **Who:** repo admin.
 - **Where:** the PR. **Actions > Re/load IG Packages** (`reload-ig-config.yml`) is not
   part of the normal path: step 2.4 runs it as a read-only dry run after the roll, and live
-  only when that dry run shows drift.
+  only when that dry run shows a missing version.
 - **When:** not inside an event freeze (constraint 9), and that includes the merge. Every
   merge of an IG PR is the Smile deploy of step 2.4: within about two minutes Argo CD
   rolls the pod onto the new seed config, so merge at a moment a Smile restart is
@@ -472,9 +472,10 @@ what that guide leaves implicit.
   database, which the expunge gotcha below forbids, and the old pod could be terminated
   mid-install. After the roll, step 2.4 runs `Re/load IG Packages` as a dry run (`nodes:
   aucore`, `package_source: config`, `dry_run: true`), which lists drift both ways. Only
-  if it reports a **Missing** version, run it again with `dry_run: false`, passing the
-  request's `issue_number` so results are posted there; a live run installs what is
-  missing but does not remove an **Extra** version (step 2.4). Never run it during the
+  if it reports a **Missing** version, run it again with `dry_run: false` and no
+  `issue_number` (with one, a successful live run labels the request `deployed` and asks
+  the requester to verify before the step 2.4 checks have run); a live run installs what
+  is missing but does not remove an **Extra** version (step 2.4). Never run it during the
   roll. The workflow runs on a GitHub-hosted runner (#124), which cannot see the
   cluster, and installs through the node's package registry endpoint
   under `https://smile.sparked-fhir.com/aucore/package/` (`npm/...` to read, `write/...` to
@@ -584,21 +585,32 @@ what that guide leaves implicit.
   a drift block with three lines:
 
   - **Missing**: a seeded version the node does not hold. Run the workflow again with
-    `dry_run: false` and the request's `issue_number` (step 2.3), then repeat the dry run.
+    `dry_run: false` and no `issue_number` (step 2.3), link that run from the tracking
+    issue, then repeat the dry run.
   - **Extra**: another version of a seeded package id still stored, usually the version
     this release superseded. This runbook assumes Smile's startup install is additive: it
     installs the seeded versions and does not uninstall versions the seed no longer lists
     **(unverified)**; the only uninstaller in this repository is `sync_node` in
     `scripts/sync_packages.py`. A live run does not remove an extra version either: it
-    skips a package whose seeded version is already current. Treat it like the lingering
+    uninstalls only a version the search index shows as current, and it skips a package
+    whose seeded version is already stored. A superseded version listed here is normal
+    after a release, not a failed check. Treat it like the lingering
     StructureDefinitions of step 2.3 (validate with `|<version>`) and record it on the
     tracking issue; removing it is a separate cleanup decision (#45), outside a freeze and
     one package at a time, because uninstalling a large package starts the expunge.
   - **Not in the source**: a stored package id the seed config does not list, usually a
     dependency Smile fetched. Informational only.
 
+  The block never reports a failed lookup as `none`. A `Packument lookup failed` line
+  (the id was checked against the search index, so its Extra versions are not visible),
+  `unknown (search lookup failed ...)`, or `Drift not fully known` means the check has
+  not passed: run the dry run again. `possibly incomplete` after the Not in the source
+  line means the search index may list only part of the registry
+  **(unverified whether Smile pages it)**; Missing and Extra do not depend on that list.
+
   When these checks pass, mark the request deployed, which tells the requester to verify
-  (`pr-merged.yml` asks them to wait for this label):
+  (`pr-merged.yml` asks them to wait for this label). The admin sets it here, after the
+  checks, rather than through a live run's `issue_number`:
 
   ```bash
   gh issue edit <request-issue> --add-label deployed --remove-label in-progress
@@ -1099,31 +1111,42 @@ tracking issue:
      the previous version) and merge it outside an event freeze. The merge is the deploy
      (step 2.4). In a freeze the merge ships only with a manual sync of `smilecdr`, which
      is for an emergency only ([sparkey-deploy-runbook.md, Event change
-     freeze](../sparkey-deploy-runbook.md#event-change-freeze)).
+     freeze](../sparkey-deploy-runbook.md#event-change-freeze)). A manual sync renders
+     `main`, so it ships everything merged since the last sync, not just the revert:
+     check what else is on `main` first ([sparkey-deploy-runbook.md, A manual
+     sync](../sparkey-deploy-runbook.md#a-manual-sync)).
   2. **Wait for the roll** and run the step 2.4 checks: the Application Synced and
      Healthy, one pod Ready, the live `startup_installation_specs` equal to the repo's.
   3. **Then run `Re/load IG Packages`** with `nodes: aucore`, `package_source: config`,
-     **`dry_run: true` first**. Run it live only if the dry run would still uninstall the
-     newer version (an `Uninstalling <id>@<newer>` line followed by `[DRY RUN] Would
-     uninstall package`), which happens while the newer version is still the node's
-     current one. If the newer version shows only under **Extra** in the drift block, a
-     live run would not remove it; leave it as step 2.4 describes. Uninstalling a large
-     package starts the expunge (step 2.3), so restart nothing and install nothing else
-     until it drains.
+     no `issue_number` (a successful live run with one would tell the requester the
+     rollback "deployed successfully" before step 4), **`dry_run: true` first**. Run it
+     live only if the dry run would still uninstall the newer version (an `Uninstalling
+     <id>@<newer>` line followed by `[DRY RUN] Would uninstall package`), which happens
+     while the newer version is still the node's current one. The same dry run should
+     print `<id>@<previous> is already stored, not reinstalling`: the live run then only
+     uninstalls, and installs nothing on top of the expunge it starts. If it would
+     install the previous version instead (`[DRY RUN] Would install`), the rolled pod's
+     startup install did not store it: stop, because a live run would stack that install
+     on the expunge, and read the pod log first. If the newer version shows only under
+     **Extra** in the drift block, a live run would not remove it; leave it as step 2.4
+     describes. Uninstalling a large package starts the expunge (step 2.3), so restart
+     nothing and install nothing else until it drains (pod CPU back to normal, no ingress
+     timeouts, #92).
   4. **Check** versioned `$validate` against the previous version and run the smoke
-     tests (steps 2.3 and 2.4).
+     tests (steps 2.3 and 2.4). For a *Rollback* request, label it `deployed` only then,
+     as step 2.4 does.
 
   This order relies on Smile's startup install being additive (it installs the seeded
   versions and does not uninstall superseded ones) **(unverified)**; the only uninstaller
   in this repository is `sync_node` in `scripts/sync_packages.py`. Reversing it does not
   work: a live uninstall run first starts an expunge, and the seed PR's merge then rolls
   a pod whose startup install stacks on that drain, while any restart between the two
-  reseeds the newer version. Keep a live run with `package_source: custom` and the
-  previous version's JSON for when the roll cannot complete (for example, Argo CD cannot
-  sync `smilecdr`), and then do not merge the revert until the expunge has drained (pod
-  CPU back to normal, no ingress timeouts, #92). The superseded version's
-  StructureDefinitions are likely still present (step 2.3), which makes a rollback fast.
-  A rollback has not been exercised for this runbook **(unverified)**.
+  reseeds the newer version. Keep a live run with `package_source: custom`, the
+  previous version's JSON and no `issue_number` for when the roll cannot complete (for
+  example, Argo CD cannot sync `smilecdr`), and then do not merge the revert until the
+  expunge has drained (pod CPU back to normal, no ingress timeouts, #92). The superseded
+  version's StructureDefinitions are likely still present (step 2.3), which makes a
+  rollback fast. A rollback has not been exercised for this runbook **(unverified)**.
 - **tx.dev:** remove the entry from the `hl7au-dev` feed in Atomio. Ontoserver keeps what
   it has already ingested; removing content from tx.dev is not covered here
   **(unverified)**.

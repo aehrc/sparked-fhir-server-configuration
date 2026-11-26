@@ -217,7 +217,7 @@ stateDiagram-v2
 | `approved` | Approved to proceed; also the gate for the test-data load path | Admin |
 | `ready-for-automation` | Approved specifically for automation; the gate automation watches | Admin |
 | `in-progress` | PR created, work underway, or client being registered | Automation / Admin |
-| `deployed` | Change applied; awaiting requestor verification | Admin (IG release: after the post-merge roll and its checks, [runbook step 2.4](runbooks/ig-release.md#step-2-4)); a manual `Re/load IG Packages` run with `issue_number` also sets it |
+| `deployed` | Change applied; awaiting requestor verification | Admin (IG release: after the post-merge roll and its checks, [runbook step 2.4](runbooks/ig-release.md#step-2-4)); a manual live `Re/load IG Packages` run with `issue_number` also sets it, so the IG release runbook runs it without one |
 | `complete` | Verified and closed | Requestor confirms, Admin closes |
 | `blocked` | Waiting on an external dependency (orthogonal to the states above) | Admin |
 

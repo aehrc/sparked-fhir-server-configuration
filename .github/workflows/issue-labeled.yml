@@ -332,7 +332,7 @@ jobs:
             ### Post-Merge Actions
             After merging this PR:
             1. **The merge deploys it**: outside an event change freeze, Argo CD rolls Smile within about 2 minutes and the new pod installs the packages from its seed config (up to 20 minutes to be ready)
-            2. **After the roll**, an admin runs the step 2.4 checks, including a Re/load IG Packages dry run (read-only, package_source config), runs it live only if that dry run shows drift, and labels issue #${issueNumber} \`deployed\` (docs/runbooks/ig-release.md, step 2.4)
+            2. **After the roll**, an admin runs the step 2.4 checks, including a Re/load IG Packages dry run (read-only, package_source config), runs it live (without issue_number) only if that dry run shows a missing version, and labels issue #${issueNumber} \`deployed\` (docs/runbooks/ig-release.md, step 2.4)
             3. **Requester will be notified** about deployment
             4. **Requester will verify** deployment meets acceptance criteria
             5. **Issue will be closed** once verified

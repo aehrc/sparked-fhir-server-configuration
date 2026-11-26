@@ -477,10 +477,11 @@ Track your request through these stages:
    - The new pod installs the packages from its seed config; do not run `Re/load IG
      Packages` during the roll
    - After the roll, run the step 2.4 checks, including a `Re/load IG Packages` dry run
-     (`package_source: config`), which lists drift both ways; run it live, passing the
-     request's `issue_number`, only if that dry run shows a missing version
-     ([runbook step 2.4](runbooks/ig-release.md#step-2-4))
-   - Then mark the request deployed:
+     (`package_source: config`), which lists drift both ways; run it live, without
+     `issue_number`, only if that dry run shows a missing version
+     ([runbook step 2.4](runbooks/ig-release.md#step-2-4)). With `issue_number`, a
+     successful live run labels the request `deployed` before the checks have run
+   - Then, once the checks pass, mark the request deployed:
      `gh issue edit <N> --add-label deployed --remove-label in-progress`
 
 6. **Monitor and close**
