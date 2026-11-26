@@ -42,4 +42,4 @@ For an app that a user signs in to. Your sandbox comes with a public client and 
      '{{ server.sparked.smart.token }}'
    ```
 
-5. The response carries `access_token`, the `patient` in context and an `id_token`. Check the `id_token` signature against `{{ server.sparked.smart.jwks }}` (see [Known issues](#known-issues) on the `jwks_uri` in SMART discovery).
+5. The response carries `access_token`, the `patient` in context and an `id_token`. Check the `id_token` signature against `{{ server.sparked.smart.jwks }}`.

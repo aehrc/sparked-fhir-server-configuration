@@ -273,11 +273,6 @@ help:
     use_for: A bug in the Sparked FHIR server configuration
 
 known_issues:
-  - id: smart-jwks-redirect
-    title: The jwks_uri in SMART discovery redirects to a sign-in page
-    detail: "`jwks_uri` in `.well-known/smart-configuration` (`/aucore/smartauth/.well-known/jwks.json`) answers 302 to `/aucore/smartauth/signin`, so a client that follows it cannot check id_token signatures."
-    workaround: "Use the `jwks_uri` from the OpenID configuration instead: `https://smile.sparked-fhir.com/aucore/smartauth/jwk`."
-    last_checked: "2026-11-21"
   - id: smartauth-discovery-path
     title: SMART discovery lives under the FHIR base, not under smartauth
     detail: "`/aucore/smartauth/.well-known/smart-configuration` redirects to the sign-in page. Older Sparked handouts gave that address."

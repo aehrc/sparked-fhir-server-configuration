@@ -203,7 +203,7 @@ For an app that a user signs in to. Your sandbox comes with a public client and 
      'https://smile.sparked-fhir.com/aucore/smartauth/oauth/token'
    ```
 
-5. The response carries `access_token`, the `patient` in context and an `id_token`. Check the `id_token` signature against `https://smile.sparked-fhir.com/aucore/smartauth/jwk` (see [Known issues](#known-issues) on the `jwks_uri` in SMART discovery).
+5. The response carries `access_token`, the `patient` in context and an `id_token`. Check the `id_token` signature against `https://smile.sparked-fhir.com/aucore/smartauth/jwk`.
 
 ### Testing your own server in Inferno: bearer token or custom header
 
@@ -226,8 +226,6 @@ The AU Core Test Kit's **FHIR Endpoint** input starts filled in with the HL7 AU 
 
 Each issue below was last checked on the date shown.
 
-- **The jwks_uri in SMART discovery redirects to a sign-in page** (checked Sat 21 Nov 2026). `jwks_uri` in `.well-known/smart-configuration` (`/aucore/smartauth/.well-known/jwks.json`) answers 302 to `/aucore/smartauth/signin`, so a client that follows it cannot check id_token signatures.
-  _What to do:_ Use the `jwks_uri` from the OpenID configuration instead: `https://smile.sparked-fhir.com/aucore/smartauth/jwk`.
 - **SMART discovery lives under the FHIR base, not under smartauth** (checked Sat 21 Nov 2026). `/aucore/smartauth/.well-known/smart-configuration` redirects to the sign-in page. Older Sparked handouts gave that address.
   _What to do:_ Use `<FHIR base>/.well-known/smart-configuration`, for example `https://smile.sparked-fhir.com/aucore/fhir/DEFAULT/.well-known/smart-configuration`.
 - **An unversioned profile resolves to the ballot** (checked Sat 21 Nov 2026). On Sparked, `$validate?profile=http://hl7.org.au/fhir/core/StructureDefinition/au-core-patient` validates against 3.0.0-ballot1.
