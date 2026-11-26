@@ -11,7 +11,7 @@ This repository manages the deployment and configuration of a multi-node Smile C
 - **Automated IG Deployment** - Request and deploy FHIR IGs through GitHub Issues
 - **Multi-Node Configuration** - Deploy to specific SmileCDR nodes (aucore, ereq)
 - **Automatic Validation** - Instant feedback on configuration changes
-- **Flexible Deployment** - Deploy immediately, schedule for later, or wait for restart
+- **Merge to Deploy** - Argo CD syncs `main` automatically, so merging a change deploys it
 - **Complete Audit Trail** - All changes tracked in git with issue references
 
 ## Contents
@@ -127,8 +127,8 @@ sparked-fhir-server-configuration/
 │   └── workflows/               # GitHub Actions automation
 │       ├── issue-opened.yml            # Validates requests on creation
 │       ├── issue-labeled.yml           # Creates PRs automatically
-│       ├── pr-merged.yml               # Handles post-merge deployment
-│       ├── reload-ig-config.yml        # Deploys packages to nodes
+│       ├── pr-merged.yml               # Posts the post-merge deployment notice
+│       ├── reload-ig-config.yml        # Loads packages by hand after the roll; dry run by default
 │       ├── load-test-data.yml          # Load FHIR test data to a node
 │       ├── clear-test-data.yml         # Clear FHIR test data from a node
 │       ├── manage-test-data.yml        # Common test data operations (clear+load, expunge)
@@ -281,13 +281,13 @@ gh run view <run-id> --log
 1. **Monitor new issues** - Review and validate requests
 2. **Approve automation** - Add `ready-for-automation` label when ready
 3. **Review auto-PRs** - Check configuration before merging
-4. **Choose deployment** - Immediate, scheduled, or on-restart
+4. **Merge outside a freeze** - The merge deploys it; after the roll, a Re/load IG Packages dry run checks drift and the issue is labelled `deployed`
 5. **Monitor verification** - Ensure requesters verify deployments
 6. **Close issues** - When verified and complete
 
 ### Common Admin Tasks
 
-**Manually deploy packages:**
+**Manually deploy packages** (only after the roll that follows a merge has finished, never during it; dry run first):
 ```bash
 # Via GitHub Actions
 Actions → "Re/load IG Packages" → Run workflow
@@ -404,7 +404,7 @@ The following GitHub configuration is required for CI/CD workflows:
 - A: Check validation passed first (look for ✅ in validation comment)
 
 **Q: Package deployment fails**
-- A: Check SmileCDR logs, verify package exists in registry, try force_reinstall=true
+- A: Check SmileCDR logs, verify package exists in registry, and only outside an event try force_reinstall=true (it uninstalls first, so it is an install on an expunge)
 
 **Q: Test data load excludes files I need**
 - A: Load Test Data skips the `vendor-demonstrator` and `au-erequesting` folders by default (`au-erequesting` cannot load on `aucore`). Run Manage Test Data with your own `exclude_patterns` to change that.

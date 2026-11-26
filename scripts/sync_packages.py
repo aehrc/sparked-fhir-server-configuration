@@ -25,7 +25,7 @@ import os
 import re
 import sys
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
 
 try:
     import requests
@@ -51,37 +51,65 @@ class SmileCDRPackageSync:
             'Authorization': f'Basic {auth_header}'
         }
 
-    def get_installed_packages(self, node_name: str) -> List[Dict]:
-        """Get list of currently installed packages from a node"""
+    def search_packages(self, node_name: str) -> Tuple[Optional[List[Dict]], Optional[str]]:
+        """Read the node's npm search index without printing.
+
+        Returns (packages, note). packages is None when the lookup failed (a
+        request error, a body that is not JSON, or JSON that is not the npm
+        search shape), so a caller can tell a failure from an empty registry.
+        note is None when the response shows the list is complete, otherwise
+        it says why the list may be incomplete. The npm search format pages
+        with `from` and `size` query parameters rather than links, and whether
+        Smile pages this endpoint at all has not been checked, so the script
+        does not page; it compares the response's `total` with what came back.
+        """
+        url = f"{self.base_url}/{node_name}/package/npm/-/v1/search"
+        try:
+            response = requests.get(url, headers=self.headers, timeout=30)
+            response.raise_for_status()
+            data = response.json()
+        except (requests.exceptions.RequestException, ValueError) as e:
+            return None, f"search lookup failed: {e}"
+
+        objects = data.get('objects') if isinstance(data, dict) else None
+        if not isinstance(objects, list):
+            return None, "search lookup failed: the response has no `objects` list"
+
+        packages = []
+        for obj in objects:
+            package = obj.get('package') if isinstance(obj, dict) else None
+            name = package.get('name') if isinstance(package, dict) else None
+            version = package.get('version') if isinstance(package, dict) else None
+            if not isinstance(name, str) or not isinstance(version, str):
+                return None, "search lookup failed: an entry has no package name and version"
+            packages.append({'name': name, 'version': version})
+
+        total = data.get('total')
+        if isinstance(total, int) and not isinstance(total, bool):
+            if total > len(packages):
+                return packages, f"possibly incomplete: the search returned {len(packages)} of {total}"
+            return packages, None
+        return packages, "possibly incomplete: the search response has no `total` to check against"
+
+    def get_installed_packages(self, node_name: str) -> Tuple[Optional[List[Dict]], Optional[str]]:
+        """Get the packages the node's search index lists (None if the lookup failed)"""
         url = f"{self.base_url}/{node_name}/package/npm/-/v1/search"
 
         print(f"\n📦 Fetching installed packages from {node_name}...")
         print(f"   URL: {url}")
 
-        try:
-            response = requests.get(url, headers=self.headers, timeout=30)
-            response.raise_for_status()
+        installed, note = self.search_packages(node_name)
+        if installed is None:
+            print(f"   ❌ {note}")
+            return None, note
 
-            data = response.json()
+        print(f"   Found {len(installed)} installed packages")
+        if note:
+            print(f"   ⚠️  The list is {note}")
+        for pkg in installed:
+            print(f"     - {pkg['name']}@{pkg['version']}")
 
-            installed = []
-            if 'objects' in data:
-                for obj in data['objects']:
-                    package = obj.get('package', {})
-                    installed.append({
-                        'name': package.get('name'),
-                        'version': package.get('version')
-                    })
-
-            print(f"   Found {len(installed)} installed packages")
-            for pkg in installed:
-                print(f"     - {pkg['name']}@{pkg['version']}")
-
-            return installed
-
-        except requests.exceptions.RequestException as e:
-            print(f"   ❌ Error fetching packages: {e}")
-            return []
+        return installed, note
 
     def uninstall_package(self, node_name: str, package_name: str, package_version: str) -> bool:
         """Uninstall a package from a node"""
@@ -106,21 +134,33 @@ class SmileCDRPackageSync:
             # Continue anyway - package might not be installed
             return False
 
-    def get_installed_versions(self, node_name: str, package_name: str) -> List[str]:
-        """Return every version of one package id stored on a node.
+    def get_installed_versions(self, node_name: str, package_name: str) -> Optional[List[str]]:
+        """Return every version of one package id stored on a node, or None if the lookup failed.
 
         Reads the npm packument rather than the search index. `/-/v1/search`
         reports a single object per package id, so it cannot see a version that
         is stored but not current, whereas SmileCDR keys the registry on
         (package id, version) and holds several versions at once.
+
+        A 404 is read as "no version stored", as the npm registry API defines
+        it; that Smile answers an unknown package id with 404 has not been
+        checked. Any other error, a body that is not JSON, or JSON whose
+        `versions` is not an object returns None, never an empty list, so a
+        caller does not mistake a failed lookup for an empty registry.
         """
         url = f"{self.base_url}/{node_name}/package/npm/{package_name}"
         try:
             response = requests.get(url, headers=self.headers, timeout=30)
+            if response.status_code == 404:
+                return []
             response.raise_for_status()
-            return sorted((response.json().get('versions') or {}).keys())
+            data = response.json()
         except (requests.exceptions.RequestException, ValueError):
-            return []
+            return None
+        versions = data.get('versions') if isinstance(data, dict) else None
+        if not isinstance(versions, dict):
+            return None
+        return sorted(versions.keys())
 
     def is_package_installed(self, node_name: str, package_name: str, package_version: str) -> bool:
         """Return True if a specific package@version is registered on a node.
@@ -137,17 +177,9 @@ class SmileCDRPackageSync:
             print(f"      Registry holds {package_name}: {', '.join(versions)}")
             return package_version in versions
 
-        url = f"{self.base_url}/{node_name}/package/npm/-/v1/search"
-        try:
-            response = requests.get(url, headers=self.headers, timeout=30)
-            response.raise_for_status()
-            for obj in response.json().get('objects', []):
-                pkg = obj.get('package', {})
-                if pkg.get('name') == package_name and pkg.get('version') == package_version:
-                    return True
-        except requests.exceptions.RequestException:
-            pass
-        return False
+        installed, _ = self.search_packages(node_name)
+        return any(pkg['name'] == package_name and pkg['version'] == package_version
+                   for pkg in installed or [])
 
     def install_package(self, node_name: str, package: Dict) -> bool:
         """Install a package on a node"""
@@ -200,7 +232,92 @@ class SmileCDRPackageSync:
                 print(f"      Response: {response_text}")
             return False
 
-    def sync_node(self, node_name: str, desired_packages: List[Dict], force_reinstall: bool = False, skip_uninstall: bool = False) -> bool:
+    def report_drift(self, node_name: str, desired_packages: List[Dict],
+                     installed_packages: Optional[List[Dict]], search_note: Optional[str],
+                     report_unlisted: bool) -> Dict[str, Optional[List[str]]]:
+        """Print how the node's registry differs from the desired packages, both ways.
+
+        Read-only (GET requests only, one packument per desired package id), so
+        a dry run prints it too. For each desired package id it lists the
+        desired version when the node lacks it (missing) and every other stored
+        version (extra). The extras matter after an Argo CD roll: the seed
+        install adds the new version but is not known to remove the superseded
+        one, and the install loop below removes an extra only when the search
+        index shows it as current and skip_uninstall is off. With
+        report_unlisted (the whole seed config is the source), package ids
+        stored on the node that the source does not list are printed as well;
+        Smile fetches some of them as dependencies.
+
+        A failed lookup is never reported as "none": an id whose packument
+        lookup failed is named, with what could and could not be checked, and
+        the block then does not say "No drift". Returns the stored versions per
+        desired package id (None where the packument lookup failed) for the
+        install loop.
+        """
+        desired_versions: Dict[str, List[str]] = {}
+        for pkg in desired_packages:
+            desired_versions.setdefault(pkg['name'], []).append(pkg['version'])
+
+        stored_map: Dict[str, Optional[List[str]]] = {}
+        missing = []
+        extra = []
+        fell_back = []
+        unknown = []
+        for name, versions in desired_versions.items():
+            stored = self.get_installed_versions(node_name, name)
+            current = [p['version'] for p in installed_packages or [] if p['name'] == name]
+            if stored == [] and current:
+                # A 404 for an id the search index lists is not a believable
+                # "nothing stored", so treat it as a failed lookup.
+                stored = None
+            stored_map[name] = stored
+            if stored is None:
+                if installed_packages is None:
+                    unknown.append(name)
+                    continue
+                # The search index shows only the current version of each
+                # package id, so a stored non-current version reads as missing
+                # and no extra version is visible.
+                fell_back.append(name)
+                stored = current
+            missing += [f"{name}@{v}" for v in versions if v not in stored]
+            extra += [f"{name}@{v}" for v in stored if v not in versions]
+
+        print(f"\n🔎 Drift on {node_name} against the desired packages (before any change):")
+        print(f"   Missing (desired version not stored): {', '.join(missing) if missing else 'none'}")
+        print(f"   Extra (other version of a desired package still stored): {', '.join(extra) if extra else 'none'}")
+        if fell_back:
+            print(f"   ⚠️  Packument lookup failed, checked against the search index instead "
+                  f"(current version only: Extra is not visible, and a stored non-current version "
+                  f"reads as Missing): {', '.join(fell_back)}")
+        if unknown:
+            print(f"   ⚠️  Packument and search lookups both failed, Missing and Extra unknown: "
+                  f"{', '.join(unknown)}")
+
+        unlisted = []
+        if report_unlisted:
+            label = "   Not in the source (stored, package id not listed):"
+            if installed_packages is None:
+                print(f"{label} unknown ({search_note})")
+            else:
+                unlisted = sorted({f"{p['name']}@{p['version']}" for p in installed_packages
+                                   if p['name'] not in desired_versions})
+                listed = ', '.join(unlisted) if unlisted else 'none'
+                print(f"{label} {listed}{f' ({search_note})' if search_note else ''}")
+
+        lookups_failed = bool(fell_back or unknown) or (report_unlisted and installed_packages is None)
+        if lookups_failed:
+            print("   ⚠️  Drift not fully known: a lookup failed (see above), so this is not a clean result")
+        elif not (missing or extra or unlisted):
+            if report_unlisted and search_note:
+                print("   No drift found, but the list of stored package ids may be incomplete (see above)")
+            else:
+                print("   No drift")
+
+        return stored_map
+
+    def sync_node(self, node_name: str, desired_packages: List[Dict], force_reinstall: bool = False,
+                  skip_uninstall: bool = False, report_unlisted: bool = False) -> bool:
         """Sync packages for a single node"""
         print(f"\n{'=' * 80}")
         print(f"Processing node: {node_name}")
@@ -215,7 +332,21 @@ class SmileCDRPackageSync:
             print(f"  - {pkg['name']}@{pkg['version']}")
 
         # Get currently installed packages
-        installed_packages = self.get_installed_packages(node_name)
+        installed_packages, search_note = self.get_installed_packages(node_name)
+
+        stored_map = self.report_drift(node_name, desired_packages, installed_packages, search_note,
+                                       report_unlisted)
+
+        if installed_packages is None:
+            if not self.dry_run:
+                # Without the search index the script cannot tell which version
+                # is current, so it would install every package on top of what
+                # is stored. Change nothing instead.
+                print(f"\n❌ The search lookup failed, so the installed state of {node_name} is unknown; "
+                      f"making no change on this node")
+                return False
+            print(f"\n⚠️  The search lookup failed; the plan below treats every package as not current")
+            installed_packages = []
 
         # Create lookup map of installed packages
         installed_map = {
@@ -234,13 +365,33 @@ class SmileCDRPackageSync:
             print(f"\n--- Processing {package_key} ---")
 
             is_installed = package_key in installed_map
+            stored_versions = stored_map.get(package['name'])
+            # Stored but not current: after a rollback revert the previous
+            # version is still in the registry while the newer one is current.
+            already_stored = (not is_installed and stored_versions is not None
+                              and package['version'] in stored_versions)
 
             if is_installed and not force_reinstall:
                 print(f"   ✓ Already installed, skipping")
                 continue
 
-            # Uninstall if exists (for force reinstall or version update)
-            if is_installed and not skip_uninstall:
+            # Without the packument the script cannot tell whether the desired
+            # version is already stored, so any uninstall below could be
+            # followed by an install on its expunge. Write nothing for this id.
+            if stored_versions is None:
+                if self.dry_run:
+                    print(f"   ⚠️  The packument lookup for {package['name']} failed; a live run makes "
+                          f"no change for it and fails")
+                    continue
+                print(f"   ❌ The packument lookup for {package['name']} failed, so the script cannot tell "
+                      f"whether {package['version']} is already stored; making no change for it")
+                failed_operations.append(f"Packument lookup for {package['name']} on {node_name}")
+                continue
+
+            # Uninstall if exists (force reinstall only: a current version
+            # without it was skipped above). A force reinstall is therefore an
+            # install on the expunge this uninstall starts (#92).
+            if force_reinstall and (is_installed or already_stored) and not skip_uninstall:
                 success = self.uninstall_package(node_name, package['name'], package['version'])
                 if not success and not self.dry_run:
                     print(f"   ⚠️  Uninstall failed, but will try to reinstall anyway")
@@ -256,6 +407,14 @@ class SmileCDRPackageSync:
                             print(f"   ⚠️  Uninstall failed, but will try to reinstall anyway")
                             # Don't add to failed_operations - continue with install
 
+            # A version already in the registry is not installed again: a PUT
+            # would stack an install on the expunge that the uninstall above
+            # just started (#92), and if it timed out at the ingress it would
+            # read as a success only because the version was there before.
+            if already_stored and not force_reinstall:
+                print(f"   ✓ {package_key} is already stored, not reinstalling")
+                continue
+
             # Install the package
             success = self.install_package(node_name, package)
             if not success and not self.dry_run:
@@ -267,7 +426,10 @@ class SmileCDRPackageSync:
             print(f"\n📋 Registry state for the packages just processed:")
             for name in dict.fromkeys(p['name'] for p in desired_packages):
                 versions = self.get_installed_versions(node_name, name)
-                print(f"   {name}: {', '.join(versions) if versions else '(none)'}")
+                if versions is None:
+                    print(f"   {name}: (lookup failed)")
+                else:
+                    print(f"   {name}: {', '.join(versions) if versions else '(none)'}")
 
         print(f"\n{'=' * 80}")
         print(f"Completed processing node: {node_name}")
@@ -482,7 +644,10 @@ def main():
             desired_packages = all_packages
 
         # Sync the node
-        success = syncer.sync_node(node_name, desired_packages, args.force_reinstall, args.skip_uninstall)
+        # Only the seed config is a node's whole desired list, so only then is
+        # a stored package id it does not list worth reporting.
+        success = syncer.sync_node(node_name, desired_packages, args.force_reinstall, args.skip_uninstall,
+                                   report_unlisted=args.source == 'config')
         if not success:
             all_success = False
 

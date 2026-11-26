@@ -5,7 +5,17 @@
 # Do NOT rename these trigger labels - the issue automation matches them as exact
 # strings and renaming would silently break it:
 #   ig-release, tx-content, configuration, operations, smart-client,
-#   ready-for-automation, approved, auto-pr-created, deploy-immediately
+#   ready-for-automation, approved, auto-pr-created
+#
+# Retiring a label: delete its entry here and in scripts/setup-labels.sh, and record it
+# below. The sync never deletes, so a retired label stays on GitHub until someone removes
+# it by hand (gh label delete <name>) once no open issue or PR still carries it.
+#
+# Retired labels:
+#   deploy-immediately (2026-11-27): no automation reads it. Merging an IG release PR is
+#   the deploy since the Argo CD Application smilecdr syncs main automatically
+#   (2026-11-26), and dispatching Re/load IG Packages at the merge stacked a second
+#   install on the new pod's seed install (docs/runbooks/ig-release.md, step 2.3).
 
 # Request Types
 - name: "ig-release"
@@ -121,10 +131,6 @@
 - name: "needs-manual-intervention"
   color: "d93f0b"
   description: "Automation failed, requires manual implementation"
-
-- name: "deploy-immediately"
-  color: "d93f0b"
-  description: "Request immediate deployment after PR merge"
 
 # SMART Client Registration Labels
 - name: "smart-client"
