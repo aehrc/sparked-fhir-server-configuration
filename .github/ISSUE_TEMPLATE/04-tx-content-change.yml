@@ -11,7 +11,7 @@ body:
         ## Terminology Server Content Change Request
         Use this template to request changes to the IG packages loaded on the Sparked terminology servers.
 
-        > **No feeder syncs tx.dev any more.** The tx-dev feeder was decommissioned on 2026-09-29, and none is deployed for tx.hl7. A merged change to the terminology helm values no longer reaches tx.dev by itself: each IG version must be added by hand as an entry in the `hl7au-dev` Atomio feed, as described in [IG release runbook step 1.1](https://github.com/aehrc/sparked-fhir-server-configuration/blob/main/docs/runbooks/ig-release.md#step-1-1).
+        > **No feeder syncs tx.dev any more.** The tx-dev feeder was decommissioned on 2026-09-29, and none is deployed for tx.hl7. A merged change to the terminology helm values no longer reaches tx.dev by itself: each IG version must be added by hand as an entry in the `hl7au-dev` Atomio feed, as described in [IG release runbook step 1.1](https://github.com/aehrc/sparked-fhir-server-configuration/blob/main/docs/runbooks/ig-release.md#step-1-1). tx.hl7 is HL7-hosted: a tx.hl7 change is handed to its owners ([runbook step 7.2](https://github.com/aehrc/sparked-fhir-server-configuration/blob/main/docs/runbooks/ig-release.md#step-7-2)).
 
         **Examples**: Add a new IG package watch, remove a package, change version mode or status filters.
 
@@ -170,5 +170,5 @@ body:
         1. **Automated validation** will check your request (within 1 minute for requesters with triage access to this repository, otherwise once a maintainer has triaged it)
         2. **Repo admins will review** and approve the request
         3. **Automated PR will be created** modifying the terminology server helm values
-        4. **After PR merge**, a maintainer adds the matching entry to the Atomio feed by hand ([runbook step 1.1](https://github.com/aehrc/sparked-fhir-server-configuration/blob/main/docs/runbooks/ig-release.md#step-1-1)); no feeder syncs it
+        4. **After PR merge**, nothing changes live by itself. For tx.dev, a maintainer adds the matching entry to the `hl7au-dev` Atomio feed by hand ([runbook step 1.1](https://github.com/aehrc/sparked-fhir-server-configuration/blob/main/docs/runbooks/ig-release.md#step-1-1)); for tx.hl7, the change is handed to its HL7 AU owners ([runbook step 7.2](https://github.com/aehrc/sparked-fhir-server-configuration/blob/main/docs/runbooks/ig-release.md#step-7-2))
         5. **You'll be notified** when the change is deployed
