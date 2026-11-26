@@ -19,6 +19,12 @@ This repository uses GitHub Actions workflows to automate FHIR Implementation Gu
 
 ## IG Release Workflow
 
+> This section covers one target: installing a package on the Sparked Dev FHIR Server.
+> A published IG version also has to reach tx.dev, the test data and the Inferno test
+> kits and platform. The end-to-end procedure, its ordering constraints and a
+> per-release tracking issue are in
+> **[runbooks/ig-release.md](runbooks/ig-release.md)** (maintainers).
+
 ### Quick Start (Requestors)
 
 **Goal:** Deploy a FHIR Implementation Guide to SmileCDR nodes
@@ -33,9 +39,8 @@ This repository uses GitHub Actions workflows to automate FHIR Implementation Gu
    - **IG Name**: e.g., "International Patient Summary"
    - **IG Version**: e.g., "2.0.0"
    - **NPM Package ID**: e.g., "hl7.fhir.uv.ips" (optional - can be auto-generated)
-   - **Target Nodes**: Check which servers need this IG:
-     - ☑ aucore (AU Core FHIR Server)
-     - ☐ ereq (eRequesting Server)
+   - **Target Nodes**: `aucore` (AU Core FHIR Server), the only node since the `ereq`
+     and `hl7au` nodes were decommissioned on 2026-08-02
    - **Deployment Preferences**:
      - ☐ Request immediate deployment after change is approved and merged
    - **Business Justification**: Why you need this
@@ -138,6 +143,12 @@ Changes apply automatically on next restart (zero risk, may take hours/days)
 A repo admin will decide when to deploy based on urgency.
 ```
 
+Option B in that comment is wrong, and the bot still posts it: there is no scheduled
+restart, and a pod restart on its own does not pick up merged changes. A merged change
+reaches the server on the next deploy, which today is a local Terraform apply run by a
+repo admin ([runbook step 2.4](runbooks/ig-release.md#smile-argo-move), which also says
+what replaces it). Open #126 corrects the text `pr-merged.yml` posts.
+
 #### Step 7: Verification
 
 After deployment, you'll receive:
@@ -170,9 +181,43 @@ A repo admin will close the issue once confirmed.
 
 ### Notes: version bumps, custom package URLs, and batching
 
-- **Version bumps replace in place.** When the request is an *Update*, the automation matches the existing package by its FHIR package **id** (not the filename) and swaps the version in `startup_installation_specs` in place, reusing the existing filename stem (e.g. `package-aucore-2.0.0.json` → `package-aucore-2.1.0-draft.json`). If the old package file ends up referenced by no node, it is deleted and its `values-common.yaml` / `terraform/main.tf` entries are removed automatically. A file still used by another node (e.g. IPS retained on `ereq`) is kept. Install order is preserved; packages are never re-sorted.
+- **Version bumps replace in place.** When the request is an *Update*, the automation matches the existing package by its FHIR package **id** (not the filename) and swaps the version in `startup_installation_specs` in place, reusing the existing filename stem (e.g. `package-aucore-2.0.0.json` → `package-aucore-2.1.0-draft.json`). If the old package file ends up referenced by no node, it is deleted and its `values-common.yaml` / `terraform/main.tf` entries are removed automatically. A file still used by another node is kept (`aucore` is the only node today). Install order is preserved; packages are never re-sorted.
 - **Custom Package URL.** Most IGs, including `-draft`/`-preview` versions, resolve from `packages.fhir.org` and need nothing extra. Use the template's **Custom Package URL** field only when a package is not on the registry or when a specific publication build must override a stale registry copy. (Tip: check existence with a GET, since `packages.fhir.org` returns 404 to `HEAD` requests.)
 - **Batch related bumps into one issue/PR.** Separate IG issues each produce their own PR editing the same three files (`simplified-multinode.yaml`, `values-common.yaml`, `terraform/main.tf`), so two open at once will conflict on merge. For a coordinated set (e.g. AU Base + AU Core + IPS for a testing event), request them together or merge them one at a time, rebasing in between.
+
+### Gotchas that have bitten IG releases
+
+Each of these has happened on a real release. The runbook's
+[gotchas reference](runbooks/ig-release.md#8-gotchas-reference) covers the Inferno side as
+well, with the step each one bites in.
+
+- **Tick "install automatically".** The box is unticked by default, and unticked writes
+  `STORE_ONLY`: the package is stored but its conformance resources are not installed, so
+  profile validation against the new version quietly stops (#84, #86).
+  `scripts/apply_ig_release.py` also defaults to `STORE_ONLY`.
+- **"Fetch dependencies" fetches nothing** once any version of a dependency is present, so
+  it never upgrades one. Add a missing dependency version as its own pinned package, ahead
+  of the IG (#86, #91, #92).
+- **Superseded StructureDefinitions stay active** after a version bump. A version-less
+  canonical can resolve to the old version, so verify with `profile=<url>|<version>` (#45).
+- **Replacing a large package triggers a long expunge**: pod CPU near 1 core and
+  intermittent 15 s ingress timeouts for several minutes. It recovers without a restart;
+  do not stack another install on top (#92).
+- **A live install is not persistent** until the next deploy (a local Terraform apply on
+  `main` today) updates the seeded `startup_installation_specs`; a restart before that
+  reseeds the old versions. The apply inputs come from Secrets Manager
+  ([smile-deploy-inputs.md](smile-deploy-inputs.md)); see
+  [runbook step 2.4](runbooks/ig-release.md#step-2-4), which also covers the coming move
+  to an Argo CD sync.
+- **Not during an event freeze.** No IG load, reload or apply while an event manifest's
+  `freeze` window is open ([runbook constraint 9](runbooks/ig-release.md#4-ordering-constraints)).
+  That includes merging a `deploy-immediately` PR, which installs on merge with no dry
+  run ([runbook step 2.3](runbooks/ig-release.md#step-2-3)).
+- **Nothing feeds tx.dev automatically.** The tx-dev fhir-ig-feeder was decommissioned
+  on 2026-09-29 (`aehrc/sparked-argo` #285), so every IG version, not only AU PS, reaches
+  tx.dev only once someone adds it to the `hl7au-dev` Atomio feed by hand
+  ([runbook step 1.1](runbooks/ig-release.md#step-1-1)). Editing
+  `terminology-servers/tx-dev-helm-values.yaml` no longer changes anything.
 
 ---
 
@@ -440,6 +485,9 @@ Track your request through these stages:
 6. **Monitor and close**
    - Watch for requester verification
    - Close issue when confirmed working
+   - Tick the matching boxes on the IG version's
+     [tracking issue](runbooks/ig-release.md#step-0-2), which carries the release on to
+     test data and Inferno
 
 ### Processing Test Data Requests
 
