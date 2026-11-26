@@ -139,6 +139,10 @@ Live check after a sync that changes `smart-post-authorize.js`, from the
 CSIRO VPN against a test sandbox, before either sandbox launch flag is
 switched on:
 
+- On one non-sandbox client and user (such clients remember approvals): an
+  EHR launch asking for `launch launch/patient` first, then one asking for
+  `launch` alone; both tokens carry `patient`. This catches the claim rule
+  reading remembered approvals when the request's `scope` is unreadable.
 - An EHR launch asking for `launch` alone still returns `patient` in the
   token response and in the access token.
 - An EHR launch asking for `launch launch/patient` returns 200 and a token

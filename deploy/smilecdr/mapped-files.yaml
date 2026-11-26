@@ -371,7 +371,8 @@ mappedFiles:
        * take a person back. Each person's associatedPatientContextResourceId is set
        * before its names, so a failure while adding leaves the persons completed so
        * far (each with its patient id and names) plus at most one further person:
-       * with its patient id but a missing name when a name write fails, or with no
+       * with its patient id but no names when a name write fails (givenName is
+       * written first, so its failure leaves both names unset), or with no
        * properties at all when addPerson succeeds and the patient id write itself
        * fails. What the selection screen does with such a partial list is not
        * measured.
