@@ -534,6 +534,69 @@ check('an empty approved scope set adds nothing', p.persons.length, 0);
   check('an exception on the last context adds no person at all', [p.error, p.persons.length], [null, 0]);
 }
 
+// A failure while adding: Smile CDR has no call to take a person back, so the
+// patient id is written before the names and no complete-looking person can
+// lack it. Each case lists exactly what is left behind.
+
+/** Choices whose addPerson builds each person with makePerson(n). */
+function failingChoices(makePerson) {
+  const persons = [];
+  let n = 0;
+  return {
+    persons,
+    choices: {
+      addPerson: () => {
+        const person = makePerson(n++);
+        persons.push(person);
+        return person;
+      },
+    },
+  };
+}
+
+function pickWith(makePerson) {
+  const loaded = load();
+  const c = failingChoices(makePerson);
+  let error = null;
+  try {
+    loaded.context.onSmartLoginPreContextSelection(pickerSession({}), c.choices);
+  } catch (e) {
+    error = String(e);
+  }
+  return { error, persons: c.persons, logs: loaded.logs };
+}
+
+function throwingOn(property) {
+  const person = {};
+  Object.defineProperty(person, property, {
+    set: () => { throw new Error('no such property ' + property); },
+    enumerable: true,
+  });
+  return person;
+}
+
+p = pickWith((n) => { if (n === 1) { throw new Error('boom'); } return {}; });
+check('addPerson throwing on the second person leaves only the first, complete',
+  [p.error, p.persons], [null, [{ associatedPatientContextResourceId: 'pat-a', givenName: 'Patient', familyName: 'pat-a' }]]);
+checkLog('addPerson throwing is logged as a warning', p.logs, 'Sandbox patient picker skipped', true);
+
+for (const property of ['givenName', 'familyName']) {
+  p = pickWith(() => throwingOn(property));
+  check(`a ${property} write that throws leaves no person without a patient id`,
+    [p.error, p.persons.length, p.persons.every((x) => x.associatedPatientContextResourceId === 'pat-a')],
+    [null, 1, true]);
+}
+
+p = pickWith((n) => (n === 1 ? throwingOn('givenName') : {}));
+check('a name write throwing on the second person leaves two persons, each with its patient id',
+  [p.error, p.persons.map((x) => x.associatedPatientContextResourceId)], [null, ['pat-a', 'pat-b']]);
+
+p = pickWith((n) => (n === 1 ? throwingOn('associatedPatientContextResourceId') : {}));
+check('a patient id write throwing on the second person leaves the first complete and the second empty',
+  [p.error, p.persons.length, p.persons[0].associatedPatientContextResourceId,
+    Object.keys(p.persons[1]).filter((k) => p.persons[1][k] !== undefined)],
+  [null, 2, 'pat-a', []]);
+
 {
   const loaded = load();
   let error = null;

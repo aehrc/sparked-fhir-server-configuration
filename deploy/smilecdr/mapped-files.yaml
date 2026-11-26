@@ -364,9 +364,17 @@ mappedFiles:
        * the sandbox's own partition). It offers nothing else and never changes
        * authorities or scopes, so every other client on aucore is untouched.
        *
-       * Fail-open: any error is logged and swallowed, and persons are added only
-       * after the whole list is built, so a failure while reading the session adds
-       * no person and the login continues as it would without this function.
+       * Fail-open: any error is logged and swallowed, and the login continues.
+       * Persons are added only after the whole list is built, so a failure while
+       * reading the session adds no person and the login continues as it would
+       * without this function. Adding is not atomic: Smile CDR offers no call to
+       * take a person back. Each person's associatedPatientContextResourceId is set
+       * before its names, so a failure while adding leaves the persons completed so
+       * far (each with its patient id and names) plus at most one further person:
+       * with its patient id but a missing name when a name write fails, or with no
+       * properties at all when addPerson succeeds and the patient id write itself
+       * fails. What the selection screen does with such a partial list is not
+       * measured.
        */
       function onSmartLoginPreContextSelection(theUserSession, theContextSelectionChoices) {
           try {
@@ -441,9 +449,10 @@ mappedFiles:
 
               for (var j = 0; j < choices.length; j++) {
                   var person = theContextSelectionChoices.addPerson();
+                  // Patient id first: see "Fail-open" above.
+                  person.associatedPatientContextResourceId = choices[j];
                   person.givenName = "Patient";
                   person.familyName = choices[j];
-                  person.associatedPatientContextResourceId = choices[j];
               }
           } catch (e) {
               try {
