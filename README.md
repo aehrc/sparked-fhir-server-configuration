@@ -403,7 +403,7 @@ The following GitHub configuration is required for CI/CD workflows:
 - A: Check SmileCDR logs, verify package exists in registry, try force_reinstall=true
 
 **Q: Test data load excludes files I need**
-- A: Ensure files are not in `vendor-demonstrator` folder
+- A: Load Test Data skips the `vendor-demonstrator` and `au-erequesting` folders by default (`au-erequesting` cannot load on `aucore`). Run Manage Test Data with your own `exclude_patterns` to change that.
 
 👉 **[See Complete Troubleshooting Guide](docs/WORKFLOWS.md#troubleshooting)**
 

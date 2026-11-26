@@ -230,6 +230,7 @@ jobs:
           DATA_SOURCE: ${{ steps.inputs.outputs.data_source }}
           UPLOAD_MODE: ${{ steps.inputs.outputs.upload_mode }}
           DRY_RUN: ${{ steps.inputs.outputs.dry_run }}
+          EXCLUDE_PATTERNS: ${{ steps.inputs.outputs.exclude_patterns }}
         with:
           script: |
             const issueNumber = parseInt(process.env.ISSUE_NUMBER, 10);
@@ -245,6 +246,7 @@ jobs:
             - Target: \`${process.env.FHIR_URL}\`
             - Data Source: \`${process.env.DATA_SOURCE}\`
             - Upload Mode: \`${process.env.UPLOAD_MODE}\`
+            - Excluded folders: \`${process.env.EXCLUDE_PATTERNS || 'none'}\`
             - Dry Run: \`${process.env.DRY_RUN}\`
             - Workflow Run: [View Progress](${runUrl})
 
