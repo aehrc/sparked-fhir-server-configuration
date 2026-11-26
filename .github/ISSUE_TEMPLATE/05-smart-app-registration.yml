@@ -15,7 +15,7 @@ body:
         - **SMART App Launch**: For interactive apps (EHR launch, standalone launch). Public client with PKCE, no secret required.
         - **Backend Service**: For system-to-system integration (no user interaction). Confidential client with auto-generated secret.
 
-        **Coming to the HL7 Australia WGM and Melbourne FHIR Connectathon (8 to 10 December 2026)?** Read the [participant guide](https://github.com/aehrc/sparked-fhir-server-configuration/blob/main/docs/participants/2026-12-melbourne.md) first. If the event sandboxes go ahead, each one comes with its own writable FHIR base, clients and login user, with no need for this form.
+        **Coming to the HL7 Australia WGM and Melbourne FHIR Connectathon (8 to 10 December 2026)?** Read the [participant guide](https://github.com/aehrc/sparked-fhir-server-configuration/blob/main/docs/participants/2026-12-melbourne.md) first. Each event sandbox (the guide gives their status) comes with its own writable FHIR base, clients and login user, with no need for this form.
 
   - type: input
     id: client-id
