@@ -133,47 +133,6 @@ mappedFiles:
       // pushing this script to each node, so keep the URL on a single line.
       var DEFAULT_AUDIENCE_BASE = "https://smile.sparked-fhir.com/aucore/fhir/DEFAULT";
 
-      /**
-       * Flatten a scope source into an array of scope strings, or null when it
-       * cannot be read. Accepts a space-separated string, a JS array, or a Java
-       * collection (List or Set, read by index or through its iterator).
-       */
-      function scopeList(theScopes) {
-          if (theScopes === null || theScopes === undefined) {
-              return null;
-          }
-          var items = [];
-          if (typeof theScopes === "string") {
-              items = [theScopes];
-          } else if (Array.isArray(theScopes)) {
-              items = theScopes;
-          } else if (typeof theScopes.iterator === "function") {
-              var it = theScopes.iterator();
-              while (it.hasNext()) {
-                  items.push(it.next());
-              }
-          } else if (typeof theScopes.size === "function" && typeof theScopes.get === "function") {
-              for (var i = 0; i < theScopes.size(); i++) {
-                  items.push(theScopes.get(i));
-              }
-          } else {
-              return null;
-          }
-          var out = [];
-          for (var j = 0; j < items.length; j++) {
-              if (items[j] === null || items[j] === undefined) {
-                  continue;
-              }
-              var parts = String(items[j]).split(/\s+/);
-              for (var k = 0; k < parts.length; k++) {
-                  if (parts[k]) {
-                      out.push(parts[k]);
-                  }
-              }
-          }
-          return out;
-      }
-
       /** Read a bean property, trying the property form first and then its getter. */
       function beanProperty(theObject, theName, theGetter) {
           var value = theObject[theName];
@@ -183,30 +142,77 @@ mappedFiles:
           return value;
       }
 
-      /** The user's approved scopes as an array, or null when they cannot be read. */
-      function approvedScopesOf(theUserSession) {
+      /**
+       * The ways to reach the user's approved scopes, in the order they are tried.
+       * Smile CDR hands the script Java objects: on its GraalJS engine the approved
+       * scopes are a java.util.Set<String> (UserSessionDetailsJson.getApprovedScopes(),
+       * never null), which has none of the JS array methods (indexOf, includes,
+       * length), so it is only ever asked through its own Java methods.
+       */
+      var APPROVED_SCOPE_READS = [
+          { name: "getApprovedScopes()", read: function (theUserSession) { return theUserSession.getApprovedScopes(); } },
+          { name: "approvedScopes", read: function (theUserSession) { return theUserSession.approvedScopes; } }
+      ];
+
+      /** Whether a Java collection reports size() 0; false when that cannot be read. */
+      function isEmptySet(theSet) {
           try {
-              var scopes = scopeList(beanProperty(theUserSession, "approvedScopes", "getApprovedScopes"));
-              // An empty set is treated as unreadable: an approved login always has
-              // at least one scope, so empty means "not populated at this point".
-              return scopes && scopes.length > 0 ? scopes : null;
+              return Number(theSet.size()) === 0;
+          } catch (e) {
+              return false;
+          }
+      }
+
+      /**
+       * Whether theScope is among the user's approved scopes: true or false, or null
+       * (unknown) when no read works. Each read is tried on its own, so one failing
+       * does not hide the other; a read counts only when contains() answers with a
+       * boolean. An empty set counts as unknown, as before: an approved login always
+       * has at least one scope, so empty means "not populated at this point".
+       */
+      function granted(theUserSession, theScope) {
+          for (var i = 0; i < APPROVED_SCOPE_READS.length; i++) {
+              try {
+                  var scopes = APPROVED_SCOPE_READS[i].read(theUserSession);
+                  var answer = scopes.contains(theScope);
+                  if (typeof answer === "boolean") {
+                      return answer || !isEmptySet(scopes) ? answer : null;
+                  }
+              } catch (e) {
+                  // Try the next read.
+              }
+          }
+          return null;
+      }
+
+      /**
+       * The whitelisted "scope" parameter of the original /authorize request (what
+       * the app asked for, not what was granted) as a string, or null when it is
+       * absent or cannot be read. getRequestParameters() is a Java Map<String,String>.
+       */
+      function requestedScopeString(theAuthorizationRequestDetails) {
+          try {
+              var value = theAuthorizationRequestDetails.getRequestParameters().get("scope");
+              return value === null || value === undefined ? null : String(value);
           } catch (e) {
               return null;
           }
       }
 
-      /** The whitelisted "scope" request parameter as an array, or null when it cannot be read. */
+      /** The requested scope string split on whitespace, or null when it is unreadable or empty. */
       function requestedScopesOf(theAuthorizationRequestDetails) {
-          try {
-              var reqParams = theAuthorizationRequestDetails.getRequestParameters();
-              if (reqParams) {
-                  var scopes = scopeList(reqParams.get("scope"));
-                  return scopes && scopes.length > 0 ? scopes : null;
-              }
-          } catch (e) {
-              // Fall through: unreadable.
+          var value = requestedScopeString(theAuthorizationRequestDetails);
+          if (value === null) {
+              return null;
           }
-          return null;
+          var parts = value.split(/\s+/);
+          var out = [];
+          for (var i = 0; i < parts.length; i++) {
+              if (parts[i]) {
+                  out.push(parts[i]);
+              }
+          }
+          return out.length > 0 ? out : null;
       }
 
       /**
@@ -214,21 +220,81 @@ mappedFiles:
        * script must not add it again. Neither scope source alone is trusted to equal
        * the token's grant: the approved scopes may carry approvals remembered from an
        * earlier consent, and the request parameter names scopes the user may have
-       * declined. So the claim is skipped only when "launch/" + key is in the approved
-       * scopes and, when the request's scope parameter is readable, in it as well.
-       * When the approved scopes are unreadable, the request parameter decides alone;
-       * when neither is readable, the claim is added (the behaviour before the skip).
+       * declined. So the claim is skipped only when "launch/" + key is granted and,
+       * when the request's scope parameter is readable, requested as well. When the
+       * approved scopes are unknown, the request parameter decides alone; when
+       * neither is readable, the claim is added (the behaviour before the skip).
        */
-      function smileAddsLaunchClaim(theKey, theApprovedScopes, theRequestedScopes) {
+      function smileAddsLaunchClaim(theKey, theUserSession, theRequestedScopes) {
           var scope = "launch/" + theKey;
-          if (theApprovedScopes) {
-              return theApprovedScopes.indexOf(scope) >= 0 &&
-                  (!theRequestedScopes || theRequestedScopes.indexOf(scope) >= 0);
+          var isGranted = granted(theUserSession, scope);
+          var isRequested = theRequestedScopes ? theRequestedScopes.indexOf(scope) >= 0 : null;
+          if (isGranted !== null) {
+              return isGranted && isRequested !== false;
           }
-          if (theRequestedScopes) {
-              return theRequestedScopes.indexOf(scope) >= 0;
+          if (isRequested !== null) {
+              return isRequested;
           }
           return false;
+      }
+
+      /**
+       * Whether the login is through a sandbox client, whose id starts with "sbx-"
+       * (aehrc/sparked-sandbox registers them as sbx-<id>-<kind>). Never throws.
+       */
+      function isSandboxClient(theUserSession) {
+          var reads = [
+              function () { return theUserSession.getOidcClientId(); },
+              function () { return theUserSession.oidcClientId; }
+          ];
+          for (var i = 0; i < reads.length; i++) {
+              try {
+                  var clientId = reads[i]();
+                  if (clientId !== null && clientId !== undefined) {
+                      return String(clientId).indexOf("sbx-") === 0;
+                  }
+              } catch (e) {
+                  // Try the next read.
+              }
+          }
+          return false;
+      }
+
+      /**
+       * One line describing how the approved scopes were read: which read worked,
+       * the set's size() and toString(), or why each read failed. Scope names only.
+       */
+      function approvedScopesDiagnostic(theUserSession) {
+          var failed = [];
+          for (var i = 0; i < APPROVED_SCOPE_READS.length; i++) {
+              var name = APPROVED_SCOPE_READS[i].name;
+              try {
+                  var scopes = APPROVED_SCOPE_READS[i].read(theUserSession);
+                  var answer = scopes.contains("launch");
+                  if (typeof answer !== "boolean") {
+                      failed.push(name + " contains() gave " + typeof answer);
+                      continue;
+                  }
+                  var size;
+                  var text;
+                  try { size = scopes.size(); } catch (e) { size = "unreadable (" + e + ")"; }
+                  try { text = String(scopes.toString()); } catch (e) { text = "unreadable (" + e + ")"; }
+                  return "approved read=" + name + " size=" + size + " scopes=" + text;
+              } catch (e) {
+                  failed.push(name + " threw " + e);
+              }
+          }
+          return "approved read=none (" + failed.join("; ") + ")";
+      }
+
+      /** Log one diagnostic line for a sandbox login. Never throws. */
+      function logSandboxScopes(theWhere, theUserSession, theRequested, theOutcome) {
+          try {
+              Log.info("Sandbox scopes at " + theWhere + ": " + approvedScopesDiagnostic(theUserSession) +
+                  "; requested=" + theRequested + "; " + theOutcome);
+          } catch (e) {
+              // Logging must not fail token issuance or the login.
+          }
       }
 
       function onTokenGenerating(theUserSession, theAuthorizationRequestDetails) {
@@ -271,6 +337,14 @@ mappedFiles:
               }
           }
 
+          // Sandbox clients only: record how the scopes the claim rule below depends
+          // on were read on this build. Logged before any claim is added, so the line
+          // is there even when token issuance then fails. Scope names only.
+          if (isSandboxClient(theUserSession)) {
+              logSandboxScopes("token generation", theUserSession, requestedScopeString(theAuthorizationRequestDetails),
+                  launchRaw ? "EHR launch" : "standalone launch");
+          }
+
           if (launchRaw) {
               // EHR launch: decode the base64/base64url launch token and inject context.
               var launchParams;
@@ -283,7 +357,6 @@ mappedFiles:
                   launchParams = {};
               }
               var params = Object.getOwnPropertyNames(launchParams);
-              var approvedScopes = approvedScopesOf(theUserSession);
               var requestedScopes = requestedScopesOf(theAuthorizationRequestDetails);
 
               for (var i = 0; i < params.length; i++) {
@@ -302,7 +375,7 @@ mappedFiles:
                       // 2026-11-27). smileAddsLaunchClaim states which scope sources
                       // decide; when none can be read, the claim is added as before.
                       theUserSession.addLaunchResourceId(key, value);
-                      if (!smileAddsLaunchClaim(key, approvedScopes, requestedScopes)) {
+                      if (!smileAddsLaunchClaim(key, theUserSession, requestedScopes)) {
                           theAuthorizationRequestDetails.addAccessTokenClaim(key, value);
                       }
                   }
@@ -439,8 +512,9 @@ mappedFiles:
        *
        * Scope: it acts only for clients whose id starts with "sbx-" (the sandbox
        * clients that aehrc/sparked-sandbox registers as sbx-<id>-<kind>), only on a
-       * standalone launch that asked for launch/patient (an EHR launch already
-       * names its patient), and only when that yields two or more choices (all in
+       * standalone launch, that is launch/patient granted and launch not granted
+       * (an EHR launch already names its patient; when the approved scopes cannot
+       * be read, nothing is offered), and only when that yields two or more choices (all in
        * the sandbox's own partition). It offers nothing else and never changes
        * authorities or scopes, so every other client on aucore is untouched.
        *
@@ -462,13 +536,16 @@ mappedFiles:
               if (!theUserSession || !theContextSelectionChoices) {
                   return;
               }
-              var clientId = beanProperty(theUserSession, "oidcClientId", "getOidcClientId");
-              if (clientId === null || clientId === undefined || String(clientId).indexOf("sbx-") !== 0) {
+              if (!isSandboxClient(theUserSession)) {
                   return;
               }
 
-              var scopes = approvedScopesOf(theUserSession);
-              if (!scopes || scopes.indexOf("launch/patient") < 0 || scopes.indexOf("launch") >= 0) {
+              // A standalone launch: launch/patient granted and launch not granted.
+              // Unknown (the approved scopes cannot be read) offers no chooser. The
+              // diagnostic line names the request as unavailable: this callback is
+              // given no authorization request details.
+              if (granted(theUserSession, "launch/patient") !== true || granted(theUserSession, "launch") !== false) {
+                  logSandboxScopes("context selection", theUserSession, "(not available here)", "chooser not offered");
                   return;
               }
 
@@ -513,6 +590,8 @@ mappedFiles:
                       choices.push(extras[k].id);
                   }
               }
+              logSandboxScopes("context selection", theUserSession, "(not available here)",
+                  "standalone launch, " + choices.length + " patient choices");
               if (choices.length < 2) {
                   return;
               }
