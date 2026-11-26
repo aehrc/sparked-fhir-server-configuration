@@ -95,6 +95,12 @@ Aurora is unavailable mid-upgrade; Smile pods would otherwise log connection-err
 noise and may crash/restart on their own (they self-heal, so skipping this step is
 survivable). Cleaner:
 
+> Since 26 Nov 2026 the `smilecdr` Argo CD Application has selfHeal on, so a
+> `kubectl scale` is reverted within about two minutes. Scale through
+> `replicaCount` in aehrc/sparked-argo `apps/smilecdr/values-account.yaml` instead
+> (sparked-argo `docs/runbooks/database-restore.md`, Option 2). This plan predates the
+> single `aucore` node.
+
 ```bash
 kubectl scale deploy -n smile --replicas=0 \
   smilecdr-scdrnode-aucore smilecdr-scdrnode-ereq smilecdr-scdrnode-hl7au

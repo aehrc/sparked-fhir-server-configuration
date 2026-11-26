@@ -459,10 +459,14 @@ what that guide leaves implicit.
   labelled `deploy-immediately` installs on merge. Every merge of an IG PR is also the
   Smile deploy of step 2.4: within about two minutes Argo CD rolls the pod onto the new
   seed config, so merge at a moment a Smile restart is acceptable.
-- **Do:** merge. If the request had `deploy-immediately`, `pr-merged.yml` triggers the
-  deploy, and it dispatches `Re/load IG Packages` with `dry_run: 'false'`: **there is no
-  dry run and no freeze check on that path**, so merging such a PR is the live install.
-  Remove the label before merging if you want the dry run, or if a freeze is open.
+- **Do:** remove the `deploy-immediately` label first, then merge. With the label,
+  `pr-merged.yml` dispatches `Re/load IG Packages` with `dry_run: 'false'` at the moment
+  of the merge (**no dry run and no freeze check on that path**), while Argo CD is
+  starting a new pod whose `startup_installation_specs` installs the same packages into
+  the same database: two installs stacked, which the expunge gotcha above forbids, and the
+  old pod is terminated when the new one turns Ready, possibly mid-install. Then wait for
+  the roll (step 2.4: the Application Synced and Healthy, the new pod Ready) before
+  running `Re/load IG Packages` by hand, dry run first.
   Otherwise run `Re/load IG Packages` with `nodes: aucore`,
   `package_source: config`, **`dry_run: true` first**, then `dry_run: false`, and pass the
   request's `issue_number` so results are posted there. The workflow runs on a
@@ -534,9 +538,12 @@ what that guide leaves implicit.
     -p '{"operation":{"initiatedBy":{"username":"<you>"},"sync":{"syncOptions":["PruneLast=true"],"prune":true}}}'
   ```
 
-  A `Re/load IG Packages` run started right after the merge (or by `deploy-immediately`)
-  installs on the old pod while the new one boots with the new seed config. Whether that
-  overlap matters has not been tested **(unverified)**.
+  Do not run `Re/load IG Packages` until the roll has finished (the Application Synced
+  and Healthy, one pod, Ready): a run during the roll installs on the old pod while the
+  new one installs the same packages from its seed config, and the old pod can be
+  terminated mid-install. Before a kubectl-started sync, check
+  `kubectl --context sparkey -n argocd get application smilecdr -o jsonpath='{.status.operationState.phase}'`
+  is not `Running`: the patch replaces a running operation.
 - **Verify:** the new pod turns Ready within its 20-minute startup probe and the
   Application is Synced and Healthy; a sync that reports ProgressDeadlineExceeded while
   the pod is still starting is not a failure yet: once the pod is Ready, retry it with a

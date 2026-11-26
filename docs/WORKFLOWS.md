@@ -129,24 +129,10 @@ You will receive another comment with deployment results.
 ```
 
 **If you didn't request immediate deployment:**
-```markdown
-## ✅ PR #45 Merged - Deployment Options
-
-Your requested changes have been approved and merged.
-
-**Option A: Immediate Deployment**
-A repo admin can deploy immediately (2-5 minutes, no downtime)
-
-**Option B: Wait for Next Server Restart**
-Changes apply automatically on next restart (zero risk, may take hours/days)
-
-A repo admin will decide when to deploy based on urgency.
-```
-
-Option B in that comment is wrong, and the bot still posts it: there is no scheduled
-restart, and a pod restart on its own does not pick up merged changes. The merge itself
-is the deploy: the Argo CD Application `smilecdr` syncs automatically and rolls the pod
-within minutes ([runbook step 2.4](runbooks/ig-release.md#step-2-4)). Open #126 corrects the text `pr-merged.yml` posts.
+The comment says the merge deploys the change: the Argo CD Application `smilecdr` syncs
+automatically and rolls the pod within minutes
+([runbook step 2.4](runbooks/ig-release.md#step-2-4)). A repo admin runs `Re/load IG
+Packages` only after that roll has finished.
 
 #### Step 7: Verification
 
