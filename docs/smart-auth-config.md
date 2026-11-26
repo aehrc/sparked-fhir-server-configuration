@@ -44,7 +44,26 @@ Supporting pieces:
   claim is skipped only when `launch/<key>` is in the approved scopes and,
   when the request parameter is readable, in it as well; when the approved
   scopes are unreadable the request parameter decides alone, and when
-  neither can be read the claim is added as before. The same script also offers a **patient picker for sandbox
+  neither can be read the claim is added as before. Smile CDR runs the
+  script on GraalJS and hands it Java objects, so both scopes are read
+  through their Java methods only: the approved scopes (a
+  `java.util.Set<String>`) with `theUserSession.getApprovedScopes().contains(...)`,
+  then `theUserSession.approvedScopes.contains(...)`, each tried on its own;
+  the requested scopes with
+  `theAuthorizationRequestDetails.getRequestParameters().get("scope")` (a
+  `java.util.Map<String,String>` filtered by `auth_request_detail.whitelist`),
+  converted with `String(...)` and split on whitespace. Both reads fail open:
+  a read that throws, or a `contains()` that does not answer with a boolean,
+  makes that source unknown, and an empty approved set counts as unknown.
+  The first version (#132) read them as JS arrays and strings; on the real
+  engine the 500 persisted and the chooser never showed after it rolled out
+  (measured on `aucore` 2026-11-27), while its node tests passed. For
+  clients whose id starts with `sbx-` only, the script logs one `INFO` line
+  at token generation and one at context selection, starting `Sandbox scopes
+  at`, naming which approved-scope read worked, the set's `size()` and
+  `toString()`, the requested scope string (not available at context
+  selection) and the flow; it holds scope names only, never a token, code,
+  password or launch value. The same script also offers a **patient picker for sandbox
   logins**: `onSmartLoginPreContextSelection` adds one person per sandbox
   patient on the user, so Smile CDR shows its context selection screen and
   puts the chosen patient's resource id into the launch context. Smile CDR
@@ -59,7 +78,8 @@ Supporting pieces:
   ascending order of `<n>`, skipping empty and repeated resource ids. It
   acts only for clients whose id starts with `sbx-` (registered by
   aehrc/sparked-sandbox, which writes those contexts), only on a standalone
-  launch granted `launch/patient` without `launch`, and only when that gives
+  launch granted `launch/patient` without `launch` (read through the same
+  Java methods; unknown offers no chooser), and only when that gives
   two or more choices. It never changes authorities or scopes, and any
   error is logged and swallowed, so no other client on `aucore` is
   affected. Each person's patient id is written before its names, so a
@@ -141,9 +161,9 @@ script with `--apply` restarts the
 module, briefly interrupting token issuance, and the change still lasts only
 until the next pod restart.
 
-Live check after a sync that changes `smart-post-authorize.js`, from the
-CSIRO VPN against a test sandbox, before either sandbox launch flag is
-switched on:
+Live check after a change to `smart-post-authorize.js` reaches the node (the
+merge rolls the pod), from the CSIRO VPN against a test sandbox, before either
+sandbox launch flag is switched on:
 
 - On one non-sandbox client and user (such clients remember approvals): an
   EHR launch asking for `launch launch/patient` first, then one asking for
@@ -162,6 +182,9 @@ switched on:
 - Client credentials are unchanged.
 - A sandbox EHR launch asking for `launch/encounter`, with no encounter in
   the launch value, gets a token.
+- The pod log shows a `Sandbox scopes at` line for each sandbox flow above
+  and none for the non-sandbox ones. If a check fails, that line says which
+  scope read worked on this build and what it returned.
 
 ## hl7au was excluded (historical)
 
