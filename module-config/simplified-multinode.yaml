@@ -37,7 +37,7 @@ cdrNodes:
       customerlib:
         sources:
         - type: s3
-          bucket: ${s3_bucket} # Rendered from var.s3_bucket_name via templatefile() in terraform/main.tf
+          bucket: examplebucket-fhir-aws # var.s3_bucket_name in terraform; literal so Argo CD can render this file
           path: /smile/hapi-aups-generator-1.0.2.jar
     config:
       locked: false
@@ -357,7 +357,7 @@ cdrNodes:
       customerlib:
         sources:
         - type: s3
-          bucket: ${s3_bucket} # Rendered from var.s3_bucket_name via templatefile() in terraform/main.tf
+          bucket: examplebucket-fhir-aws # var.s3_bucket_name in terraform; literal so Argo CD can render this file
           path: /smile/hapi-aups-generator-1.0.0.jar
     config:
       database: true
@@ -428,7 +428,7 @@ cdrNodes:
       customerlib:
         sources:
         - type: s3
-          bucket: ${s3_bucket} # Rendered from var.s3_bucket_name via templatefile() in terraform/main.tf
+          bucket: examplebucket-fhir-aws # var.s3_bucket_name in terraform; literal so Argo CD can render this file
           path: /smile/hapi-aups-generator-0.1.0-alpha.jar
     config:
       locked: false

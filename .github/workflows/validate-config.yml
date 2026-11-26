@@ -3,6 +3,9 @@ name: Validate Configuration
 on:
   pull_request:
     paths:
+      - 'deploy/**'
+      - 'scripts/render_smile_mapped_files.py'
+      - 'scripts/smile_argo_check.py'
       - 'module-config/**'
       - 'terraform/**'
       - 'scripts/test_consent_default_readonly.js'
@@ -11,6 +14,9 @@ on:
     branches:
       - main
     paths:
+      - 'deploy/**'
+      - 'scripts/render_smile_mapped_files.py'
+      - 'scripts/smile_argo_check.py'
       - 'module-config/**'
       - 'terraform/**'
       - 'scripts/test_consent_default_readonly.js'
@@ -36,6 +42,18 @@ jobs:
         run: |
           yamllint -d "{extends: default, rules: {line-length: {max: 200}, indentation: {spaces: 2}}}" module-config/*.yaml || true
           echo "✅ YAML syntax validation complete"
+
+      - name: Smile CDR mapped files are rendered and current
+        # deploy/smilecdr/mapped-files.yaml is what the Argo CD Application
+        # smilecdr reads; its bytes are hashed into ConfigMap names, so a stale
+        # copy would either miss a change or roll Smile on an unrelated sync.
+        run: python3 scripts/render_smile_mapped_files.py --check
+
+      - name: Smile CDR module and chart versions are paired
+        # The sdh-deps module ref and helm_chart_version in terraform/main.tf
+        # name the same release. aehrc/sparked-argo checks its Application's
+        # chart version against this file on its own pull requests.
+        run: python3 scripts/smile_argo_check.py pairing
 
       - name: Check for common issues
         run: |
