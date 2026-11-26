@@ -70,7 +70,7 @@ is no longer deployed by anything and does not describe tx.dev.
 | tx.dev | Ontoserver at `https://tx.dev.hl7.org.au/fhir`, which syndicates from the Atomio feed `hl7au-dev` on `synd.ontoserver.csiro.au` | an entry added by hand to `hl7au-dev` in the Atomio dashboard; the feed list and schedule are in `aehrc/sparked-argo` `apps/ontoserver/values.yaml` (private), and the event freeze pause switch in `apps/ontoserver/values-event-freeze.yaml` (`aehrc/sparked-argo` #385) |
 | Inferno test kits | Ruby gems `au_core_test_kit` and `au_ps_inferno` on RubyGems | `hl7au/au-fhir-core-inferno`, `hl7au/au-ps-inferno` |
 | Inferno platform | staging `https://development.inferno.sparked-fhir.com`, production `https://inferno.hl7.org.au` | `hl7au/au-fhir-inferno`, deployed by ArgoCD from `aehrc/sparked-argo` (private) |
-| Test data | the AU FHIR test data set loaded onto `aucore` | `hl7au/au-fhir-test-data`, loaded by this repo's `Manage Test Data` workflow |
+| Test data | the AU FHIR test data set loaded onto `aucore` | `hl7au/au-fhir-test-data`, with AU Core read from the Sparked branch `sparked-aucore-loadable` of `aehrc/au-fhir-test-data`; loaded and tracked by the test data loader at `https://loader.sparked-fhir.com` (Phase 3) |
 
 Not a target: the ci-build environment `https://ci-build.inferno.sparked-fhir.com`
 (`hl7au/au-fhir-inferno` #221, #222; Argo CD Application `inferno-ci-build`). It runs
@@ -188,11 +188,13 @@ Each of these has been broken at least once, or would silently break a later ste
   follow [sparkey-deploy-runbook.md](../sparkey-deploy-runbook.md). That document still
   describes sparkey as the parallel stack; it is now the only one (#111, corrected by
   open PR #115).
-- Where the workflows run: `Re/load IG Packages`, `Manage Test Data` and every issue
-  automation job run on GitHub-hosted runners (#124) and reach Smile through its public
-  hostname. Only the SMART client registration jobs run on the `arc-runner-smile-admin`
-  set inside `sparkey`, because they call the admin JSON API in-cluster (#122); no IG
-  release step needs that API. The admin JSON API and admin console answer only to an IP
+- Where the workflows run: `Re/load IG Packages` and the issue automation jobs run on
+  GitHub-hosted runners (#124) and reach Smile through its public hostname. The exception
+  is SMART client registration (`register-smart-client` in `issue-labeled.yml`, and
+  `register-smart-clients.yml`), which runs on the `arc-runner-smile-admin` set inside
+  `sparkey` because it calls the admin JSON API in-cluster (#122); no IG release step
+  needs that API. Test data is loaded by the test data loader, a service of its own
+  (Phase 3), not by a workflow. The admin JSON API and admin console answer only to an IP
   allowlist at the gateway (`aehrc/sparked-argo` #388); the FHIR and package endpoints
   are not on it.
 - Write access to `hl7au/au-fhir-inferno` (Phases 5 and 6). Kit repos only if you are the
@@ -565,48 +567,126 @@ what that guide leaves implicit.
 
 ### Phase 3: Test data
 
+The test data on `aucore` is loaded and tracked by the Sparked test data loader (FHIRSeed)
+at `https://loader.sparked-fhir.com` (`aehrc/sparked-test-data-loader`, private), not by
+this repo's workflows. Its data sets are defined in that repo's
+`helm/sparked-test-data-loader/values.yaml`: **AU Core comes from `aehrc/au-fhir-test-data`
+branch `sparked-aucore-loadable`**, a Sparked branch of `hl7au/au-fhir-test-data`; AU Base,
+AU Patient Summary and AU eRequesting come from `hl7au/au-fhir-test-data` `master`. The
+branch is upstream `master` plus three commits, explained in its `SPARKED-BRANCH.md`:
+eight `au-core` examples lose an `au-erequesting-*` claim in `meta.profile`, which `aucore`
+rejects with `VALIDATION_VAL_PROFILE_UNKNOWN_NOT_POLICY` because it does not carry
+`hl7.fhir.au.ereq`; `Patient/roberts-fred`, referenced from `au-core` but defined only in
+`au-erequesting`, is copied into `au-core`; and the third commit adds that README. Each
+load records an installation (the data set, the exact commit and a manifest of every
+resource that landed), which the loader rechecks hourly for integrity (still on the
+server) and freshness (pinned commit against the head of the configured branch).
+
+On 2026-11-26 `aucore` held AU Core at `20fb514` (the branch head) and AU Patient Summary
+at `ecc2ff7`, both loaded on 2026-08-24 by the scenario "HL7 AU Connectathon Brisbane",
+which matches `data.sets` in `events/2026-12-melbourne.yaml` (verified with the public
+API below and `curl -s https://loader.sparked-fhir.com/api/v1/public/datasets`).
+
 <a id="step-3-1"></a>
-#### 3.1 Confirm the test data is ready
+#### 3.1 Get the data ready
 
-- **Who:** requester, with the test data maintainers.
-- **Where:** `hl7au/au-fhir-test-data` (default branch; the loader clones it with no branch
-  selection).
-- **Do:** confirm whether the release needs new or changed test data and that it has
-  merged.
-- **Verify:** a merged change, or an explicit "no change" recorded on the tracking issue.
-- **What goes wrong:** reloading before the data merges reloads the old data.
+- **Who:** requester, with the test data maintainers, for the data change; a Sparked
+  maintainer with write access to `aehrc/au-fhir-test-data` for the branch.
+- **Where:** `hl7au/au-fhir-test-data` `master` (the authoritative set), then the
+  `sparked-aucore-loadable` branch of `aehrc/au-fhir-test-data` for AU Core.
+- **Do:**
+  1. Confirm whether the release needs new or changed test data and that it has merged
+     upstream, or record "no change" on the tracking issue.
+  2. If the AU Core data changed upstream, move the Sparked branch onto the new upstream
+     `master`. `SPARKED-BRANCH.md` asks for a rebase, not a merge, so the patch stays as
+     its commits on top. First check whether upstream has fixed either defect (the two
+     checks under **Verify**, run against upstream); if it has, drop that commit, and once
+     both are gone, retire the branch and point the loader's AU Core data set back at
+     `hl7au` `master` (a values PR in `aehrc/sparked-test-data-loader`).
 
-<a id="step-3-2"></a>
-#### 3.2 Reload aucore
+     ```bash
+     git clone https://github.com/aehrc/au-fhir-test-data && cd au-fhir-test-data
+     git remote add upstream https://github.com/hl7au/au-fhir-test-data
+     git fetch upstream master
+     git switch sparked-aucore-loadable
+     git rebase upstream/master
+     git push --force-with-lease origin sparked-aucore-loadable
+     ```
 
-- **Who:** repo admin.
-- **Where:** **Actions > Manage Test Data** (`manage-test-data.yml`), operation
-  `clear-and-load-aucore`. (An Operational Request with `approved` runs a load without the
-  clear.) The jobs run on GitHub-hosted runners (#124) and write straight to Smile; the
-  FHIRFlare upload path is gone (#117).
-- **When:** not inside an event freeze (constraint 9). A reload is a bulk write; the event
-  manifest's `data` block says whether one is planned before the event.
-- **Do:** run with `dry_run: true`, read the summary, then run for real with the tracking
-  issue number in `issue_number`. `dry_run` defaults to **false** on this workflow, so set
-  it explicitly: the real run wipes the node's data.
-- **Verify:** the posted summary shows the file count and 0 failed (or the failures are
-  triaged on the issue); `curl -s "$FHIR/Patient/hennessy-billy" -o /dev/null -w '%{http_code}\n'`
-  returns 200. The loader's public status page lists what is loaded and whether it is
-  current (verified; both data sets `intact` on 2026-11-26):
+  The AU Base and AU Patient Summary data sets read `hl7au` `master` directly and need no
+  branch work.
+- **Verify:** on the pushed branch, the patch is still the only difference and still does
+  its job:
 
   ```bash
-  curl -s https://loader.sparked-fhir.com/api/v1/public/nodes \
-    | jq -r '.[] | .installations[] | "\(.datasetName)\t\(.version[0:7])\t\(.integrity)\t\(.freshness)"'
+  gh api repos/aehrc/au-fhir-test-data/compare/hl7au:au-fhir-test-data:master...sparked-aucore-loadable \
+    -q '"ahead \(.ahead_by), behind \(.behind_by)"'   # good: ahead 3 (fewer once a fix lands upstream), behind 0
+  grep -l au-erequesting au-fhir-test-data-set/au-core/*.json   # good: no output
+  ls au-fhir-test-data-set/au-core/Patient-roberts-fred.json
   ```
 
 - **What goes wrong:**
-  - The clear is a wipe-all with expunge. It does not touch installed IGs: the loader's
-    delete list contains no conformance types (verified in `aehrc/sparked-test-data-loader`,
-    private, on 2026-09-25).
-  - The last real runs of this workflow failed (2026-07-14, 2026-08-24) before fixes
-    #103 and #104 merged. Since then only a dry run has run on `main` (2026-09-29,
-    succeeded), and none at all since #117 and #124 changed the load path and the runner
-    **(unverified end to end)**. Run the dry run first.
+  - Reloading before the data merges, or before the branch is rebased, reloads the old
+    data.
+  - **The loader's `current` for AU Core means current against the Sparked branch, not
+    against upstream.** On 2026-11-26 the branch still sat on upstream `ecc2ff7`
+    (2026-08-24), 147 commits and 247 changed `au-core` files behind upstream `af8a563`,
+    while the loader reported AU Core `current` (verified with the compare above). AU
+    Patient Summary, which reads upstream directly, showed `update-available`.
+  - Both defects were still upstream on 2026-11-26: eight `au-core` files claim an
+    `au-erequesting` profile and `au-core` has no `Patient-roberts-fred.json` (verified on
+    `af8a563`). Rebasing without the patch makes the next load fail those nine.
+  - The loader reads the branch by name, so changing or deleting it changes what the
+    loader installs.
+
+<a id="step-3-2"></a>
+#### 3.2 Reload aucore through the loader
+
+- **Who:** repo admin with a login to the loader dashboard (Keycloak, through the gateway's
+  OIDC filter); who holds one is **unverified**.
+- **Where:** `https://loader.sparked-fhir.com`, signed in.
+- **When:** not inside an event freeze (constraint 9). A reload is a bulk write; the event
+  manifest's `data` block says whether one is planned before the event (December 2026:
+  none, "the data stays as loaded through the freeze"). Bulk writes also need Smile running
+  with #123 applied (`aehrc/sparked-argo` `docs/runbooks/event-runbook.md` section 1,
+  step 5); it is (the live `aucore` ConfigMap has `subscription.rest_hook_enabled` and
+  `subscription.message.enabled` false, checked 2026-11-26).
+- **Do:** wait until the loader's hourly recheck shows the AU Core installation as
+  "Update available" (the public API below prints `update-available`), then open that
+  installation on the dashboard and choose **Update**. Update syncs in place: it loads new
+  and changed resources and deletes resources dropped from the source, only among those
+  this installation loaded. Do the same for AU Patient Summary or AU Base if their
+  upstream data changed. **Reload** (in the "Data Set Already Installed" dialog that
+  loading the preset again opens) re-runs the full load instead; prefer Update. If an
+  event manifest pins the data (`data.sets`), update its commits in the same change.
+- **Verify:** the installation now names the new commit, `intact` and `current`, and its
+  failure count is no worse than before (the 2026-08-24 load recorded `failed: 2` for AU
+  Core and `failed: 2` for AU Patient Summary; which resources those are is
+  **unverified**):
+
+  ```bash
+  gh api repos/aehrc/au-fhir-test-data/commits/sparked-aucore-loadable -q .sha
+  curl -s https://loader.sparked-fhir.com/api/v1/public/nodes \
+    | jq -r '.[] | .installations[] | "\(.datasetName)\t\(.version[0:7])\t\(.integrity)\t\(.freshness)\t\(.summary)"'
+  curl -s "$FHIR/Patient/hennessy-billy" -o /dev/null -w '%{http_code}\n'   # good: 200
+  ```
+
+- **What goes wrong:**
+  - **Do not use `Manage Test Data` for this step.** `manage-test-data.yml` has no data
+    source input, so `load-test-data.yml` clones `hl7au/au-fhir-test-data` `master`: it
+    loads the eight examples `aucore` rejects and leaves `Patient/roberts-fred` an empty
+    placeholder. Its `clear-and-load-aucore` starts with a wipe-all with expunge that runs
+    outside the loader, so the loader's installations go on recording the August load
+    against data that is gone. The event runbook (section 1, step 5) still names that
+    workflow for an event reload; follow this step instead. Keep the workflow for a
+    scratch rebuild when the loader is down, and expect those gaps.
+  - The Update path has not been run against `aucore` for this runbook
+    **(unverified)**, and Update has no dry run (the dashboard's Load page has a preview
+    of a source; whether it shows an update's changes is **unverified**).
+  - A merged change to the loader's own values restarts its pod (Reloader), which kills a
+    load in progress. Do not merge loader config during a reload.
+  - The loader's clear does not touch installed IGs: its delete list contains no
+    conformance types (verified in `aehrc/sparked-test-data-loader` on 2026-09-25).
 
 ### Phase 4: Test kit (gem)
 
@@ -916,8 +996,8 @@ tracking issue:
   `profile=<url>|<version>` resolves; the repo seed config matches the live node; the
   smoke tests report 0 failed; the request issues are closed.
 - **tx.dev:** `StructureDefinition?url=<profile>&version=<version>` returns the resource.
-- **Test data:** reloaded after the data merged, with failures triaged, or "no change"
-  recorded.
+- **Test data:** the loader shows the new commit installed on `aucore`, `intact` and
+  `current`, with failures triaged, or "no change" recorded.
 - **Kit:** gem `X.Y.Z` is on RubyGems; its GitHub Release exists; the kit issue is closed.
 - **Platform:** production `/suites/api/test_suites` lists the new suite at `X.Y.Z`; the
   kit page shows it; the warmer list is within the cache size; the production release
@@ -946,6 +1026,8 @@ tracking issue:
 | One generator ref serves two kits | [5.1](#step-5-1) | `NameError` / missing require at suite load on preview | `Gemfile.common`; kit lockfiles |
 | Orphan SHA pin in `Gemfile.dev` | [5.1](#step-5-1) | bundle fails to fetch the git gem | `au-fhir-inferno` #130 (`9790c863`) |
 | Promotion PR carries commits you did not check on staging | [6.1](#step-6-1) | PR changelog lists more than your bump | `build-and-release-package.yaml`; #205 superseded by #207 |
+| `Manage Test Data` reloads upstream `master` behind the loader's back | [3.2](#step-3-2) | eight `VALIDATION_VAL_PROFILE_UNKNOWN_NOT_POLICY` failures; the loader still lists the old installation | `manage-test-data.yml` (no data source input); `SPARKED-BRANCH.md` |
+| AU Core `current` on the loader while upstream has moved on | [3.1](#step-3-1) | the compare in step 3.1 shows the branch behind upstream | loader freshness tracks `sparked-aucore-loadable` |
 | A step lands in an event freeze | [constraint 9](#4-ordering-constraints) | the event manifest's `freeze` window covers today | `events/<event>.yaml`; `aehrc/sparked-argo` `docs/runbooks/event-runbook.md` section 3 |
 
 ## 9. Rollback

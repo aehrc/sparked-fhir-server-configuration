@@ -61,8 +61,8 @@ Guide Release Request issue.
 
 ## Phase 3: Test data
 
-- [ ] 3.1 Test data change merged in `hl7au/au-fhir-test-data`, or "no change" recorded ([runbook](https://github.com/aehrc/sparked-fhir-server-configuration/blob/main/docs/runbooks/ig-release.md#step-3-1))
-- [ ] 3.2 `aucore` reloaded with [Manage Test Data](https://github.com/aehrc/sparked-fhir-server-configuration/actions/workflows/manage-test-data.yml) (dry run first) ([runbook](https://github.com/aehrc/sparked-fhir-server-configuration/blob/main/docs/runbooks/ig-release.md#step-3-2))
+- [ ] 3.1 Test data change merged in `hl7au/au-fhir-test-data`, or "no change" recorded; for AU Core, `aehrc/au-fhir-test-data` branch `sparked-aucore-loadable` rebased onto it (ahead 3, behind 0) ([runbook](https://github.com/aehrc/sparked-fhir-server-configuration/blob/main/docs/runbooks/ig-release.md#step-3-1))
+- [ ] 3.2 `aucore` updated through the [test data loader](https://loader.sparked-fhir.com) (Update on each changed installation, not `Manage Test Data`); new commit `intact` and `current`; installed commit: ([runbook](https://github.com/aehrc/sparked-fhir-server-configuration/blob/main/docs/runbooks/ig-release.md#step-3-2))
 
 ## Phase 4: Test kit (gem)
 
