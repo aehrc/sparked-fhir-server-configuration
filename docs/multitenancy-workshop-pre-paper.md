@@ -1,5 +1,7 @@
 # Multitenancy architecture review: workshop pre-paper
 
+> **Status on 2026-11-26.** Written on 2026-07-13 for a workshop that has not yet been held; [ADR 0001](adr/0001-partition-based-multitenancy.md) is still Proposed. Read the live-state claims below as of that date. Since then: the `ereq` and `hl7au` nodes, and with them the pilot tenants and the demo users, were decommissioned on 2026-08-03 (#87); the read-only DEFAULT consent service has enforced on `aucore` since 2026-08-19 (#97, #100); `aucore` carries the team tenants (for example `PLATYPUS`, `FHIRFROG`) and the per-holder sandbox partitions that the sandbox service at `https://sandbox.sparked-fhir.com` creates on request. The visibility checks in section 2 were run on `ereq` and have not been repeated on `aucore`. The decision points in section 8 are still open.
+
 Pre-reading for the read/write multitenancy workshop. Companion documents:
 [ADR 0001](adr/0001-partition-based-multitenancy.md) (decision record, awaiting sign-off),
 [strategy paper](multitenancy-strategy.md) (motivation),
