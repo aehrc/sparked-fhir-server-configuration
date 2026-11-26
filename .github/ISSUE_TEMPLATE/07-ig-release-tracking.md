@@ -55,8 +55,8 @@ Guide Release Request issue.
 
 - [ ] 2.1 [Implementation Guide Release Request](https://github.com/aehrc/sparked-fhir-server-configuration/issues/new?template=01-ig-release-request.yml) raised with **STORE_AND_INSTALL** ticked: # ([runbook](https://github.com/aehrc/sparked-fhir-server-configuration/blob/main/docs/runbooks/ig-release.md#step-2-1))
 - [ ] 2.2 Dependencies checked, coupled packages batched, PR opened: # ([runbook](https://github.com/aehrc/sparked-fhir-server-configuration/blob/main/docs/runbooks/ig-release.md#step-2-2))
-- [ ] 2.3 PR merged and deployed with [Re/load IG Packages](https://github.com/aehrc/sparked-fhir-server-configuration/actions/workflows/reload-ig-config.yml); versioned `$validate` resolves ([runbook](https://github.com/aehrc/sparked-fhir-server-configuration/blob/main/docs/runbooks/ig-release.md#step-2-3))
-- [ ] 2.4 Seed config persisted with a local `terraform apply` (inputs from `scripts/fetch-smile-tfvars.sh`); live `startup_installation_specs` matches the repo; `scripts/upgrade_smoke_tests.sh` reports 0 failed ([runbook](https://github.com/aehrc/sparked-fhir-server-configuration/blob/main/docs/runbooks/ig-release.md#step-2-4))
+- [ ] 2.3 PR merged outside a freeze and deployed with [Re/load IG Packages](https://github.com/aehrc/sparked-fhir-server-configuration/actions/workflows/reload-ig-config.yml) (a `deploy-immediately` PR installs on merge with no dry run); versioned `$validate` resolves ([runbook](https://github.com/aehrc/sparked-fhir-server-configuration/blob/main/docs/runbooks/ig-release.md#step-2-3))
+- [ ] 2.4 Seed config persisted with a local `terraform apply` (inputs from `scripts/fetch-smile-tfvars.sh`; a manual Argo CD sync once the Smile move in #128 lands, see the runbook step); live `startup_installation_specs` matches the repo; `scripts/upgrade_smoke_tests.sh` reports 0 failed ([runbook](https://github.com/aehrc/sparked-fhir-server-configuration/blob/main/docs/runbooks/ig-release.md#step-2-4))
 - [ ] 2.5 AU PS only: `$summary` generator checked ([runbook](https://github.com/aehrc/sparked-fhir-server-configuration/blob/main/docs/runbooks/ig-release.md#step-2-5))
 
 ## Phase 3: Test data

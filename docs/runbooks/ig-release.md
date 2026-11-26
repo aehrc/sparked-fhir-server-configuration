@@ -66,7 +66,7 @@ is no longer deployed by anything and does not describe tx.dev.
 
 | Target | What it is | Changed through |
 |---|---|---|
-| Sparked Dev FHIR Server | Smile CDR node `aucore`, `https://smile.sparked-fhir.com/aucore/fhir/DEFAULT` | this repo: IG Release request, `Re/load IG Packages` workflow, then a local `terraform apply` whose inputs come from Secrets Manager (#119). Argo CD does not deploy Smile; moving it there is designed for after the December 2026 event ([design/smile-to-argo.md](../design/smile-to-argo.md), #120) and not built |
+| Sparked Dev FHIR Server | Smile CDR node `aucore`, `https://smile.sparked-fhir.com/aucore/fhir/DEFAULT` | this repo: IG Release request, `Re/load IG Packages` workflow, then a local `terraform apply` whose inputs come from Secrets Manager (#119). That apply becomes a manual Argo CD sync when the Smile move lands before the December 2026 event ([step 2.4](#smile-argo-move)) |
 | tx.dev | Ontoserver at `https://tx.dev.hl7.org.au/fhir`, which syndicates from the Atomio feed `hl7au-dev` on `synd.ontoserver.csiro.au` | an entry added by hand to `hl7au-dev` in the Atomio dashboard; the feed list and schedule are in `aehrc/sparked-argo` `apps/ontoserver/values.yaml` (private), and the event freeze pause switch in `apps/ontoserver/values-event-freeze.yaml` (`aehrc/sparked-argo` #385) |
 | Inferno test kits | Ruby gems `au_core_test_kit` and `au_ps_inferno` on RubyGems | `hl7au/au-fhir-core-inferno`, `hl7au/au-ps-inferno` |
 | Inferno platform | staging `https://development.inferno.sparked-fhir.com`, production `https://inferno.hl7.org.au` | `hl7au/au-fhir-inferno`, deployed by ArgoCD from `aehrc/sparked-argo` (private) |
@@ -163,7 +163,7 @@ Each of these has been broken at least once, or would silently break a later ste
    connectathon or testing event, the event manifest `events/<yyyy-mm>-<place>.yaml` in
    this repo sets `freeze.start` and `freeze.end` (for December 2026,
    `events/2026-12-melbourne.yaml`: Fri 4 Dec 17:00 to Fri 11 Dec 17:00 AEDT). Inside that
-   window: no IG load, `Re/load IG Packages` run, Smile `terraform apply` or test data
+   window: no IG load, `Re/load IG Packages` run, Smile deploy (step 2.4) or test data
    reload on `aucore`; no merge to `hl7au/au-fhir-inferno` `master` (production's chart
    follows `master`, and Argo CD sync windows on `inferno-prod` and `inferno-ci-build` only
    hold a merge until unfreeze, when it lands unwatched); no new entry in the `hl7au-dev`
@@ -172,8 +172,10 @@ Each of these has been broken at least once, or would silently break a later ste
    alone). Kit work that changes no live service (steps 4.1 to 4.4, a platform PR left
    unmerged) can go on. Work backwards from the freeze: the event runbook in
    `aehrc/sparked-argo` (`docs/runbooks/event-runbook.md`, sections 1 to 3) wants the
-   Inferno release participants will use on production two weeks before the event and no
-   platform upgrade merged after T-1 week. A release that cannot finish by then starts
+   Inferno release participants will use on production two weeks before the event
+   (section 1, step 3), and no Renovate or Argo CD upgrade merged in `aehrc/sparked-argo`
+   after T-1 week (section 1, step 4: cluster platform upgrades, not the Inferno
+   platform). A release that cannot finish by then starts
    after unfreeze.
 
 ## 5. Before you start
@@ -452,14 +454,21 @@ what that guide leaves implicit.
 
 - **Who:** repo admin.
 - **Where:** the PR, then **Actions > Re/load IG Packages** (`reload-ig-config.yml`).
+- **When:** not inside an event freeze (constraint 9), and that includes the merge: a PR
+  labelled `deploy-immediately` installs on merge.
 - **Do:** merge. If the request had `deploy-immediately`, `pr-merged.yml` triggers the
-  deploy. Otherwise run `Re/load IG Packages` with `nodes: aucore`,
+  deploy, and it dispatches `Re/load IG Packages` with `dry_run: 'false'`: **there is no
+  dry run and no freeze check on that path**, so merging such a PR is the live install.
+  Remove the label before merging if you want the dry run, or if a freeze is open.
+  Otherwise run `Re/load IG Packages` with `nodes: aucore`,
   `package_source: config`, **`dry_run: true` first**, then `dry_run: false`, and pass the
   request's `issue_number` so results are posted there. The workflow runs on a
   GitHub-hosted runner (#124) and installs through the node's package registry endpoint
-  `https://smile.sparked-fhir.com/aucore/package/` with the repo's basic-auth secret; that
-  endpoint is not on the gateway's admin allowlist (anonymously it answers Smile's own
-  `403 Access is denied`, verified). Its last run was on 2026-08-05.
+  under `https://smile.sparked-fhir.com/aucore/package/` (`npm/...` to read, `write/...` to
+  install) with the repo's basic-auth secret; that endpoint is not on the gateway's admin
+  allowlist. Anonymously, an `npm/...` path answers Smile's own `403 Access is denied`
+  and the bare `/aucore/package/` answers 302 to `swagger-ui.html` (verified
+  2026-11-26). Its last run was on 2026-08-05.
 - **Verify** (verified): the new profile version is present and active, and `$validate`
   resolves it. Use an existing test-data Patient (for example `hennessy-billy`):
 
@@ -490,11 +499,19 @@ what that guide leaves implicit.
 #### 2.4 Persist the seed config
 
 - **Who:** repo admin.
-- **Where:** Terraform from a workstation, on `main` after the PR merged. This local
-  apply is the only way a Smile configuration change reaches the server today: Argo CD
-  does not deploy the Smile workload, and the move to an Argo CD Application
-  ([design/smile-to-argo.md](../design/smile-to-argo.md), #120) is a design for after the
-  December 2026 event that would replace this step. The two gitignored inputs
+- **Where:** Terraform from a workstation, on `main` after the PR merged. On `main` today
+  this local apply is the only way a Smile configuration change reaches the server: Argo
+  CD does not deploy the Smile workload.
+- <a id="smile-argo-move"></a>**About to change: Smile moves to Argo CD before the
+  December 2026 event.** The owner brought the adoption forward to a weekday window before
+  Thu 3 Dec 2026, ahead of the freeze (open #127, which updates
+  [design/smile-to-argo.md](../design/smile-to-argo.md) from #120). When open #128 merges
+  in that window, Terraform stops deploying the workload (`helm_deploy = false`) and this
+  step becomes a manual sync of the `smilecdr` Application in Argo CD, following the
+  rewritten [sparkey-deploy-runbook.md](../sparkey-deploy-runbook.md) (section A, PR plus
+  manual sync). The other pages that say "local `terraform apply`" for an IG release point
+  here; change this step when #128 merges and they follow. Until then, use the procedure
+  below. The two gitignored inputs
   (`terraform/backend-sparkey.hcl` and `tfvars/sparkey.tfvars`) are kept in Secrets
   Manager under `sparked/smile/terraform/` and fetched with
   `scripts/fetch-smile-tfvars.sh` ([smile-deploy-inputs.md](../smile-deploy-inputs.md),
@@ -502,7 +519,7 @@ what that guide leaves implicit.
   apply needs. The rest of the procedure is in
   [sparkey-deploy-runbook.md](../sparkey-deploy-runbook.md). Use that document, not
   `terraform-local-deploy.md`, which describes the decommissioned stack (#111).
-- **When:** not inside an event freeze (constraint 9); the freeze allows a Smile apply
+- **When:** not inside an event freeze (constraint 9); the freeze allows a Smile deploy
   for an emergency fix only.
 - **Do:** plan and apply the Smile deployment so the new package files become ConfigMaps
   and `startup_installation_specs` matches the repo. Pick a window: a `module-config/`
@@ -1034,7 +1051,7 @@ tracking issue:
 
 - **Smile:** raise an IG Release request with request type *Rollback* to the previous
   version, or run `Re/load IG Packages` with `package_source: custom` and the previous
-  version's JSON, then restore the seed config in a PR and apply it. The superseded
+  version's JSON, then restore the seed config in a PR and persist it (step 2.4). The superseded
   version's StructureDefinitions are likely still present (step 2.3), which makes a
   rollback fast. A rollback has not been exercised for this runbook **(unverified)**.
 - **tx.dev:** remove the entry from the `hl7au-dev` feed in Atomio. Ontoserver keeps what
