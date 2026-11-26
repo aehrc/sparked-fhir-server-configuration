@@ -39,9 +39,8 @@ This repository uses GitHub Actions workflows to automate FHIR Implementation Gu
    - **IG Name**: e.g., "International Patient Summary"
    - **IG Version**: e.g., "2.0.0"
    - **NPM Package ID**: e.g., "hl7.fhir.uv.ips" (optional - can be auto-generated)
-   - **Target Nodes**: Check which servers need this IG:
-     - ☑ aucore (AU Core FHIR Server)
-     - ☐ ereq (eRequesting Server)
+   - **Target Nodes**: `aucore` (AU Core FHIR Server), the only node since the `ereq`
+     and `hl7au` nodes were decommissioned on 2026-08-02
    - **Deployment Preferences**:
      - ☐ Request immediate deployment after change is approved and merged
    - **Business Justification**: Why you need this
@@ -138,8 +137,8 @@ Your requested changes have been approved and merged.
 **Option A: Immediate Deployment**
 A repo admin can deploy immediately (2-5 minutes, no downtime)
 
-**Option B: Wait for Next Server Restart**
-Changes apply automatically on next restart (zero risk, may take hours/days)
+**Option B: Wait for the Next Terraform Apply**
+Changes are applied on the next terraform apply, which a repo admin runs locally. There is no scheduled restart, and a pod restart on its own does not pick up merged changes
 
 A repo admin will decide when to deploy based on urgency.
 ```
@@ -176,7 +175,7 @@ A repo admin will close the issue once confirmed.
 
 ### Notes: version bumps, custom package URLs, and batching
 
-- **Version bumps replace in place.** When the request is an *Update*, the automation matches the existing package by its FHIR package **id** (not the filename) and swaps the version in `startup_installation_specs` in place, reusing the existing filename stem (e.g. `package-aucore-2.0.0.json` → `package-aucore-2.1.0-draft.json`). If the old package file ends up referenced by no node, it is deleted and its `values-common.yaml` / `terraform/main.tf` entries are removed automatically. A file still used by another node (e.g. IPS retained on `ereq`) is kept. Install order is preserved; packages are never re-sorted.
+- **Version bumps replace in place.** When the request is an *Update*, the automation matches the existing package by its FHIR package **id** (not the filename) and swaps the version in `startup_installation_specs` in place, reusing the existing filename stem (e.g. `package-aucore-2.0.0.json` → `package-aucore-2.1.0-draft.json`). If the old package file ends up referenced by no node, it is deleted and its `values-common.yaml` / `terraform/main.tf` entries are removed automatically. A file still used by another node is kept (`aucore` is the only node today). Install order is preserved; packages are never re-sorted.
 - **Custom Package URL.** Most IGs, including `-draft`/`-preview` versions, resolve from `packages.fhir.org` and need nothing extra. Use the template's **Custom Package URL** field only when a package is not on the registry or when a specific publication build must override a stale registry copy. (Tip: check existence with a GET, since `packages.fhir.org` returns 404 to `HEAD` requests.)
 - **Batch related bumps into one issue/PR.** Separate IG issues each produce their own PR editing the same three files (`simplified-multinode.yaml`, `values-common.yaml`, `terraform/main.tf`), so two open at once will conflict on merge. For a coordinated set (e.g. AU Base + AU Core + IPS for a testing event), request them together or merge them one at a time, rebasing in between.
 
@@ -198,8 +197,12 @@ well, with the step each one bites in.
 - **Replacing a large package triggers a long expunge**: pod CPU near 1 core and
   intermittent 15 s ingress timeouts for several minutes. It recovers without a restart;
   do not stack another install on top (#92).
-- **A live install is not persistent** until the Terraform apply updates the seeded
-  `startup_installation_specs`; a restart before that reseeds the old versions.
+- **A live install is not persistent** until a local Terraform apply updates the seeded
+  `startup_installation_specs`; a restart before that reseeds the old versions. The apply
+  inputs come from Secrets Manager ([smile-deploy-inputs.md](smile-deploy-inputs.md));
+  see [runbook step 2.4](runbooks/ig-release.md#step-2-4).
+- **Not during an event freeze.** No IG load, reload or apply while an event manifest's
+  `freeze` window is open ([runbook constraint 9](runbooks/ig-release.md#4-ordering-constraints)).
 - **Nothing feeds tx.dev automatically.** The tx-dev fhir-ig-feeder was decommissioned
   on 2026-09-29 (`aehrc/sparked-argo` #285), so every IG version, not only AU PS, reaches
   tx.dev only once someone adds it to the `hl7au-dev` Atomio feed by hand

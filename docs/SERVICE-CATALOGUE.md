@@ -49,14 +49,16 @@ the Sparked FHIR Server nodes.
 - **Audience:** technical and non-technical requestors. Non-technical users can fill in
   what they can; the team completes the technical details.
 - **Required inputs:** IG name, IG version, NPM package ID, urgency, request type.
-- **Optional inputs:** IG documentation URL, custom package `.tgz` URL, target nodes
-  (aucore / ereq), immediate-deployment preference, test-data/examples needs, and
+- **Optional inputs:** IG documentation URL, custom package `.tgz` URL, target node
+  (aucore, the only node since 2026-08-02), immediate-deployment preference, test-data/examples needs, and
   package install options.
 - **Fulfilment:** automated validation runs a dry-run and posts a preview comment. An admin
   gates the request by adding `ready-for-automation`, which triggers an automated PR that
   edits the package and Terraform config. A human reviews and merges the PR. If
   `deploy-immediately` was requested, deployment runs automatically after merge; otherwise
-  the team deploys on a schedule.
+  a repo admin runs the `Re/load IG Packages` workflow when it suits. Either way the
+  change persists across restarts only after the next local Terraform apply; there is no
+  scheduled restart or deploy.
 - **Automation level:** semi-automated (validate then auto-PR then human merge then optional
   auto-deploy).
 - **SLA:** 1 to 2 weeks end-to-end (calendar lead time); roughly 20 minutes of hands-on time
