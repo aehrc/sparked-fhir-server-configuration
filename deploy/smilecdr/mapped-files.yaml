@@ -193,25 +193,40 @@ mappedFiles:
           }
       }
 
-      /**
-       * The scopes of this token request: the user's approved scopes, else the
-       * whitelisted "scope" request parameter, else null when neither can be read.
-       */
-      function tokenScopesOf(theUserSession, theAuthorizationRequestDetails) {
-          var scopes = approvedScopesOf(theUserSession);
-          if (scopes) {
-              return scopes;
-          }
+      /** The whitelisted "scope" request parameter as an array, or null when it cannot be read. */
+      function requestedScopesOf(theAuthorizationRequestDetails) {
           try {
               var reqParams = theAuthorizationRequestDetails.getRequestParameters();
               if (reqParams) {
-                  scopes = scopeList(reqParams.get("scope"));
+                  var scopes = scopeList(reqParams.get("scope"));
                   return scopes && scopes.length > 0 ? scopes : null;
               }
           } catch (e) {
               // Fall through: unreadable.
           }
           return null;
+      }
+
+      /**
+       * Whether Smile CDR puts the launch/<key> claim into this token itself, so the
+       * script must not add it again. Neither scope source alone is trusted to equal
+       * the token's grant: the approved scopes may carry approvals remembered from an
+       * earlier consent, and the request parameter names scopes the user may have
+       * declined. So the claim is skipped only when "launch/" + key is in the approved
+       * scopes and, when the request's scope parameter is readable, in it as well.
+       * When the approved scopes are unreadable, the request parameter decides alone;
+       * when neither is readable, the claim is added (the behaviour before the skip).
+       */
+      function smileAddsLaunchClaim(theKey, theApprovedScopes, theRequestedScopes) {
+          var scope = "launch/" + theKey;
+          if (theApprovedScopes) {
+              return theApprovedScopes.indexOf(scope) >= 0 &&
+                  (!theRequestedScopes || theRequestedScopes.indexOf(scope) >= 0);
+          }
+          if (theRequestedScopes) {
+              return theRequestedScopes.indexOf(scope) >= 0;
+          }
+          return false;
       }
 
       function onTokenGenerating(theUserSession, theAuthorizationRequestDetails) {
@@ -267,7 +282,8 @@ mappedFiles:
                   launchParams = {};
               }
               var params = Object.getOwnPropertyNames(launchParams);
-              var tokenScopes = tokenScopesOf(theUserSession, theAuthorizationRequestDetails);
+              var approvedScopes = approvedScopesOf(theUserSession);
+              var requestedScopes = requestedScopesOf(theAuthorizationRequestDetails);
 
               for (var i = 0; i < params.length; i++) {
                   var key = params[i];
@@ -282,10 +298,10 @@ mappedFiles:
                       // for the same key throws IllegalArgumentException in
                       // SmartTokenEnhancerSvcImpl.validateDontAlreadyHaveClaim, failing
                       // the token request with HTTP 500 (measured on aucore
-                      // 2026-11-27). When the scopes cannot be read, the claim is
-                      // added as before.
+                      // 2026-11-27). smileAddsLaunchClaim states which scope sources
+                      // decide; when none can be read, the claim is added as before.
                       theUserSession.addLaunchResourceId(key, value);
-                      if (!tokenScopes || tokenScopes.indexOf("launch/" + key) < 0) {
+                      if (!smileAddsLaunchClaim(key, approvedScopes, requestedScopes)) {
                           theAuthorizationRequestDetails.addAccessTokenClaim(key, value);
                       }
                   }

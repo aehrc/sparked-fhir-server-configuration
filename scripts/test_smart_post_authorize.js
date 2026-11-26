@@ -332,6 +332,48 @@ check('a scope that only starts with launch/patient is not launch/patient',
   t.claims, [['patient', 'pat-1']]);
 
 // ---------------------------------------------------------------------------
+// onTokenGenerating: which scope sources decide the skip
+// ---------------------------------------------------------------------------
+
+console.log('--- token: approved scopes against the request parameter ---');
+
+// Approved scopes may carry approvals remembered from an earlier consent.
+t = token({ approvedScopes: 'openid launch launch/patient' },
+  { launch: launchToken({ patient: 'pat-1' }), params: { scope: 'launch openid' } });
+check('a remembered launch/patient approval this request did not ask for still adds the claim',
+  [t.error, t.claims, t.launchResourceIds], [null, [['patient', 'pat-1']], [['patient', 'pat-1']]]);
+
+t = token({ approvedScopes: 'openid launch' },
+  { launch: launchToken({ patient: 'pat-1' }), params: { scope: 'openid launch launch/patient' } });
+check('launch/patient requested but not approved (declined) adds the claim',
+  t.claims, [['patient', 'pat-1']]);
+
+t = token({ approvedScopes: 'openid launch launch/patient' },
+  { launch: launchToken({ patient: 'pat-1' }), params: { scope: 'openid launch launch/patient' } });
+check('launch/patient both approved and requested skips the claim',
+  [t.error, t.claims, t.launchResourceIds], [null, [], [['patient', 'pat-1']]]);
+
+{
+  const loaded = load();
+  const s = userSession({ approvedScopes: 'openid launch launch/patient' });
+  const r = requestDetails({ launch: launchToken({ patient: 'pat-1' }) });
+  r.details.getRequestParameters = () => { throw new Error('no request parameters'); };
+  let error = null;
+  try { loaded.context.onTokenGenerating(s.session, r.details); } catch (e) { error = String(e); }
+  check('request parameters unreadable and launch/patient approved skips the claim',
+    [error, r.calls.claims, s.calls.launchResourceIds], [null, [], [['patient', 'pat-1']]]);
+}
+
+t = token({}, { launch: launchToken({ patient: 'pat-1' }), params: {} });
+check('neither approved scopes nor the scope parameter readable adds the claim',
+  [t.error, t.claims], [null, [['patient', 'pat-1']]]);
+
+t = token({ approvedScopes: 'openid launch launch/patient launch/encounter' },
+  { launch: launchToken({ patient: 'pat-1', encounter: 'enc-1' }), params: { scope: 'openid launch launch/encounter' } });
+check('each key is decided on its own: only the scope in both sources is skipped',
+  t.claims, [['patient', 'pat-1']]);
+
+// ---------------------------------------------------------------------------
 // onSmartLoginPreContextSelection: the sandbox patient picker
 // ---------------------------------------------------------------------------
 
