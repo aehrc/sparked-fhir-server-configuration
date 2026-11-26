@@ -66,7 +66,7 @@ is no longer deployed by anything and does not describe tx.dev.
 
 | Target | What it is | Changed through |
 |---|---|---|
-| Sparked Dev FHIR Server | Smile CDR node `aucore`, `https://smile.sparked-fhir.com/aucore/fhir/DEFAULT` | this repo: IG Release request, `Re/load IG Packages` workflow, then a local `terraform apply` whose inputs come from Secrets Manager (#119). That apply becomes a manual Argo CD sync when the Smile move lands before the December 2026 event ([step 2.4](#smile-argo-move)) |
+| Sparked Dev FHIR Server | Smile CDR node `aucore`, `https://smile.sparked-fhir.com/aucore/fhir/DEFAULT` | this repo: IG Release request, `Re/load IG Packages` workflow, then a manual sync of the Argo CD Application `smilecdr` ([step 2.4](#step-2-4)) |
 | tx.dev | Ontoserver at `https://tx.dev.hl7.org.au/fhir`, which syndicates from the Atomio feed `hl7au-dev` on `synd.ontoserver.csiro.au` | an entry added by hand to `hl7au-dev` in the Atomio dashboard; the feed list and schedule are in `aehrc/sparked-argo` `apps/ontoserver/values.yaml` (private), and the event freeze pause switch in `apps/ontoserver/values-event-freeze.yaml` (`aehrc/sparked-argo` #385) |
 | Inferno test kits | Ruby gems `au_core_test_kit` and `au_ps_inferno` on RubyGems | `hl7au/au-fhir-core-inferno`, `hl7au/au-ps-inferno` |
 | Inferno platform | staging `https://development.inferno.sparked-fhir.com`, production `https://inferno.hl7.org.au` | `hl7au/au-fhir-inferno`, deployed by ArgoCD from `aehrc/sparked-argo` (private) |
@@ -101,7 +101,7 @@ three cycles, so a new engineer knows who to ask.
 |---|---|---|
 | **Release lead** | Opens and drives the tracking issue, owns Phases 0, 1, 2, 5 to 7 | @KyleOps |
 | **Requester** | Files the Smile IG Release request; says whether test data must change | HL7 AU product team (for example @dt-r) |
-| **Repo admin** (this repo) | Reviews the request, arms or bypasses automation, merges, deploys, runs Terraform (needs the `AdministratorAccess` SSO permission set, step 2.4) | @KyleOps |
+| **Repo admin** (this repo) | Reviews the request, arms or bypasses automation, merges, deploys (a manual Argo CD sync, step 2.4), runs Terraform for infrastructure changes (needs the `AdministratorAccess` SSO permission set) | @KyleOps |
 | **Kit maintainer** | Generates the suite and releases the gem (Phase 4) | @projkov |
 | **Platform reviewer** | Reviews `au-fhir-inferno` PRs. The `master` ruleset needs 1 approving review, code-owner review and a green `quality-control`. A kit bump touches `Gemfile*` and `infra/`, which `CODEOWNERS` gives to the release owners, so one of them must approve it. | @KyleOps or @brettesler-ext for a kit bump |
 | **HL7 AU approver** | Signs off anything touching `fhir.hl7.org.au` or tx.hl7 | Brett Esler |
@@ -499,50 +499,35 @@ what that guide leaves implicit.
 #### 2.4 Persist the seed config
 
 - **Who:** repo admin.
-- **Where:** Terraform from a workstation, on `main` after the PR merged. On `main` today
-  this local apply is the only way a Smile configuration change reaches the server: Argo
-  CD does not deploy the Smile workload. The two gitignored inputs
-  (`terraform/backend-sparkey.hcl` and `tfvars/sparkey.tfvars`) are kept in Secrets
-  Manager under `sparked/smile/terraform/` and fetched with
-  `scripts/fetch-smile-tfvars.sh` ([smile-deploy-inputs.md](../smile-deploy-inputs.md),
-  #119); reading them needs the `AdministratorAccess` permission set, the same set an
-  apply needs. The rest of the procedure is in
-  [sparkey-deploy-runbook.md](../sparkey-deploy-runbook.md). Use that document, not
-  `terraform-local-deploy.md`, which describes the decommissioned stack (#111).
-- <a id="smile-argo-move"></a>**About to change: Smile moves to Argo CD before the
-  December 2026 event.** The owner brought the adoption forward to a weekday window before
-  Thu 3 Dec 2026, ahead of the freeze (open #127, which updates
-  [design/smile-to-argo.md](../design/smile-to-argo.md) from #120). When open #128 merges
-  in that window, Terraform stops deploying the workload (`helm_deploy = false`) and this
-  step becomes a manual sync of the `smilecdr` Application in Argo CD, following the
-  rewritten [sparkey-deploy-runbook.md](../sparkey-deploy-runbook.md) (section A, PR plus
-  manual sync). Until then, use the procedure below. The other pages that describe the
-  local apply for an IG release (the Targets table, the tracking template, `WORKFLOWS.md`
-  and `SERVICE-CATALOGUE.md`) say "today" and link here, so when #128 merges this step is
-  the one to rewrite.
-- **When:** not inside an event freeze (constraint 9); the freeze allows a Smile deploy
+- **Where:** Argo CD, on `main` after the PR merged. Since 26 Nov 2026 Argo CD deploys
+  the Smile workload: the Application `smilecdr` in aehrc/sparked-argo renders this
+  repository's `main` (`module-config/`, `deploy/smilecdr/mapped-files.yaml`), and
+  Terraform no longer touches the Helm release
+  ([design/smile-to-argo.md](../design/smile-to-argo.md)). The full procedure is
+  [sparkey-deploy-runbook.md](../sparkey-deploy-runbook.md), section A. A new package
+  file is first an entry in `scripts/render_smile_mapped_files.py` and a run of it, in the
+  same PR (CI fails if the generated file is stale).
+- **When:** not inside an event freeze (constraint 9); the freeze allows a Smile sync
   for an emergency fix only.
-- **Do:** plan and apply the Smile deployment so the new package files become ConfigMaps
-  and `startup_installation_specs` matches the repo. Pick a window: a `module-config/`
-  change rolls the pod, and the first `$validate` after it can answer 504 while the
-  validator warms (#111).
+- **Do:** sync the `smilecdr` Application so the new package files become ConfigMaps and
+  `startup_installation_specs` matches the repo. Pick a window: a `module-config/` change
+  rolls the pod, and the first `$validate` after it can answer 504 while the validator
+  warms (#111). In the Argo CD UI, Refresh the Application, read App Diff (only the
+  ConfigMaps and the Deployment's config hash should change), then Sync with Prune
+  ticked and never Replace or Force; or:
 
   ```bash
-  aws sso login --profile csiro-fhir
-  export AWS_PROFILE=csiro-fhir
-  scripts/fetch-smile-tfvars.sh            # writes both inputs (0600); refuses to overwrite a local edit
-  scripts/fetch-smile-tfvars.sh status     # both must match the stored copies
-  cd terraform
-  terraform init -reconfigure -backend-config=backend-sparkey.hcl   # must not prompt for `key`; if it does, stop
-  terraform plan -var-file=../tfvars/sparkey.tfvars -out=sparkey.plan
-  terraform apply sparkey.plan
+  argocd login argo.sparked-fhir.com --sso
+  argocd app diff smilecdr
+  argocd app sync smilecdr --prune
+  kubectl --context sparkey get pods -n smile -w
   ```
 
-- **Verify:** before applying, the plan changes the Smile Helm release in place and adds,
-  changes or destroys no AWS resources; anything else means stop and ask
-  **(unverified: this plan was not re-run for this runbook)**. After apply, repeat the step
-  2.3 checks. With cluster read access, confirm the live spec equals the repo's (run from
-  the repo root; `aucore` is the first node in the file, so `grep -m1` picks its line):
+- **Verify:** the new pod turns Ready within its 20-minute startup probe and the
+  Application is Synced and Healthy; a sync that reports ProgressDeadlineExceeded while
+  the pod is still starting is not a failure yet (section A of the deploy runbook). Then
+  repeat the step 2.3 checks. With cluster read access, confirm the live spec equals the
+  repo's (run from the repo root; `aucore` is the first node in the file, so `grep -m1` picks its line):
 
   ```bash
   CM=$(kubectl --context sparkey -n smile get cm -o name | grep scdrnode-aucore)
@@ -1032,7 +1017,7 @@ tracking issue:
 | `fetchDependencies: true` pulls nothing if any version is present | [2.1](#step-2-1), [2.2](#step-2-2) | dependency version absent from the dry-run list | #86, #91, #92 |
 | Superseded StructureDefinitions stay active | [2.3](#step-2-3) | version-less search returns two versions | #45; verified 2026-11-26 |
 | Large package replacement causes a long expunge and ingress timeouts | [2.3](#step-2-3) | pod CPU pinned, 15 s timeouts, no restart | #92 |
-| Live install without Terraform means a restart reseeds old versions | [2.4](#step-2-4) | live `startup_installation_specs` differs from the repo | #91, #111 |
+| Live install without a sync means a restart reseeds old versions | [2.4](#step-2-4) | live `startup_installation_specs` differs from the repo | #91, #111 |
 | Nothing feeds tx.dev automatically | [1.1](#step-1-1) | step 1.2 returns nothing after the 15:00 UTC run | `aehrc/sparked-argo` #285 |
 | Suite loads the IG from `/home/igs` | [4.2](#step-4-2) | `igs '/home/igs/...'` in generated code; "Unable to find/resolve/read -ig" | `au-fhir-inferno` #130; `au-fhir-core-inferno` #316, fixed in #322 (2026-09-29) |
 | Generation workflows open PRs CI never checks | [4.2](#step-4-2) | no checks on the bot PR | `generate-tests.yaml`, `sync-ig-package.yaml` |
