@@ -10,7 +10,6 @@ permissions:
   contents: read
   issues: write
   pull-requests: write
-  actions: write
 
 jobs:
   # ============================================================================
@@ -37,85 +36,15 @@ jobs:
 
             core.setOutput('issue_number', issueNumber);
 
-      - name: Check if deploy-immediately label is present
-        id: check_deploy
+      # No deployment is dispatched from here. Since 2026-11-26 the Argo CD
+      # Application `smilecdr` (aehrc/sparked-argo apps/smilecdr.yaml) syncs
+      # main automatically, so the merge is the deploy: the new pod installs
+      # the packages from its seed config on boot. A Re/load IG Packages run
+      # dispatched at the merge would stack a second install on that one
+      # (docs/runbooks/ig-release.md, step 2.3) and could not wait for the
+      # roll, because a GitHub-hosted runner cannot see the cluster.
+      - name: Post deployment notice
         if: steps.extract.outputs.issue_number
-        env:
-          HAS_DEPLOY_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'deploy-immediately') }}
-        run: |
-          echo "has_deploy_label=$HAS_DEPLOY_LABEL" >> "$GITHUB_OUTPUT"
-
-      - name: Extract target nodes from PR
-        id: extract_nodes
-        if: steps.extract.outputs.issue_number && steps.check_deploy.outputs.has_deploy_label == 'true'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const prBody = context.payload.pull_request.body || '';
-
-            const nodesMatch = prBody.match(/\*\*(?:Target|Requested) Nodes\*\*[:\s]+([^\n]+)/i);
-            let nodes = 'all';
-
-            if (nodesMatch) {
-              nodes = nodesMatch[1].trim().replace(/\*\*/g, '').replace(/`/g, '');
-            }
-
-            core.setOutput('nodes', nodes);
-
-      - name: Trigger deployment workflow
-        if: steps.extract.outputs.issue_number && steps.check_deploy.outputs.has_deploy_label == 'true'
-        uses: actions/github-script@v7
-        env:
-          ISSUE_NUMBER: ${{ steps.extract.outputs.issue_number }}
-          NODES: ${{ steps.extract_nodes.outputs.nodes }}
-        with:
-          script: |
-            const issueNumber = parseInt(process.env.ISSUE_NUMBER, 10);
-            const nodes = process.env.NODES;
-            const prNumber = context.payload.pull_request.number;
-
-            console.log(`Triggering deployment for issue #${issueNumber} with nodes: ${nodes}`);
-
-            await github.rest.actions.createWorkflowDispatch({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              workflow_id: 'reload-ig-config.yml',
-              ref: 'main',
-              inputs: {
-                base_url: 'https://smile.sparked-fhir.com',
-                nodes: nodes,
-                package_source: 'config',
-                dry_run: 'false',
-                force_reinstall: 'false',
-                issue_number: issueNumber.toString()
-              }
-            });
-
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: issueNumber,
-              body: `**Deployment Triggered**
-
-            PR #${prNumber} has been merged and your request for immediate deployment is being fulfilled.
-
-            **Deployment Details:**
-            - Target Nodes: \`${nodes}\`
-            - Package Source: Configuration files
-
-            You will receive another comment with deployment results shortly.
-
-            **Next Steps:**
-            1. Wait for deployment to complete (typically 2-5 minutes)
-            2. Verify the deployment meets your acceptance criteria
-            3. Comment with your verification results
-            4. A repo admin will mark the issue as complete
-
-            **Note**: Please do not close this issue manually. It will remain open for verification.`
-            });
-
-      - name: Post deployment options (no immediate deployment)
-        if: steps.extract.outputs.issue_number && steps.check_deploy.outputs.has_deploy_label != 'true'
         uses: actions/github-script@v7
         env:
           ISSUE_NUMBER: ${{ steps.extract.outputs.issue_number }}
@@ -136,21 +65,21 @@ jobs:
             **What was merged:**
             ${prTitle}
 
-            **Deployment Options:**
-
-            Neither option runs during an event change freeze (no IG package load and no apply), except to fix an outage.
-
             ### The merge deploys it
-            Argo CD syncs the Smile workload (the \`smilecdr\` Application) from \`main\` on its own, so a change to \`module-config/\` or \`deploy/\` reaches the server without anyone running anything:
-            - **Time**: about 2 minutes to start, then up to 20 minutes for the new pod to be ready
-            - **Downtime**: None expected (the old pod serves until the new one is ready)
+            Argo CD syncs the Smile workload (the \`smilecdr\` Application) from \`main\` on its own, so nobody needs to run anything:
+            - **Time**: Argo CD starts a new Smile pod within about 2 minutes, and the new pod can take up to 20 minutes to be ready
+            - **Packages**: the new pod installs the packages from its seed config as it starts
+            - **Downtime**: none expected (the old pod serves until the new one is ready)
 
-            ### If the packages need loading now
-            Once that roll has finished (one pod, Ready), a repo admin can run the "Re/load IG Packages" workflow. Not during the roll: the new pod installs the same packages from its seed config.
+            ### If something is missing after the roll
+            Only once the roll has finished (one pod, Ready), and only if a package is still missing, a repo admin runs the "Re/load IG Packages" workflow, dry run first. Never during the roll: the new pod is already installing the same packages, and a second install stacked on top of it is unsafe.
+
+            ### Event freezes
+            Nothing merges during an event change freeze, except a fix for an outage.
 
             ---
 
-            Once deployed, you'll be asked to verify the deployment meets your acceptance criteria.
+            Once the new pod is ready, please verify the deployment meets your acceptance criteria and comment here with your results. A repo admin will then mark the issue as complete.
 
             **Note**: Please do not close this issue manually. It will remain open for verification.`
             });
@@ -175,8 +104,8 @@ jobs:
             **Error details**: Check the [workflow run](${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}) for details.
 
             **Next steps**:
-            - A maintainer will review and handle deployment manually
-            - You will be notified when deployment occurs
+            - A maintainer will review and follow up on this issue
+            - The merge itself still deploys the change (Argo CD syncs \`main\` automatically)
 
             This issue has been labeled \`needs-manual-intervention\`.`
             });

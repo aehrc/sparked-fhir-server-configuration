@@ -122,7 +122,7 @@ jobs:
                 : '2. 🔍 **Validation** - A maintainer will run the automated validation after triaging this request\n';
               message += '3. 📋 **Admin review** - Team will review and approve if validation passes\n';
               message += '4. 🤖 **PR auto-creation** - A pull request will be automatically generated\n';
-              message += '5. 🚀 **Deployment** - After PR merge, deployment will occur (immediate or scheduled)\n';
+              message += '5. 🚀 **Deployment** - The PR merge deploys it: the server picks up the change within about 20 minutes\n';
               message += '6. ✅ **Verification** - You\'ll be asked to verify the deployment\n';
               message += '7. 🎉 **Complete** - You can close the issue after verification\n\n';
               message += '**Watch this issue for status updates** - Labels will change as work progresses.\n\n';

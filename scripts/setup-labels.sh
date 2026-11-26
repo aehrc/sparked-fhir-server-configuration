@@ -42,7 +42,6 @@ gh label create "wontfix" --color "ffffff" --description "Will not be implemente
 gh label create "ready-for-automation" --color "0e8a16" --description "Issue has all info needed for automated PR generation" --force
 gh label create "auto-pr-created" --color "1d76db" --description "Automated PR has been created for this issue" --force
 gh label create "needs-manual-intervention" --color "d93f0b" --description "Automation failed, requires manual implementation" --force
-gh label create "deploy-immediately" --color "d93f0b" --description "Request immediate deployment after PR merge" --force
 
 # SMART Client Registration Labels
 gh label create "smart-client" --color "d876e3" --description "SMART App / OIDC client registration request" --force

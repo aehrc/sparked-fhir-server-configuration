@@ -126,11 +126,6 @@ jobs:
               }
             }
 
-            // Extract deployment preference from checkbox (template header is
-            // "Deployment Preferences"; must match exactly or it never triggers)
-            const deploymentSection = extractField('Deployment Preferences');
-            const deployImmediately = deploymentSection.includes('[x]') || deploymentSection.includes('[X]');
-
             // Extract package options from checkboxes. Parse per-line so the two
             // options are read independently: line 0 = installMode,
             // line 1 = fetchDependencies (matches the validate-ig job).
@@ -162,7 +157,6 @@ jobs:
             core.setOutput('safe_name', safeName);
             core.setOutput('selected_nodes', selectedNodes.join(','));
             core.setOutput('selected_nodes_count', selectedNodes.length);
-            core.setOutput('deploy_immediately', deployImmediately);
 
             if (!igName || !igVersion) {
               core.setFailed('Missing required fields: IG Name or Version');
@@ -337,7 +331,7 @@ jobs:
 
             ### Post-Merge Actions
             After merging this PR:
-            1. **Deployment** will be triggered (if requested) or scheduled
+            1. **The merge deploys it**: Argo CD rolls Smile within about 2 minutes and the new pod installs the packages from its seed config (up to 20 minutes to be ready); run Re/load IG Packages by hand only after the roll, and only if something is missing
             2. **Requester will be notified** about deployment
             3. **Requester will verify** deployment meets acceptance criteria
             4. **Issue will be closed** once verified
@@ -368,7 +362,6 @@ jobs:
           PACKAGE_FILE_NAME: ${{ steps.apply.outputs.package_file_name }}
           PACKAGE_ID: ${{ steps.issue.outputs.package_id }}
           IG_VERSION: ${{ steps.issue.outputs.ig_version }}
-          DEPLOY_IMMEDIATELY: ${{ steps.issue.outputs.deploy_immediately }}
         uses: actions/github-script@v7
         with:
           script: |
@@ -412,12 +405,6 @@ jobs:
             // Update labels on the issue
             const issueLabels = ['auto-pr-created', 'in-progress'];
             const prLabels = ['auto-pr-created'];
-
-            const deployImmediately = process.env.DEPLOY_IMMEDIATELY === 'true';
-            if (deployImmediately) {
-              issueLabels.push('deploy-immediately');
-              prLabels.push('deploy-immediately');
-            }
 
             await github.rest.issues.addLabels({
               owner: context.repo.owner,

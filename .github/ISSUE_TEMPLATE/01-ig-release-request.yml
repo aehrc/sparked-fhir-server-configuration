@@ -107,21 +107,6 @@ body:
       options:
         - label: aucore (Sparked dev AU Core node)
           required: false
-  - type: checkboxes
-    id: deployment-options
-    attributes:
-      label: Deployment Preferences
-      description: |
-        How would you like the deployment to be handled after approval?
-
-        **Deploy Immediately**: Request that deployment happens automatically after the change is previewed and approved.
-        - ✅ Fast (2-5 minutes after PR merge)
-        - ✅ No manual intervention needed
-        - ⚠️ Repo admins will verify configuration before approving
-      options:
-        - label: Request immediate deployment after change is approved and merged
-          required: false
-
   - type: textarea
     id: test-data
     attributes:
@@ -180,5 +165,5 @@ body:
         1. **Repo admins will review** this request and add implementation details
         2. **You'll receive updates** as status labels change: `needs-review` → `approved` → `in-progress` → `deployed`
         3. **Automated PR will be created** if approved for automation
-        4. **Deployment will occur** either immediately after PR merge (if requested) or on next server restart
+        4. **The merge deploys it**: Argo CD rolls the server within about 2 minutes of the PR merge, and the new pod installs the packages as it starts
         5. **You'll be notified** when deployment is complete and asked to verify it meets your requirements
