@@ -23,6 +23,28 @@ Supporting pieces:
   issuance. It injects patient/encounter context from EHR launch tokens and
   sets `fhirUser` to the correct Practitioner (Smile CDR otherwise invents a
   RelatedPerson). Backend service (client credentials) flows are skipped.
+  Each launch value (other than `practitioner`) always becomes a launch
+  resource id, but becomes an access token claim only when the app was not
+  granted the matching `launch/<key>` scope. With `launch/patient` or
+  `launch/encounter` granted, Smile CDR puts that claim in the token itself
+  from the launch resource ids, and a second claim for the same key throws
+  `IllegalArgumentException` in
+  `SmartTokenEnhancerSvcImpl.validateDontAlreadyHaveClaim`, so the token
+  request failed with HTTP 500 (measured on `aucore` 2026-11-27 for an EHR
+  launch asking for `launch launch/patient`). The granted scopes are read
+  from the user session's approved scopes, falling back to the whitelisted
+  `scope` request parameter; when neither can be read the claim is added as
+  before. The same script also offers a **patient picker for sandbox
+  logins**: `onSmartLoginPreContextSelection` adds one person per default
+  launch context of type `patient` on the user, so Smile CDR shows its
+  context selection screen and puts the chosen patient's resource id into
+  the launch context. It acts only for clients whose id starts with `sbx-`
+  (registered by aehrc/sparked-sandbox, which writes those patient contexts),
+  only on a standalone launch granted `launch/patient` without `launch`, and
+  only when the user has two or more patient contexts. It never changes
+  authorities or scopes, and any error is logged and swallowed, so no other
+  client on `aucore` is affected. `node scripts/test_smart_post_authorize.js`
+  unit tests both (CI runs it in `validate-config.yml`).
 - **Client registration**: a GitHub issue from template 05 is registered by
   the `register-smart-client` job in `.github/workflows/issue-labeled.yml`
   once an admin applies the `ready-for-automation` label; it runs
