@@ -160,6 +160,80 @@ def flatten(d, prefix=""):
     return {prefix or ".": d}
 
 
+SECRETS_DIR = "apps/smilecdr/secrets"
+
+
+def external_secret_keys(argo_repo: Path) -> dict:
+    """Target Secret name -> the Secrets Manager keys (ARNs) its ExternalSecret reads."""
+    out = {}
+    d = argo_repo / SECRETS_DIR
+    for f in sorted(d.glob("*.yaml")) if d.is_dir() else []:
+        for doc in yaml.safe_load_all(f.read_text()):
+            if not doc or doc.get("kind") != "ExternalSecret":
+                continue
+            target = (doc["spec"].get("target") or {}).get("name") or doc["metadata"]["name"]
+            out[target] = {e["remoteRef"]["key"] for e in doc["spec"].get("data", [])}
+    return out
+
+
+def normalize_eso(theirs: dict, argo: dict, argo_repo: Path) -> list:
+    """Where the Application reads a secret from an ESO-created Secret (type or
+    source k8sSecret) and the other side still has the CSI form, drop the
+    secret-source fields from both sides and instead require that the other
+    side's ARN is what the ExternalSecret behind that Secret reads. Terraform
+    keeps computing the CSI form on purpose (helm_deploy = false); everything
+    else, the list of databases included, still compares strictly. Returns
+    one line per normalized secret."""
+    es = external_secret_keys(argo_repo)
+    notes = []
+
+    def check(label, their_arn, secret_name):
+        keys = es.get(secret_name)
+        if keys is None:
+            notes.append(f"MISMATCH {label}: no ExternalSecret targets Secret {secret_name} in {SECRETS_DIR}")
+        elif not their_arn:
+            notes.append(f"MISMATCH {label}: the other side has no secretArn to compare with Secret {secret_name}")
+        elif keys != {their_arn}:
+            notes.append(f"MISMATCH {label}: Secret {secret_name} reads {sorted(keys)}, the other side has {their_arn}")
+        else:
+            notes.append(f"eso {label}: Secret {secret_name}, ARN matches")
+
+    a_db = ((argo.get("database") or {}).get("external") or {})
+    t_db = ((theirs.get("database") or {}).get("external") or {})
+    a_list, t_list = a_db.get("databases") or [], t_db.get("databases") or []
+    if len(a_list) == len(t_list):
+        for a, t in zip(a_list, t_list):
+            a_src, t_src = a.get("connectionConfigSource") or {}, t.get("connectionConfigSource") or {}
+            if a_src.get("source") == "k8sSecret" and t_src.get("source") == "sscsi":
+                check(f"database {a.get('name')}", t_src.get("secretArn"), a_src.get("secretName"))
+                a.pop("connectionConfigSource")
+                t.pop("connectionConfigSource")
+    a_def, t_def = a_db.get("defaults") or {}, t_db.get("defaults") or {}
+    if (a_def.get("connectionConfigSource") or {}).get("source") == "k8sSecret" and \
+            (t_def.get("connectionConfigSource") or {}).get("source") == "sscsi":
+        a_def.pop("connectionConfigSource")
+        t_def.pop("connectionConfigSource")
+
+    a_img, t_img = (argo.get("image") or {}), (theirs.get("image") or {})
+    a_ps, t_ps = a_img.get("imagePullSecrets") or [], t_img.get("imagePullSecrets") or []
+    if a_ps and len(a_ps) == len(t_ps) and all(x.get("type") == "k8sSecret" for x in a_ps) \
+            and all(x.get("type") == "sscsi" for x in t_ps):
+        for a, t in zip(a_ps, t_ps):
+            check("image pull secret", t.get("secretArn"), a.get("secretName"))
+        a_img.pop("imagePullSecrets")
+        t_img.pop("imagePullSecrets")
+
+    a_sec, t_sec = argo.get("secrets") or {}, theirs.get("secrets") or {}
+    for name, a in a_sec.items():
+        t = t_sec.get(name) or {}
+        if isinstance(a, dict) and a.get("type") == "k8sSecret" and t.get("type") == "sscsi":
+            check(f"secrets.{name}", t.get("secretArn"), a.get("secretName"))
+            for k in ("type", "secretName", "secretArn"):
+                a.pop(k, None)
+                t.pop(k, None)
+    return notes
+
+
 def cmd_values(args) -> int:
     head_report(args.argo_repo, args.require_main)
     app = load_app(args.argo_repo)
@@ -182,8 +256,11 @@ def cmd_values(args) -> int:
         theirs = yaml.safe_load(Path(args.helm_values).read_text()) or {}
         label = "helm release values"
 
+    notes = normalize_eso(theirs, argo, args.argo_repo)
+    for n in notes:
+        print(n)
     a, b = flatten(theirs), flatten(argo)
-    bad = 0
+    bad = sum(n.startswith("MISMATCH") for n in notes)
     for k in sorted(set(a) | set(b)):
         x, y = a.get(k, "<absent>"), b.get(k, "<absent>")
         # Terraform passes --set values as strings and Helm parses them back to
