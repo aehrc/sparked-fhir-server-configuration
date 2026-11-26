@@ -200,7 +200,50 @@ class SmileCDRPackageSync:
                 print(f"      Response: {response_text}")
             return False
 
-    def sync_node(self, node_name: str, desired_packages: List[Dict], force_reinstall: bool = False, skip_uninstall: bool = False) -> bool:
+    def report_drift(self, node_name: str, desired_packages: List[Dict],
+                     installed_packages: List[Dict], report_unlisted: bool) -> None:
+        """Print how the node's registry differs from the desired packages, both ways.
+
+        Read-only (GET requests only), so a dry run prints it too. For each
+        desired package id it lists the desired version when the node lacks it
+        (missing) and every other stored version (extra). The extras matter
+        after an Argo CD roll: the seed install adds the new version but is not
+        known to remove the superseded one, and the install loop below skips a
+        package whose desired version is already current, so it never removes
+        an extra either. With report_unlisted (the whole seed config is the
+        source), package ids stored on the node that the source does not list
+        are printed as well; Smile fetches some of them as dependencies.
+        """
+        desired_versions: Dict[str, List[str]] = {}
+        for pkg in desired_packages:
+            desired_versions.setdefault(pkg['name'], []).append(pkg['version'])
+
+        missing = []
+        extra = []
+        for name, versions in desired_versions.items():
+            stored = self.get_installed_versions(node_name, name)
+            if not stored:
+                # Packument unavailable: fall back to the search index, which
+                # shows only the current version of each package id.
+                stored = [p['version'] for p in installed_packages if p['name'] == name]
+            missing += [f"{name}@{v}" for v in versions if v not in stored]
+            extra += [f"{name}@{v}" for v in stored if v not in versions]
+
+        unlisted = []
+        if report_unlisted:
+            unlisted = sorted({f"{p['name']}@{p['version']}" for p in installed_packages
+                               if p['name'] not in desired_versions})
+
+        print(f"\n🔎 Drift on {node_name} against the desired packages (before any change):")
+        print(f"   Missing (desired version not stored): {', '.join(missing) if missing else 'none'}")
+        print(f"   Extra (other version of a desired package still stored): {', '.join(extra) if extra else 'none'}")
+        if report_unlisted:
+            print(f"   Not in the source (stored, package id not listed): {', '.join(unlisted) if unlisted else 'none'}")
+        if not missing and not extra and not unlisted:
+            print("   No drift")
+
+    def sync_node(self, node_name: str, desired_packages: List[Dict], force_reinstall: bool = False,
+                  skip_uninstall: bool = False, report_unlisted: bool = False) -> bool:
         """Sync packages for a single node"""
         print(f"\n{'=' * 80}")
         print(f"Processing node: {node_name}")
@@ -216,6 +259,8 @@ class SmileCDRPackageSync:
 
         # Get currently installed packages
         installed_packages = self.get_installed_packages(node_name)
+
+        self.report_drift(node_name, desired_packages, installed_packages, report_unlisted)
 
         # Create lookup map of installed packages
         installed_map = {
@@ -482,7 +527,10 @@ def main():
             desired_packages = all_packages
 
         # Sync the node
-        success = syncer.sync_node(node_name, desired_packages, args.force_reinstall, args.skip_uninstall)
+        # Only the seed config is a node's whole desired list, so only then is
+        # a stored package id it does not list worth reporting.
+        success = syncer.sync_node(node_name, desired_packages, args.force_reinstall, args.skip_uninstall,
+                                   report_unlisted=args.source == 'config')
         if not success:
             all_success = False
 

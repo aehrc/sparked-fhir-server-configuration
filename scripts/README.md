@@ -249,8 +249,9 @@ optional arguments:
 1. **Determine nodes** - From input or auto-detect from `simplified-multinode.yaml`
 2. **Load packages** - From config, packages directory, or custom JSON
 3. **Fetch current state** - Query each node for installed packages
-4. **Compare and sync** - Install/update packages as needed
-5. **Report results** - Show summary of all operations
+4. **Report drift** - Before any change, and in a dry run too: desired versions the node lacks (missing), other stored versions of a desired package id (extra), and, with `--source config`, stored package ids the seed config does not list. A live run does not remove an extra version whose package's desired version is already current
+5. **Compare and sync** - Install/update packages as needed
+6. **Report results** - Show summary of all operations
 
 ## Integration with GitHub Actions
 
