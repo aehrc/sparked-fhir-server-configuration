@@ -191,7 +191,9 @@ def normalize_eso(theirs: dict, argo: dict, argo_repo: Path) -> list:
         keys = es.get(secret_name)
         if keys is None:
             notes.append(f"MISMATCH {label}: no ExternalSecret targets Secret {secret_name} in {SECRETS_DIR}")
-        elif their_arn and their_arn not in keys:
+        elif not their_arn:
+            notes.append(f"MISMATCH {label}: the other side has no secretArn to compare with Secret {secret_name}")
+        elif keys != {their_arn}:
             notes.append(f"MISMATCH {label}: Secret {secret_name} reads {sorted(keys)}, the other side has {their_arn}")
         else:
             notes.append(f"eso {label}: Secret {secret_name}, ARN matches")

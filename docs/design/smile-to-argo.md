@@ -376,11 +376,18 @@ sparked-argo PR and a separate sync, after the adoption sync.
   aehrc/sparked-infrastructure (`secrets_readers`), as the other namespaces
   have, would separate the workload's role from the secret reader; it is not
   needed for this step.
-- **New Secret names**, deliberately: the CSI driver owns its synced Secrets
-  (`smile-smilecluster-<db>`, `smilecdr-users-json` and the rest) through the
-  pod's SecretProviderClassPodStatus and garbage-collects them when the last
-  pod that mounts the CSI volume goes, which would take a same-named ESO Secret
-  with it.
+- **New Secret names**, deliberately: the CSI driver's synced Secrets
+  (`smile-smilecluster-<db>`, `smilecdr-users-json` and the rest) carry
+  ownerReferences to the Deployment's ReplicaSets (eleven on 26 Nov), so
+  Kubernetes garbage-collects them once the last owning ReplicaSet is gone,
+  and would take a same-named ESO Secret with them. With
+  `revisionHistoryLimit: 10` the old ReplicaSets, and so these stale copies of
+  the database passwords and the pull credential, stay for up to ten more
+  rollouts. That keeps the rollback below working; after the event, delete
+  them by hand (`kubectl -n smile delete secret` on the CSI names, once no
+  ReplicaSet with the CSI volume is wanted for rollback). The driver does not
+  refresh an existing Secret, so a rollback after a credential rotation would
+  start on the old values: rotate after cleanup, not before.
 - **Chart values** switch each secret to `type: k8sSecret` (database
   `connectionConfigSource.source`) with the new name, in `values-account.yaml`,
   the last value file, so `module-config/` stays as Terraform passes it. The
