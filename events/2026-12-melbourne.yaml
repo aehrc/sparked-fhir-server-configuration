@@ -180,20 +180,23 @@ inferno:
 # The DEFAULT partition's curated data, as recorded by the loader
 # (loader.sparked-fhir.com, /api/v1/public/nodes and /datasets).
 data:
-  loaded_on: "2026-08-24"
+  # The AU Core reload date. Set to the day the loader's Update Now ran and
+  # was checked; this block merges only after that.
+  loaded_on: "2026-11-30"
   sets:
     - name: AU Core
       repo: https://github.com/aehrc/au-fhir-test-data
-      ref: sparked-aucore-loadable
-      commit: 20fb5141d4433ca074f93f13cdcbb21b5477d8d7
+      ref: sparked-aucore-loadable-2026-11
+      commit: fbaef7a14a1a355554576c81edfa16e29b6b7a5e
       path: au-fhir-test-data-set/au-core
-      note: "A Sparked branch of hl7au/au-fhir-test-data: upstream master at ecc2ff7 plus three commits that make the set loadable on this server."
+      note: "A Sparked branch of hl7au/au-fhir-test-data: upstream master at af8a563 (23 Nov 2026) plus commits that make the set loadable on this server."
     - name: AU Patient Summary
       repo: https://github.com/hl7au/au-fhir-test-data
       ref: master
       commit: ecc2ff75656354da5042cc4f72accd816859a511
       path: au-fhir-test-data-set/au-patient-summary
-  note: No reload is planned before the event; the data stays as loaded through the freeze.
+      note: "Loaded on Mon 24 Aug 2026; upstream has not changed this folder since."
+  note: "No further reload is planned before the event; the data stays as loaded through the freeze. Since the August load, three AU Core ids were renamed upstream: `Condition/condition-masked` is now `Condition/masked`, `Condition/noknown` is now `Condition/noneknown` and `Observation/observation-masked` is now `Observation/masked`."
 
 sandbox:
   # planned until the go/no-go; then open (self-serve at `url` with the
