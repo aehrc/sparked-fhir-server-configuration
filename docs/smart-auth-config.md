@@ -23,6 +23,12 @@ Supporting pieces:
   issuance. It injects patient/encounter context from EHR launch tokens and
   sets `fhirUser` to the correct Practitioner (Smile CDR otherwise invents a
   RelatedPerson). Backend service (client credentials) flows are skipped.
+  When neither the launch value's `practitioner` key nor a `practitioner`
+  default context names fhirUser, a sandbox login's default context of
+  type `sbx-fhiruser` (written by aehrc/sparked-sandbox, for example
+  `Patient/<sandbox id>-<patient>` when the deployment names a Patient as
+  fhirUser) sets it, if its resource id is `Patient/<id>` or
+  `Practitioner/<id>`; other users have no such context and are unchanged.
   Each launch value (other than `practitioner`) always becomes a launch
   resource id, but becomes an access token claim only when the app was not
   granted the matching `launch/<key>` scope. With `launch/patient` or
@@ -151,6 +157,8 @@ switched on:
   same patient as before.
 - A sandbox standalone launch asking for `launch/patient` without `launch`
   shows the chooser, and the chosen patient is the token's bare `patient`.
+- A sandbox login with an `sbx-fhiruser` context of `Patient/...` gets that
+  Patient as `fhirUser` on a standalone launch.
 - Client credentials are unchanged.
 - A sandbox EHR launch asking for `launch/encounter`, with no encounter in
   the launch value, gets a token.
