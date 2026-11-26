@@ -134,9 +134,8 @@ Permissions come from the **user** who logs in and authorizes the app (not the c
 - `FHIR_ALL_READ`: read access to FHIR resources
 - `FHIR_CAPABILITIES`: access to the CapabilityStatement
 - `FHIR_ACCESS_PARTITION_NAME: DEFAULT`: access to the DEFAULT partition
-- `FHIR_ALL_WRITE` (optional): write access, if needed
 
-Connectathon user accounts will be pre-configured with appropriate permissions. Contact the Sparked team if you need a user account.
+Participant users cannot write to `DEFAULT`. For the December 2026 event, the login user comes with your sandbox; see the [participant guide](https://github.com/aehrc/sparked-fhir-server-configuration/blob/main/docs/participants/2026-12-melbourne.md).
 
 ## SMART Capabilities
 
@@ -153,7 +152,7 @@ The server advertises the following SMART capabilities:
 - `permission-patient`
 - `permission-offline`
 
-PKCE: `S256` is the only challenge method the discovery document advertises.
+PKCE: the SMART configuration (`.well-known/smart-configuration`) advertises `S256` only; the OpenID configuration advertises `plain` and `S256`. Use `S256`.
 
 ## How to Register a SMART App Client
 
@@ -189,7 +188,7 @@ These clients were handed out at earlier events. For the December 2026 event, cl
 | Client ID | Type | Scopes |
 |-----------|------|--------|
 | `connectathon-app-01` through `connectathon-app-06` | SMART App Launch (read-only) | `launch/patient patient/*.read openid fhirUser offline_access` |
-| `connectathon-app-07`, `connectathon-app-08` | SMART App Launch (read+write) | `launch/patient patient/*.read patient/*.write openid fhirUser offline_access` |
+| `connectathon-app-07`, `connectathon-app-08` | SMART App Launch (read-only: the write scope is still registered, but `DEFAULT` refuses writes) | `launch/patient patient/*.read patient/*.write openid fhirUser offline_access` |
 | `connectathon-backend-01` | Backend Service (read-only) | `system/*.read` |
 | `connectathon-backend-02` | Backend Service (read-only since 2026-07-15) | `system/*.*` |
 
@@ -234,7 +233,14 @@ No additional setup is needed on the server side: your client and user account w
 **Prerequisites:** Your Client ID and user credentials (provided by the Sparked team).
 
 1. Configure your app with the Client ID and endpoint URLs
-2. Your app directs the user to the authorize endpoint:
+2. Make a PKCE code verifier and its S256 challenge (a public client must send both):
+
+```bash
+CODE_VERIFIER=$(openssl rand -base64 48 | tr -d '=+/\n' | cut -c1-64)
+CODE_CHALLENGE=$(printf '%s' "$CODE_VERIFIER" | openssl dgst -sha256 -binary | openssl base64 | tr '+/' '-_' | tr -d '=\n')
+```
+
+3. Your app directs the user to the authorize endpoint:
 
 ```
 https://smile.sparked-fhir.com/aucore/smartauth/oauth/authorize?
@@ -243,21 +249,27 @@ https://smile.sparked-fhir.com/aucore/smartauth/oauth/authorize?
   redirect_uri=YOUR_REDIRECT_URI&
   scope=launch/patient%20patient/*.read%20openid%20fhirUser%20offline_access&
   state=RANDOM_STATE&
-  aud=https://smile.sparked-fhir.com/aucore/fhir/DEFAULT
+  aud=https://smile.sparked-fhir.com/aucore/fhir/DEFAULT&
+  code_challenge=CODE_CHALLENGE&
+  code_challenge_method=S256
 ```
 
-3. Log in with the username and password provided by the Sparked team
-4. Approve the requested scopes
-5. Your app receives an authorization code at the redirect URI
-6. Exchange the code for an access token:
+4. Log in with the username and password provided by the Sparked team
+5. Approve the requested scopes
+6. Your app receives an authorization code and the `state` at the redirect URI; check that `state` matches
+7. Exchange the code for an access token, sending the code verifier:
 
 ```bash
 curl -X POST https://smile.sparked-fhir.com/aucore/smartauth/oauth/token \
   -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "grant_type=authorization_code&code=AUTH_CODE&redirect_uri=YOUR_REDIRECT_URI&client_id=YOUR_CLIENT_ID"
+  -d grant_type=authorization_code \
+  -d code=AUTH_CODE \
+  -d redirect_uri=YOUR_REDIRECT_URI \
+  -d client_id=YOUR_CLIENT_ID \
+  -d code_verifier="$CODE_VERIFIER"
 ```
 
-7. Use the access token to access FHIR resources:
+8. Use the access token to access FHIR resources:
 
 ```bash
 curl -H "Authorization: Bearer ACCESS_TOKEN" \
