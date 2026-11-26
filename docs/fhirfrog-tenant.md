@@ -74,7 +74,8 @@ The run is idempotent: an existing client is skipped rather than overwritten.
 `frog-runner` carries `FHIR_ACCESS_PARTITION_NAME FHIRFROG`, the tenant alone,
 **not** `FHIRFROG,DEFAULT`. That is a deliberate departure from the pattern in
 [`platypus-demo-tenant.md`](platypus-demo-tenant.md) and from ADR 0001 point 3,
-and the reason is that the mechanism those rely on is not deployed.
+and the reason was that the mechanism those rely on was not deployed when the
+tenant was set up.
 
 ADR 0001 grants tenant principals `<TENANT>,DEFAULT` and makes `DEFAULT`
 read-only through a consent service (point 6) that rejects write verbs whose
@@ -82,11 +83,15 @@ request partition is `DEFAULT`. Smile CDR's `FHIR_ACCESS_PARTITION_NAME` gates
 reads and writes together, so the consent service is the *only* thing standing
 between a `DEFAULT` grant and `DEFAULT` write.
 
-**That consent service is not wired on any node.** `module-config/consent-default-readonly.js`
-exists as a reference implementation, and no module sets `consent_service.script.file`.
-What actually protects `DEFAULT` on `aucore` today is that participant principals
-do not hold `FHIR_ALL_WRITE` at all: Phase 2 stripped it from
-`connectathon-backend-02` and several users on 2026-07-15 (see
+**Update: the consent service is now wired and enforcing on `aucore`.** It was
+not when this tenant was set up. `module-config/consent-default-readonly.js` was
+wired on the `aucore` FHIR endpoint in observe mode and switched to enforce on
+2026-08-19 (`ENFORCE = true`; see
+[consent-service-rollout.md](consent-service-rollout.md)), so participant writes
+to `DEFAULT` are now refused even for a principal that holds `DEFAULT` partition
+access and `FHIR_ALL_WRITE`. Before that, what protected `DEFAULT` was that
+participant principals did not hold `FHIR_ALL_WRITE` at all: Phase 2 stripped it
+from `connectathon-backend-02` and several users on 2026-07-15 (see
 `multitenancy-rollout-plan.md`).
 
 `frog-runner` needs `FHIR_ALL_WRITE` to do its job. Granting it `DEFAULT`
@@ -104,8 +109,9 @@ anonymously**: a client that needs the curated dataset or a profile simply reads
 it without an `Authorization` header, and uses the token only for tenant writes.
 
 If a workflow ever genuinely needs an authenticated `DEFAULT` read here, the fix
-is to wire the consent service and then widen the grant to `FHIRFROG,DEFAULT`,
-in that order. Widening first re-creates exactly the exposure Phase 2 closed.
+is to widen the grant to `FHIRFROG,DEFAULT`. That was unsafe while the consent
+service was unwired; with it enforcing, the widened grant reads `DEFAULT` but
+cannot write it. Confirm the consent service is still enforcing before widening.
 
 ## Known limits of a fresh tenant
 

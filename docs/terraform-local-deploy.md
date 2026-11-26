@@ -1,4 +1,13 @@
-# Terraform local deploy runbook
+# Terraform local deploy runbook (historical)
+
+> **Historical: describes the decommissioned `sparked-smilecdr` stack.** That
+> dedicated cluster deployment was destroyed on 2026-08-27 (#89). Its state key,
+> `terraform/backend.hcl`, the `smilecdr_iam_role_name` pin and the `/ereq/`
+> verification steps below all belong to it and no longer apply. **Do not
+> deploy from this document.** The current deploy runbook is
+> [sparkey-deploy-runbook.md](sparkey-deploy-runbook.md), which carries over the
+> parts still true here (the plan review bar, the safety snapshot and the
+> rollback).
 
 How to plan and apply the Sparked Smile CDR infrastructure from a workstation.
 

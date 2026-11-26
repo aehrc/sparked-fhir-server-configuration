@@ -1,12 +1,13 @@
 # SMART Auth Configuration
 
-How SMART on FHIR authentication is configured across the Smile CDR nodes,
+How SMART on FHIR authentication is configured on the Smile CDR node,
 where the configuration actually lives at runtime, and how to keep the repo
 and the servers in sync.
 
 ## Architecture
 
-Each node (`aucore`, `ereq`, `hl7au`) runs its own set of modules:
+`aucore` is the only node; `ereq` and `hl7au` were decommissioned on
+2026-08-03. The node runs its own set of modules:
 
 | Module | Type | Role |
 |---|---|---|
@@ -22,14 +23,20 @@ Supporting pieces:
   issuance. It injects patient/encounter context from EHR launch tokens and
   sets `fhirUser` to the correct Practitioner (Smile CDR otherwise invents a
   RelatedPerson). Backend service (client credentials) flows are skipped.
-- **Client registration**: GitHub issue template 05 feeds
-  `.github/workflows/register-smart-clients.yml`, which runs
-  `scripts/register_smart_client.py` against the Admin JSON API. Client
-  definitions live in `module-config/connectathon-clients.json`. The workflows
-  call the API at its in-cluster Service address (`SMILECDR_ADMIN_URL`), so they
-  must run on `arc-runner-smile-admin`, the scale set reserved for the
-  registration jobs. A run from a workstation uses the public admin route,
-  which is IP-restricted (CSIRO network or VPN).
+- **Client registration**: a GitHub issue from template 05 is registered by
+  the `register-smart-client` job in `.github/workflows/issue-labeled.yml`
+  once an admin applies the `ready-for-automation` label; it runs
+  `scripts/register_smart_client.py` against the Admin JSON API. Tenant
+  partitions and login users are not created by that job: an admin creates
+  them by hand (see [fhirfrog-tenant.md](fhirfrog-tenant.md) and
+  `scripts/manage_smart_users.py`). `.github/workflows/register-smart-clients.yml`
+  is a separate manual dispatch for bulk or single registrations, and
+  `module-config/connectathon-clients.json` holds the bulk connectathon set.
+  Both workflows call the API at its in-cluster Service address
+  (`SMILECDR_ADMIN_URL`), so they run on `arc-runner-smile-admin`, the scale
+  set reserved for the registration jobs. A run from a workstation uses the
+  public admin route, which the gateway allowlists by client address (the
+  CSIRO VPN pools; a CSIRO site without the VPN is not on the list).
 - **Users**: `scripts/manage_smart_users.py` creates users in
   `local_security` (definitions in `module-config/connectathon-users.json`).
 - **Anonymous access**: deliberately enabled for the public sandbox. The
@@ -38,17 +45,31 @@ Supporting pieces:
 
 ## Where config lives: the drift model
 
-`simplified-multinode.yaml` sets `config.database: true` for every node, which
-means:
+The sparkey deployment runs the node in `PROPERTIES_UNLOCKED` mode:
+`module-config/values-sparkey.yaml` sets `config.database: false` and
+`config.troubleshooting: true` for `aucore`, overriding the
+`config.database: true` inherited from `simplified-multinode.yaml`. That means:
 
-1. The Helm-rendered properties are read **once**, on a node's first boot,
-   to seed the cluster manager database.
-2. From then on, the **database is authoritative**. Admin console edits land
-   in the database. Changes to the Helm values or mapped files do NOT reach a
-   running node, even across pod restarts.
+1. The Helm-rendered properties (from the ConfigMap the last `terraform apply`
+   produced) are **authoritative** and are re-read on **every** boot,
+   overwriting the module config in the database.
+2. The admin console stays usable for live troubleshooting, but module config
+   edits made through the console or the Admin JSON API are **lost on the next
+   pod restart**. Records stored in the database, such as OIDC clients, users
+   and partitions, are not module config and do persist.
+3. A change merged to this repo reaches the node only through a local
+   `terraform apply`, which updates the Helm release and rolls the pod.
 
-Consequently the repo drifts from reality unless actively reconciled. That is
-what `scripts/sync_smart_auth.py` is for:
+So anything that must persist belongs in `module-config/`, deployed by an
+apply. The earlier model, in which the database was authoritative and the
+properties seeded only the first boot, applied to the decommissioned
+`sparked-smilecdr` deployment.
+
+`scripts/sync_smart_auth.py` was written for that earlier model. Under
+`PROPERTIES_UNLOCKED` its changes do not survive a restart (measured
+2026-08-03; see the `smart_auth` comments in `simplified-multinode.yaml`), so
+it is now useful only to show drift or to test a change live before it goes
+into the config:
 
 ```bash
 # See drift (dry-run is the default)
@@ -58,20 +79,22 @@ python scripts/sync_smart_auth.py
 python scripts/sync_smart_auth.py --apply
 ```
 
-The script manages these `smart_auth` options on `aucore` and `ereq`:
+The script manages these `smart_auth` options on `aucore`:
 the post-authorize script text (rendered per node so the fallback audience
 points at the node's own FHIR base), the auth request parameter whitelist,
 the signing keystore, CORS, and `smart_capabilities_list` (which is
-multi-line and therefore cannot be seeded safely through the properties
-file; the sync script is its only source of truth).
+multi-line; it is now seeded from `simplified-multinode.yaml` with escaped
+newlines, so the config is its source of truth).
 
-After changing `smart-post-authorize.js` or the canonical values in the sync
-script, run it with `--apply`. Note the module restart briefly interrupts
-token issuance on that node.
+After changing `smart-post-authorize.js` or a `smart_auth` value, deploy it
+with a `terraform apply`. Running the sync script with `--apply` restarts the
+module, briefly interrupting token issuance, and the change still lasts only
+until the next pod restart.
 
-## hl7au is excluded
+## hl7au was excluded (historical)
 
-`hl7au`'s live `smart_auth` predates the per-node layout: it listens at the
+The `hl7au` node was decommissioned on 2026-08-03. While it ran, its live
+`smart_auth` predated the per-node layout: it listens at the
 bare `/smartauth` context path with issuer
 `https://smile.sparked-fhir.com/smartauth` and the `default-keystore`, and has
 no post-authorize script. The repo records the intended per-node state
@@ -118,8 +141,8 @@ write as one and has no partition-scoped read-only variant:
    `--tenant`:
 
    ```bash
-   python scripts/manage_smart_users.py create \
-     --node ereq --tenant "PLATYPUS,DEFAULT" \
+   python scripts/manage_smart_users.py \
+     --node aucore --tenant "PLATYPUS,DEFAULT" \
      --username platypus-demo-patient --permissions read-write \
      --patient-id platypus-pat-taylor
    ```
@@ -145,13 +168,13 @@ write as one and has no partition-scoped read-only variant:
    [consent-service-rollout.md](consent-service-rollout.md) for why, for the
    observe-then-enforce procedure, and for the rollback.
 
-   **It ships in observe mode**, which logs would-be rejections and blocks
-   nothing. Until `ENFORCE` is flipped, treat a `<TENANT>,DEFAULT` grant as also
-   conferring `DEFAULT` write. That is the current state of
-   `platypus-demo-patient` on `aucore`, which is `read-write` on
-   `PLATYPUS,DEFAULT`; what stops it writing the curated dataset today is that
-   the Platypus client is registered with read-only scopes, not the partition
-   model.
+   **It is enforcing on `aucore` since 2026-08-19** (`ENFORCE = true`): writes
+   to `DEFAULT` from non-curator principals are rejected with a 403. It shipped
+   in observe mode first. A `<TENANT>,DEFAULT` grant such as
+   `platypus-demo-patient`'s (`read-write` on `PLATYPUS,DEFAULT`) therefore
+   reads `DEFAULT` but cannot write it. If the consent service is ever set back
+   to observe mode or disabled, a `<TENANT>,DEFAULT` grant again confers
+   `DEFAULT` write.
 
 ## Known follow-ups
 
@@ -162,7 +185,7 @@ write as one and has no partition-scoped read-only variant:
   capability; `register_smart_client.py` would need a `--jwks-url` option.
 - **SMART v2 granular scopes** (`permission-v2`): not currently advertised;
   connectathon clients use v1 scopes.
-- **Locked config**: switching nodes from database-backed to locked
-  (properties-authoritative) config would eliminate drift structurally, but
-  is a disruptive migration and removes the admin console as an escape hatch.
-  Revisit if drift keeps recurring despite the sync script.
+- **Locked config**: done on the sparkey deployment, which runs
+  `PROPERTIES_UNLOCKED` (properties authoritative, console still usable but
+  reverted on restart). The fully locked `PROPERTIES` mode would also remove
+  the console as an escape hatch; not planned.

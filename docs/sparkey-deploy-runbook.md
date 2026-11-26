@@ -1,17 +1,209 @@
-# Deploy runbook: Smile CDR on the sparkey cluster
+# Smile CDR deploy runbook (steady state, sparkey cluster)
 
-Standing up the parallel Smile CDR deployment on the shared `sparkey` cluster,
-alongside the live one on `sparked-smilecdr`. Both run at once until DNS cuts
-over; this document covers the build, not the cutover.
+The steady-state deploy runbook for the Sparked Smile CDR server. The `aucore`
+node on the shared `sparkey` cluster has served `smile.sparked-fhir.com` since
+the cutover on 2026-08-03, and it is the only deployment: the dedicated
+`sparked-smilecdr` stack it replaced was destroyed on 2026-08-27 (#89).
+[terraform-local-deploy.md](terraform-local-deploy.md) and
+[`../terraform/REMEDIATION.md`](../terraform/REMEDIATION.md) describe that
+stack and are kept only as history; do not apply from them.
 
-Background and the decision to consolidate:
-`docs/smile-consolidation-evaluation.md` in `aehrc/sparked-infrastructure`
-(section 9 is the migration path). For the existing dedicated-cluster
-deployment, use [terraform-local-deploy.md](terraform-local-deploy.md).
+**Terraform is applied locally, not in CI.** The `Smile Configuration
+Deployment` workflow (`.github/workflows/smile-application.yml`) is disabled:
+running `terraform plan`/`apply` against live infrastructure in a public
+repository would publish plan output to PR comments, job summaries, artifacts
+and run logs. Merging a change to `main` deploys nothing by itself.
 
-## What is already in place
+Moving the Smile workload to Argo CD after the December 2026 event is designed
+in [design/smile-to-argo.md](design/smile-to-argo.md) and will replace this
+procedure; until it lands, this is how Smile is deployed.
 
-Landed on sparkey via `aehrc/sparked-argo` #223 and #224, all verified live:
+The second half of this document,
+[Build history](#build-history-standing-up-sparkey-2026-08), records how the
+deployment was first built alongside the old one.
+
+## Prerequisites
+
+- **Terraform** `1.15.6`. The `smile_cdr_dependencies` module requires
+  `>= 1.14.3, < 2.0.0`; the root `provider.tf` only pins `>= 1.5`, but the
+  module constraint is the binding one.
+- **AWS credentials** for the Sparked AWS account (region `ap-southeast-2`),
+  typically AWS SSO with admin access. Confirm with
+  `aws sts get-caller-identity`.
+- **The two gitignored apply inputs**, `tfvars/sparkey.tfvars` and
+  `terraform/backend-sparkey.hcl`, fetched from AWS Secrets Manager rather than
+  kept by hand. From the repository root:
+
+  ```bash
+  aws sso login --profile csiro-fhir
+  export AWS_PROFILE=csiro-fhir
+  scripts/fetch-smile-tfvars.sh            # write both files (mode 0600)
+  scripts/fetch-smile-tfvars.sh status     # compare local files with the stored copies
+  ```
+
+  Reading them needs the `AdministratorAccess` permission set, which is also
+  what an apply needs. Where they are kept, who can read them, and how to store
+  a changed value after an apply (`scripts/fetch-smile-tfvars.sh push`) are in
+  [smile-deploy-inputs.md](smile-deploy-inputs.md). Do not edit a local copy
+  without pushing it afterwards: the stored copy should describe what is live.
+- **`kubectl --context sparkey`** for watching the rollout. Terraform itself
+  authenticates to EKS through the module's data sources and ignores your
+  local kubectl context.
+
+> **Delete any local `terraform/terraform.tfvars`.** It is a leftover of the
+> destroyed dedicated-cluster stack and is not stored or needed:
+> `sparkey.tfvars` sets every variable it would set. Terraform still auto-loads
+> it on every run, and a `-var-file` only overrides the variables it mentions,
+> so a leftover copy pins `smilecdr_iam_role_name` to that stack's IAM role,
+> which no longer exists. The value in `sparkey.tfvars` is what stops that pin
+> from winning when you pass the var file; deleting the leftover protects a run
+> that forgets it. `scripts/fetch-smile-tfvars.sh` prints a note when it finds
+> one.
+
+> **The backend key is in the `-backend-config` file, not in `provider.tf`.**
+> If `terraform init` ever prompts interactively for `key`, you passed no
+> `-backend-config`: stop rather than typing a value.
+
+## Event change freeze
+
+**No Smile apply during an event change freeze** except an emergency fix.
+For the December 2026 event the freeze runs from Fri 4 Dec 2026, 17:00 AEDT to
+Fri 11 Dec 2026, 17:00 AEDT. Nothing mechanical stops a Smile apply in that
+window: Argo CD sync windows and the Karpenter event budgets cover the Argo CD
+apps and the node pools, and the Smile freeze is a convention. The planned
+Smile move before the December freeze is done: aehrc/sparked-argo#384 and
+this repository's #123 merged on 2026-11-22 (UTC), and Helm release revision
+17 deployed at 2026-11-22T22:19Z. On 2026-11-26 the Smile pod ran on NodeClaim
+`on-demand-prod-7v5s5` (`expireAfter: Never`) and the rendered config had
+`subscription.rest_hook_enabled = false`. The freeze mechanisms and the
+emergency path are in sections 2 and 3 of `docs/runbooks/event-runbook.md` in
+`aehrc/sparked-argo`; the event's dated steps are in this repository's
+operator checklist, [`docs/operators/events/`](operators/events/). An
+emergency apply follows the steps below and is announced in
+`#sparked-deployments`.
+
+## Normal deploy
+
+### 1. Know what the apply will do
+
+Every change under `module-config/` reaches the server through the Helm release
+that `terraform apply` updates, and **an apply that changes module config rolls
+the pod**. The chart's `autoDeploy` suffixes ConfigMap names with a content
+hash, so new config means a new pod template (details in
+[consent-service-rollout.md](consent-service-rollout.md)). The Deployment is
+`RollingUpdate` with `maxSurge: 1` and `maxUnavailable: 0`, so the old pod
+serves until the new one is ready. A second Smile pod does not fit on the
+current `on-demand-prod` node, so Karpenter first launches another node and the
+new pod boots there; the emptied node is consolidated afterwards. The startup
+probe allows 20 minutes from container start and Helm waits up to 30, and the
+first `$validate` calls after the roll can answer 504 while the validator warms
+(see [sparkey-cutover-runbook.md](sparkey-cutover-runbook.md)). Pick a window
+outside events and outside a freeze.
+
+The node runs `PROPERTIES_UNLOCKED` (`module-config/values-sparkey.yaml`): the
+rendered config is re-read on every boot, so console edits to module config do
+not survive a restart, and a restart does not pick up anything merged since the
+last apply.
+
+### 2. Take a safety snapshot
+
+Aurora cannot be downgraded and some changes cascade to database resources.
+Snapshot the Smile Aurora cluster and wait until it is `available`:
+
+```bash
+aws rds create-db-cluster-snapshot \
+  --db-cluster-identifier smile-smilecluster-sparkey \
+  --db-cluster-snapshot-identifier smile-pre-apply-$(date +%Y%m%d-%H%M) \
+  --region ap-southeast-2
+```
+
+### 3. Init against the sparkey state key
+
+```bash
+scripts/fetch-smile-tfvars.sh status    # both inputs match the stored copies
+cd terraform
+terraform init -reconfigure -backend-config=backend-sparkey.hcl
+terraform state list | wc -l    # expect a non-zero count: this is live state
+```
+
+A count of 0 means you are pointed at the wrong state. Stop.
+
+### 4. Plan and review
+
+```bash
+terraform plan -var-file=../tfvars/sparkey.tfvars -out=sparkey.plan
+```
+
+Read the plan before applying. The bar for a steady-state change is:
+
+- **Zero destroys**, and only the in-place changes you intended. A
+  `module-config/` change shows up as an in-place `helm_release` update.
+- No Aurora engine version change (Aurora cannot downgrade; if you see one,
+  stop and reconcile).
+- No replacement of the KMS secrets alias or the `smilecdr-users-json` /
+  DB-user secrets.
+- No `aws_route53_record` resources (external-dns owns DNS on sparkey).
+
+If the plan shows unexpected destroys or replacements, do not apply.
+
+### 5. Apply and watch the rollout
+
+```bash
+caffeinate -i terraform apply sparkey.plan
+kubectl --context sparkey -n smile rollout status deployment/smilecdr-scdrnode-aucore \
+  --timeout=30m
+```
+
+Use `caffeinate` on macOS: a sleeping laptop suspends the terraform process and
+its timeouts (see [Apply](#3-apply) in the build history).
+
+### 6. Verify
+
+```bash
+curl -s https://smile.sparked-fhir.com/aucore/fhir/DEFAULT/metadata | jq .software
+curl -s https://smile.sparked-fhir.com/aucore/fhir/DEFAULT/.well-known/smart-configuration | jq .issuer
+../scripts/upgrade_smoke_tests.sh -o "${TMPDIR:-/tmp}/smile-post-apply-$(date +%Y%m%d-%H%M).md"
+```
+
+The smoke tests read a password from the `smilecdr-user-passwords`
+secret, so they need the same AWS session. The report goes to a temporary
+directory, outside the repository, because nothing in `.gitignore` covers it.
+
+If you changed `sparkey.tfvars` or the backend file for this deploy, store it
+now so the next operator gets the same inputs:
+`scripts/fetch-smile-tfvars.sh push` from the repository root (see
+[smile-deploy-inputs.md](smile-deploy-inputs.md)).
+
+`aucore` is the only node. `/ereq/...` and `/hl7au/...` answer 404 by design
+(decommissioned 2026-08-03), so do not read a 404 there as a half-failed deploy.
+
+## Rollback
+
+- **The new pod never becomes ready**: the old pod keeps serving
+  (`maxUnavailable: 0`). Revert the change in git and apply again.
+- **Data or schema damage**: a last resort. Restoring the pre-apply snapshot
+  from step 2 (`aws rds restore-db-cluster-from-snapshot`) creates a **new**
+  Aurora cluster under a new identifier, with no instances until you add one;
+  it does not roll `smile-smilecluster-sparkey` back in place. Smile and the
+  Terraform state still point at the old cluster, so the new one has to be
+  swapped in (Smile's database connection pointed at the new endpoint, or the
+  clusters renamed) and Terraform reconciled before you revert the change and
+  apply the previous good config. None of this has been rehearsed on sparkey:
+  the steps are unverified, so work them out with the Sparked infrastructure
+  team before starting.
+
+## Build history: standing up sparkey (2026-08)
+
+> **Historical.** The sections below record how this deployment was first built
+> in parallel with the dedicated `sparked-smilecdr` stack, before the 2026-08-03
+> cutover. "The live server" and "the old server" in them mean that stack, which
+> no longer exists. Background and the decision to consolidate:
+> `docs/smile-consolidation-evaluation.md` in the internal
+> `aehrc/sparked-infrastructure` repository (section 9 is the migration path).
+
+### What is already in place
+
+Landed on sparkey via `aehrc/sparked-argo` (internal) #223 and #224, all verified live:
 
 | Piece | State |
 |---|---|
@@ -25,7 +217,7 @@ Landed on sparkey via `aehrc/sparked-argo` #223 and #224, all verified live:
 The ArgoCD `smilecdr-routes` app reports **Degraded** until this deploy creates
 the backing Services. That is the correct state, not a fault.
 
-## Prerequisites
+### Prerequisites
 
 Same toolchain as the existing runbook (Terraform 1.15.6, AWS SSO credentials
 for `ap-southeast-2`). Two extra gitignored files, both with committed
@@ -56,9 +248,9 @@ from the server's point of view.
 > live production state. If `terraform init` ever prompts interactively for
 > `key`, you passed no `-backend-config`: stop rather than typing a value.
 
-## Deploy
+### Deploy
 
-### 1. Init against the sparkey state key
+#### 1. Init against the sparkey state key
 
 ```bash
 cd terraform
@@ -73,7 +265,7 @@ terraform state list | wc -l    # expect 0 on the very first run
 
 A non-zero count means you are pointed at the wrong state. Stop.
 
-### 2. Plan
+#### 2. Plan
 
 ```bash
 terraform plan -var-file=../tfvars/sparkey.tfvars -out=sparkey.plan
@@ -93,7 +285,7 @@ making on the plan rather than trusting the count:
 - **no `aws_route53_record` resources at all** (external-dns owns DNS here)
 - the `helm_release` targets namespace `smile`
 
-### 3. Apply
+#### 3. Apply
 
 ```bash
 caffeinate -i terraform apply sparkey.plan
@@ -111,7 +303,7 @@ The Aurora cluster is the long pole, typically 15 to 20 minutes. The Helm
 release then waits on pod readiness; Smile CDR's own startup probe allows up to
 30 minutes, so a slow first boot is not a failure.
 
-### 4. Watch the first pod carefully
+#### 4. Watch the first pod carefully
 
 This is the first time the network policies meet a real workload, and they were
 written from the old cluster's pod rather than observed here. If something is
@@ -134,7 +326,7 @@ kubectl --context sparkey get nodes -l workload=prod
 
 Expect a single `r6a.large`.
 
-## Seeding
+### Seeding
 
 Config, packages and the SMART post-authorize script arrive with the Helm
 release. Everything else is deliberate.
@@ -170,7 +362,7 @@ release. Everything else is deliberate.
   prerequisite here; see
   [multitenancy-rollout-plan.md](multitenancy-rollout-plan.md).
 
-## smart_auth needs no post-deploy step
+### smart_auth needs no post-deploy step
 
 An earlier version of this runbook required `scripts/sync_smart_auth.py` after
 every deploy. It does not, and running it would not have held anyway.
@@ -187,10 +379,11 @@ on every boot. Measured 2026-08-03 by applying the script and restarting the pod
 the script's changes were gone. Anything that must survive a restart has to be in
 the config, not applied over the admin API afterwards.
 
-`sync_smart_auth.py` remains useful against the old dedicated-cluster deployment,
-which runs `DATABASE` mode where API changes do persist.
+`sync_smart_auth.py` was useful against the old dedicated-cluster deployment,
+which ran `DATABASE` mode where API changes did persist. That deployment was
+destroyed on 2026-08-27, so no deployment remains where its changes last.
 
-## Verify## Verify
+### Verify
 
 Two paths, and the second is the one that counts.
 
@@ -230,7 +423,7 @@ Also confirm telemetry: the OTLP endpoint
 this cluster unchanged, so traces and metrics should appear in sparkey's LGTM
 with no config edit.
 
-## Rollback
+### Rollback
 
 Nothing to roll back in the sense that matters: the live server is untouched
 throughout and keeps serving `smile.sparked-fhir.com`. Abandoning this build is
@@ -241,7 +434,7 @@ The sparked-argo manifests are additive and can stay.
 Take a final snapshot before any destroy if the server has been used for
 anything worth keeping.
 
-## Known risks
+### Known risks
 
 - **Network policies are unvalidated against a running workload.** They were
   derived from the pod on the old cluster. Reconcile from the deny log before

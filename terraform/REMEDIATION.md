@@ -1,4 +1,14 @@
-# Terraform Remediation Runbook
+# Terraform Remediation Runbook (historical)
+
+> **Historical: describes the decommissioned `sparked-smilecdr` stack.** The
+> 2026-07-10 diagnosis below was remediated and applied in July 2026: the module
+> was pinned to the released tag `v9.0.2` (not the `v9.2.0` planned here, which
+> carries an upstream multi-node bug), the Aurora engine version was pinned to
+> match live, and `ingress_config` was reconciled to the nginx ingress (commit
+> `348bbf5`). The CI deploy it planned to re-enable was later disabled again
+> for the public repository, and Terraform is applied locally. That stack was
+> destroyed on 2026-08-27 (#89). For deploys, use
+> [`../docs/sparkey-deploy-runbook.md`](../docs/sparkey-deploy-runbook.md).
 
 Handoff runbook to get the Sparked Smile CDR terraform back to a clean, applyable,
 best-practice state, then apply to prod and re-enable CI deploy.

@@ -2,19 +2,23 @@
 
 Complete guide to registering SMART on FHIR / OIDC clients on the Sparked FHIR Server (SmileCDR).
 
+> **Coming to the HL7 Australia WGM and Melbourne FHIR Connectathon (8 to 10 December 2026)?** Read the [participant guide](participants/2026-12-melbourne.md) first. The shared `DEFAULT` partition is read-only for participants, and each event sandbox (the guide gives their status) comes with its own FHIR base URL, clients and login user, with no registration needed.
+
 ## Key Endpoints
 
 | Node | FHIR Base | Well-Known | Authorize | Token |
 |------|-----------|------------|-----------|-------|
 | aucore | `https://smile.sparked-fhir.com/aucore/fhir/DEFAULT` | `https://smile.sparked-fhir.com/aucore/smartauth/.well-known/openid-configuration` | `https://smile.sparked-fhir.com/aucore/smartauth/oauth/authorize` | `https://smile.sparked-fhir.com/aucore/smartauth/oauth/token` |
-| ereq | `https://smile.sparked-fhir.com/ereq/fhir/DEFAULT` | `https://smile.sparked-fhir.com/ereq/smartauth/.well-known/openid-configuration` | `https://smile.sparked-fhir.com/ereq/smartauth/oauth/authorize` | `https://smile.sparked-fhir.com/ereq/smartauth/oauth/token` |
 
 | Endpoint | URL |
 |----------|-----|
+| SMART configuration | `https://smile.sparked-fhir.com/aucore/fhir/DEFAULT/.well-known/smart-configuration` |
 | Login Page (aucore) | `https://smile.sparked-fhir.com/aucore/smartauth/signin` |
 | Admin Console | `https://smile.sparked-fhir.com/aucore/console` |
 
-> **Note**: Each node has its own `smart_auth` and `local_security` modules (via `useDefaultModules`). Clients and users must be registered **per-node** on the target node's smart_auth module. Use `--node` with the registration scripts to target a specific node. All nodes share the same JWKS keystore for token signing.
+The admin console and the admin JSON API (`/aucore/admin-json`) answer only from allowlisted client addresses (the CSIRO VPN; being on a CSIRO site without the VPN is not enough); the gateway refuses everyone else. The registration workflows do not go through the gateway: they call the admin JSON API in-cluster from the `arc-runner-smile-admin` runners.
+
+> **Note**: `aucore` is the only node; `ereq` and `hl7au` were decommissioned on 2026-08-03. Clients are registered on its `smart_auth` module and users on its `local_security` module. The registration scripts target `aucore` by default.
 
 ## Client Types
 
@@ -129,7 +133,7 @@ For connectathon events, pre-configured clients are available for quick distribu
 4. Run again with dry run disabled to register all 10 clients
 5. Distribute client IDs to participants:
    - `connectathon-app-01` through `connectathon-app-08` (SMART App Launch, read-only)
-   - `connectathon-backend-01`, `connectathon-backend-02` (Backend Service)
+   - `connectathon-backend-01`, `connectathon-backend-02` (Backend Service; `connectathon-backend-02` has been read-only on the live server since 2026-07-15, although `connectathon-clients.json` still lists `system/*.*`)
 
 ### Option B: Register via CLI
 
@@ -182,13 +186,13 @@ Registering a client with scopes is only half the equation. The client also need
 
 **Backend Service clients**: The registration script **automatically maps scopes to permissions**. For example:
 - `system/*.read` → `ROLE_FHIR_CLIENT` + `FHIR_ALL_READ` + `FHIR_CAPABILITIES` + partition access
-- `system/*.*` → All of the above + `FHIR_ALL_WRITE` + `FHIR_TRANSACTION`
+- `system/*.*` → All of the above + `FHIR_ALL_WRITE` + `FHIR_TRANSACTION` + `FHIR_ALL_DELETE`, on a tenant only: write scopes against `DEFAULT` are refused (`--allow-default-write` is for a curator client only)
 
 **SMART App Launch clients**: Permissions come from the **user** who logs in and authorizes the app (not the client definition). Users need appropriate roles:
-- `ROLE_FHIR_CLIENT` — base role for FHIR access
-- `FHIR_ALL_READ` — read access to FHIR resources
-- `FHIR_ALL_WRITE` — write access (if needed)
-- `FHIR_ACCESS_PARTITION_NAME` with argument `DEFAULT` — access to the DEFAULT partition
+- `ROLE_FHIR_CLIENT`: base role for FHIR access
+- `FHIR_ALL_READ`: read access to FHIR resources
+- `FHIR_ALL_WRITE`: write access (if needed)
+- `FHIR_ACCESS_PARTITION_NAME` with argument `DEFAULT`: access to the DEFAULT partition
 
 ### OpenID Connect Security Must Be Enabled
 
@@ -223,12 +227,12 @@ If you see "Signing JSON Web KeySet (JWKS) is using the example keystore" in the
 
 **HTTP 403 "Access denied" when using a valid token:**
 - Check that OpenID Connect Security is enabled on the FHIR endpoint
-- Verify the user/client has appropriate permissions (not just scopes)
+- Check that the user/client has appropriate permissions (not just scopes)
 - Ensure the token hasn't expired (`expires_in` field in token response)
 
 **HTTP 403 "Forbidden" when requesting a token:**
 - You may be hitting the wrong endpoint path (see correct paths above)
-- Verify the client exists and is enabled
+- Check that the client exists and is enabled
 
 **Token request returns HTML instead of JSON:**
 - You're hitting the login page, not the API endpoint
@@ -331,7 +335,7 @@ This will:
 - **SMART App Launch clients**: Set `FHIR_ACCESS_PARTITION_NAME: DEFAULT` (partition access)
 - Existing permissions are preserved (merge, not replace)
 
-### Verify a Client's Permissions
+### Check a Client's Permissions
 
 ```bash
 # Check what permissions a client has
@@ -354,14 +358,14 @@ curl -H "Authorization: Bearer ACCESS_TOKEN" \
   https://smile.sparked-fhir.com/aucore/fhir/DEFAULT/Patient?_count=1
 ```
 
-### Verify SMART Auth Is Working
+### Check That SMART Auth Is Working
 
 ```bash
 # Check well-known endpoint
 curl -s https://smile.sparked-fhir.com/aucore/smartauth/.well-known/openid-configuration | python3 -m json.tool
 
-# Check SMART configuration
-curl -s https://smile.sparked-fhir.com/aucore/smartauth/.well-known/smart-configuration | python3 -m json.tool
+# Check SMART configuration (served under the FHIR base, per the SMART App Launch spec)
+curl -s https://smile.sparked-fhir.com/aucore/fhir/DEFAULT/.well-known/smart-configuration | python3 -m json.tool
 ```
 
 ---
@@ -419,7 +423,7 @@ The registration script automatically maps scopes to permissions for backend ser
 | Scopes | Permissions Set |
 |--------|----------------|
 | `system/*.read` | `ROLE_FHIR_CLIENT`, `FHIR_CAPABILITIES`, `FHIR_ACCESS_PARTITION_NAME: DEFAULT`, `FHIR_ALL_READ` |
-| `system/*.*` | All of the above + `FHIR_ALL_WRITE`, `FHIR_TRANSACTION` |
+| `system/*.*` | All of the above + `FHIR_ALL_WRITE`, `FHIR_TRANSACTION`, `FHIR_ALL_DELETE` (tenant only; refused on `DEFAULT`) |
 
 For SMART App Launch clients, the script sets `FHIR_ACCESS_PARTITION_NAME: DEFAULT` on the client. All other permissions come from the user account.
 
@@ -431,7 +435,7 @@ For SMART App Launch clients, the script sets `FHIR_ACCESS_PARTITION_NAME: DEFAU
 | Context Path | `/aucore/smartauth/` |
 | CORS Enabled | Yes |
 | PKCE Required | No (recommended but not enforced) |
-| PKCE Plain Challenge Supported | Yes |
+| PKCE challenge methods advertised | `S256` only (`code_challenge_methods_supported` in SMART discovery) |
 | Signing Algorithm | RS256 |
 | Auth Request Whitelist | `aud,grant_type,scope,launch` |
 
