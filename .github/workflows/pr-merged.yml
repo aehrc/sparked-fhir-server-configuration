@@ -144,13 +144,15 @@ jobs:
             - **Downtime**: None (rolling update)
             - **Risk**: Low (can be rolled back)
 
-            To deploy immediately, a repo admin can run the "Reload IG Packages" workflow manually.
+            To deploy immediately, a repo admin can run the "Re/load IG Packages" workflow manually.
 
-            ### Option B: Wait for Next Server Restart
-            Changes will be applied automatically on the next scheduled server restart:
-            - **Time**: Variable (hours to days)
-            - **Risk**: Zero (changes are already in configuration)
-            - **Effort**: None required
+            ### Option B: Wait for the Next Terraform Apply
+            Changes will be applied on the next terraform apply, which a repo admin runs locally. There is no scheduled restart, and a pod restart on its own does not pick up merged changes:
+            - **Time**: Variable (whenever the next deploy is run)
+            - **Downtime**: None expected (the apply rolls the pod)
+            - **Effort**: A repo admin runs the apply
+
+            No apply runs during an event change freeze, except to fix an outage.
 
             ---
 

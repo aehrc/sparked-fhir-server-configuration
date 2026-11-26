@@ -15,6 +15,8 @@ body:
         - **SMART App Launch**: For interactive apps (EHR launch, standalone launch). Public client with PKCE, no secret required.
         - **Backend Service**: For system-to-system integration (no user interaction). Confidential client with auto-generated secret.
 
+        **Coming to the HL7 Australia WGM and Melbourne FHIR Connectathon (8 to 10 December 2026)?** Read the [participant guide](https://github.com/aehrc/sparked-fhir-server-configuration/blob/main/docs/participants/2026-12-melbourne.md) first. If the event sandboxes go ahead, each one comes with its own writable FHIR base, clients and login user, with no need for this form.
+
   - type: input
     id: client-id
     attributes:
@@ -126,8 +128,9 @@ body:
         Your own tenant gives you full read/write in an isolated partition, and your FHIR
         base URL becomes `https://smile.sparked-fhir.com/aucore/fhir/<TENANT>`.
 
-        If the tenant does not exist yet, we create it as part of this request. Note that
-        a new tenant starts **empty**: it does not contain a copy of the AU Core data, and
+        If the tenant does not exist yet, an admin creates it by hand before your client
+        is registered, so allow time for that. Note that a new tenant starts **empty**: it
+        does not contain a copy of the AU Core data, and
         cross-partition references are not permitted, so test data must be self-contained.
         `DEFAULT` stays readable anonymously if you need to read the curated dataset.
       placeholder: "VENDOR-ACME"
@@ -138,7 +141,7 @@ body:
     attributes:
       value: |
         ### Launch Context (SMART App Launch only)
-        A user account will be created for your app. The launch context pre-populates the FHIR context when a user logs in.
+        An admin creates a login user account for your app by hand; it is not created automatically. The launch context pre-populates the FHIR context when a user logs in.
         Leave blank to use the default test practitioner.
 
   - type: input
@@ -206,3 +209,5 @@ body:
         3. **Automated registration** creates your client on the server (~1 minute)
         4. **You will be notified** with your client details and endpoint URLs
         5. **For Backend Service clients**, the client secret will be communicated securely (not posted in the issue)
+
+        Tenant creation and login user accounts are not automated: if you asked for a new tenant, or your SMART App Launch client needs a user, an admin sets them up by hand before or after step 3.
