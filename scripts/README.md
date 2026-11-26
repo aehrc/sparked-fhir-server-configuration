@@ -212,7 +212,7 @@ python sync_packages.py --nodes aucore --source config
 # Update multiple specific nodes
 python sync_packages.py --nodes aucore --source config
 
-# Force reinstall all packages
+# Force reinstall all packages (an install on an expunge: see How It Works)
 python sync_packages.py --nodes all --source config --force-reinstall
 
 # Install custom package
@@ -249,9 +249,18 @@ optional arguments:
 1. **Determine nodes** - From input or auto-detect from `simplified-multinode.yaml`
 2. **Load packages** - From config, packages directory, or custom JSON
 3. **Fetch current state** - Query each node for installed packages
-4. **Report drift** - Before any change, and in a dry run too: desired versions the node lacks (missing), other stored versions of a desired package id (extra), and, with `--source config`, stored package ids the seed config does not list. It sends one packument GET (`/package/npm/<id>`) per desired package id on top of the search. A failed lookup is named in the block and never reported as `none`, and the block then does not say `No drift`; the stored id list is labelled possibly incomplete when the search response's `total` is missing or larger than what came back. A live run does not remove an extra version whose package's desired version is already stored
-5. **Compare and sync** - Install/update packages as needed. A version the packument already holds is not installed again, even when another version is current and is uninstalled first (a rollback), so a live run never stacks an install on the expunge that uninstall starts. If the search lookup fails, a live run changes nothing on that node and fails
+4. **Report drift** - Before any change, and in a dry run too: desired versions the node lacks (missing), other stored versions of a desired package id (extra), and, with `--source config`, stored package ids the seed config does not list. It sends one packument GET (`/package/npm/<id>`) per desired package id on top of the search. A failed lookup is named in the block and never reported as `none`, and the block then does not say `No drift`; the stored id list is labelled possibly incomplete when the search response's `total` is missing or larger than what came back. A live run removes an extra version only when the search index shows it as current and `--skip-uninstall` is not set
+5. **Compare and sync** - Install/update packages as needed. Without `--skip-uninstall` (the default), a live run first uninstalls any other version of the package id that the search index shows as current, then installs the desired version, so a forward bump whose desired version is missing while the older one is current is a DELETE and then a PUT: an install on the expunge that uninstall starts (#92). With `--skip-uninstall` it only installs what is missing and removes nothing. A version the packument already holds is not installed again, even when another version is current and is uninstalled first (a rollback), so that case is a DELETE only. `--force-reinstall` uninstalls the desired version itself (and, without `--skip-uninstall`, the current version too) and then installs it, so a force reinstall is always an install on an expunge: do not use it on a live node during or near an event. If the search lookup fails, a live run changes nothing on that node and fails; if the packument lookup for a package id fails, a live run makes no change for that id and fails
 6. **Report results** - Show summary of all operations
+
+### Known limitations
+
+These are not handled by the script; check them by hand when they could matter.
+
+- **Install mode is not compared.** "Already installed" and "already stored" match on package id and version only, so a version stored with `installMode: STORE_ONLY` counts as present when the desired spec says `STORE_AND_INSTALL`, and the run neither reinstalls nor reports it. Whether Smile exposes the install mode on the search or packument endpoints is **unverified**.
+- **Two desired versions of one package id.** The plan is built from one search and one packument read taken before any change, so processing the first version can uninstall the second (when it is current) and the second is then skipped as already installed or stored from that stale state. Keep one version per package id in a desired list, or check the result after the run; what Smile then holds is **unverified**.
+- **Version keys are case-sensitive.** A desired version is compared with the stored versions as an exact string, so a difference in case only reads as Missing and Extra. Whether Smile normalises version case is **unverified**.
+- **A packument 404 or an empty `versions` object reads as nothing stored.** For a package id the search index does not list, either answer is taken as "no version stored", and the desired version is installed. That Smile answers an unknown package id with 404, and never returns an empty `versions` object for a stored id, is **unverified**.
 
 ## Integration with GitHub Actions
 

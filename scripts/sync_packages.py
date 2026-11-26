@@ -242,8 +242,8 @@ class SmileCDRPackageSync:
         desired version when the node lacks it (missing) and every other stored
         version (extra). The extras matter after an Argo CD roll: the seed
         install adds the new version but is not known to remove the superseded
-        one, and the install loop below skips a package whose desired version
-        is already stored, so it never removes an extra either. With
+        one, and the install loop below removes an extra only when the search
+        index shows it as current and skip_uninstall is off. With
         report_unlisted (the whole seed config is the source), package ids
         stored on the node that the source does not list are printed as well;
         Smile fetches some of them as dependencies.
@@ -375,8 +375,22 @@ class SmileCDRPackageSync:
                 print(f"   ✓ Already installed, skipping")
                 continue
 
+            # Without the packument the script cannot tell whether the desired
+            # version is already stored, so any uninstall below could be
+            # followed by an install on its expunge. Write nothing for this id.
+            if stored_versions is None:
+                if self.dry_run:
+                    print(f"   ⚠️  The packument lookup for {package['name']} failed; a live run makes "
+                          f"no change for it and fails")
+                    continue
+                print(f"   ❌ The packument lookup for {package['name']} failed, so the script cannot tell "
+                      f"whether {package['version']} is already stored; making no change for it")
+                failed_operations.append(f"Packument lookup for {package['name']} on {node_name}")
+                continue
+
             # Uninstall if exists (force reinstall only: a current version
-            # without it was skipped above)
+            # without it was skipped above). A force reinstall is therefore an
+            # install on the expunge this uninstall starts (#92).
             if force_reinstall and (is_installed or already_stored) and not skip_uninstall:
                 success = self.uninstall_package(node_name, package['name'], package['version'])
                 if not success and not self.dry_run:
@@ -400,10 +414,6 @@ class SmileCDRPackageSync:
             if already_stored and not force_reinstall:
                 print(f"   ✓ {package_key} is already stored, not reinstalling")
                 continue
-
-            if stored_versions is None and not self.dry_run:
-                print(f"   ⚠️  The packument lookup for {package['name']} failed, so the script cannot tell "
-                      f"whether {package['version']} is already stored; installing anyway")
 
             # Install the package
             success = self.install_package(node_name, package)

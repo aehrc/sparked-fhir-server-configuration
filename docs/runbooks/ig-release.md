@@ -472,11 +472,17 @@ what that guide leaves implicit.
   database, which the expunge gotcha below forbids, and the old pod could be terminated
   mid-install. After the roll, step 2.4 runs `Re/load IG Packages` as a dry run (`nodes:
   aucore`, `package_source: config`, `dry_run: true`), which lists drift both ways. Only
-  if it reports a **Missing** version, run it again with `dry_run: false` and no
-  `issue_number` (with one, a successful live run labels the request `deployed` and asks
-  the requester to verify before the step 2.4 checks have run); a live run installs what
-  is missing but does not remove an **Extra** version (step 2.4). Never run it during the
-  roll. The workflow runs on a GitHub-hosted runner (#124), which cannot see the
+  if it reports a **Missing** version, run it again with `dry_run: false`,
+  `skip_uninstall: true` and no `issue_number` (with one, a successful live run labels
+  the request `deployed` and asks the requester to verify before the step 2.4 checks
+  have run). With `skip_uninstall: true` a live run only installs what is missing and
+  removes nothing. Without it (the default), a live run first uninstalls any other
+  version of the package id that the search index shows as current, so a Missing version
+  behind a current older one becomes a DELETE and then a PUT: an install on the expunge
+  that the gotcha below forbids. Never run it during the roll, and never set
+  `force_reinstall` on a live node during or near an event: it uninstalls the version it
+  reinstalls first, so a force reinstall is always an install on an expunge. The
+  workflow runs on a GitHub-hosted runner (#124), which cannot see the
   cluster, and installs through the node's package registry endpoint
   under `https://smile.sparked-fhir.com/aucore/package/` (`npm/...` to read, `write/...` to
   install) with the repo's basic-auth secret; that endpoint is not on the gateway's admin
@@ -585,15 +591,19 @@ what that guide leaves implicit.
   a drift block with three lines:
 
   - **Missing**: a seeded version the node does not hold. Run the workflow again with
-    `dry_run: false` and no `issue_number` (step 2.3), link that run from the tracking
-    issue, then repeat the dry run.
+    `dry_run: false`, `skip_uninstall: true` and no `issue_number` (step 2.3), link that
+    run from the tracking issue, then repeat the dry run. The drift dry run's plan, made
+    without `skip_uninstall`, may show `Would uninstall` for an older version before
+    `Would install`: that is the stacked install step 2.3 forbids, not the run to make.
   - **Extra**: another version of a seeded package id still stored, usually the version
     this release superseded. This runbook assumes Smile's startup install is additive: it
     installs the seeded versions and does not uninstall versions the seed no longer lists
     **(unverified)**; the only uninstaller in this repository is `sync_node` in
-    `scripts/sync_packages.py`. A live run does not remove an extra version either: it
-    uninstalls only a version the search index shows as current, and it skips a package
-    whose seeded version is already stored. A superseded version listed here is normal
+    `scripts/sync_packages.py`. A live run with `skip_uninstall: true` removes nothing.
+    Without it, a live run uninstalls an Extra version only when the search index shows
+    it as the package id's current version, and then installs the seeded version unless
+    that is already stored (section 9); an Extra version that is not current stays. A
+    superseded version listed here is normal
     after a release, not a failed check. Treat it like the lingering
     StructureDefinitions of step 2.3 (validate with `|<version>`) and record it on the
     tracking issue; removing it is a separate cleanup decision (#45), outside a freeze and
@@ -604,7 +614,8 @@ what that guide leaves implicit.
   The block never reports a failed lookup as `none`. A `Packument lookup failed` line
   (the id was checked against the search index, so its Extra versions are not visible),
   `unknown (search lookup failed ...)`, or `Drift not fully known` means the check has
-  not passed: run the dry run again. `possibly incomplete` after the Not in the source
+  not passed: run the dry run again. A live run makes no change for a package id whose
+  packument lookup failed, and fails. `possibly incomplete` after the Not in the source
   line means the search index may list only part of the registry
   **(unverified whether Smile pages it)**; Missing and Extra do not depend on that list.
 
@@ -1087,6 +1098,7 @@ tracking issue:
 | Superseded StructureDefinitions stay active | [2.3](#step-2-3) | version-less search returns two versions | #45; verified 2026-11-26 |
 | Superseded package version stays in the registry after the roll | [2.4](#step-2-4) | the post-roll dry run lists it under Extra | assumes an additive startup install **(unverified)** |
 | Large package replacement causes a long expunge and ingress timeouts | [2.3](#step-2-3) | pod CPU pinned, 15 s timeouts, no restart | #92 |
+| A live `Re/load IG Packages` run without `skip_uninstall`, or with `force_reinstall`, installs on an expunge | [2.3](#step-2-3), [2.4](#step-2-4) | the dry-run plan shows `Would uninstall` before `Would install` | `scripts/sync_packages.py`; #92 |
 | Live install without a deployed seed config means a restart reseeds old versions | [2.4](#step-2-4) | live `startup_installation_specs` differs from the repo | #91, #111 |
 | Nothing feeds tx.dev automatically | [1.1](#step-1-1) | step 1.2 returns nothing after the 15:00 UTC run | `aehrc/sparked-argo` #285 |
 | Suite loads the IG from `/home/igs` | [4.2](#step-4-2) | `igs '/home/igs/...'` in generated code; "Unable to find/resolve/read -ig" | `au-fhir-inferno` #130; `au-fhir-core-inferno` #316, fixed in #322 (2026-09-29) |
@@ -1127,7 +1139,9 @@ tracking issue:
      uninstalls, and installs nothing on top of the expunge it starts. If it would
      install the previous version instead (`[DRY RUN] Would install`), the rolled pod's
      startup install did not store it: stop, because a live run would stack that install
-     on the expunge, and read the pod log first. If the newer version shows only under
+     on the expunge, and read the pod log first. If it prints `a live run makes no change
+     for it and fails`, the packument lookup failed: run the dry run again. Never set
+     `force_reinstall` here. If the newer version shows only under
      **Extra** in the drift block, a live run would not remove it; leave it as step 2.4
      describes. Uninstalling a large package starts the expunge (step 2.3), so restart
      nothing and install nothing else until it drains (pod CPU back to normal, no ingress
@@ -1143,7 +1157,8 @@ tracking issue:
   a pod whose startup install stacks on that drain, while any restart between the two
   reseeds the newer version. Keep a live run with `package_source: custom`, the
   previous version's JSON and no `issue_number` for when the roll cannot complete (for
-  example, Argo CD cannot sync `smilecdr`), and then do not merge the revert until the
+  example, Argo CD cannot sync `smilecdr`), dry run first with the same stop rules as
+  step 3, and then do not merge the revert until the
   expunge has drained (pod CPU back to normal, no ingress timeouts, #92). The superseded
   version's StructureDefinitions are likely still present (step 2.3), which makes a
   rollback fast. A rollback has not been exercised for this runbook **(unverified)**.

@@ -557,7 +557,8 @@ Track your request through these stages:
 - Check SmileCDR logs
 - Verify network connectivity
 - Confirm package exists in registry
-- Try with `force_reinstall=true`
+- Try with `force_reinstall=true` only outside an event: a force reinstall uninstalls
+  the version first, so it is an install on an expunge (#92)
 
 **Package not found:**
 - Verify package name and version
@@ -590,6 +591,8 @@ Track your request through these stages:
 - `custom_packages`: JSON array of packages (for custom source)
 - `dry_run`: true/false (default: true)
 - `force_reinstall`: true/false (default: false)
+- `skip_uninstall`: true/false (default: false); true installs what is missing and removes
+  nothing, which is what a live run after a release uses
 - `issue_number`: Optional issue number to post results to
 
 ---

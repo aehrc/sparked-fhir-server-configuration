@@ -404,7 +404,7 @@ The following GitHub configuration is required for CI/CD workflows:
 - A: Check validation passed first (look for ✅ in validation comment)
 
 **Q: Package deployment fails**
-- A: Check SmileCDR logs, verify package exists in registry, try force_reinstall=true
+- A: Check SmileCDR logs, verify package exists in registry, and only outside an event try force_reinstall=true (it uninstalls first, so it is an install on an expunge)
 
 **Q: Test data load excludes files I need**
 - A: Load Test Data skips the `vendor-demonstrator` and `au-erequesting` folders by default (`au-erequesting` cannot load on `aucore`). Run Manage Test Data with your own `exclude_patterns` to change that.
