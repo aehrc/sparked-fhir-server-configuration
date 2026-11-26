@@ -50,18 +50,19 @@ The sparkey deployment runs the node in `PROPERTIES_UNLOCKED` mode:
 `config.troubleshooting: true` for `aucore`, overriding the
 `config.database: true` inherited from `simplified-multinode.yaml`. That means:
 
-1. The Helm-rendered properties (from the ConfigMap the last `terraform apply`
-   produced) are **authoritative** and are re-read on **every** boot,
-   overwriting the module config in the database.
+1. The Helm-rendered properties (from the ConfigMap the last sync of the Argo
+   CD Application `smilecdr` produced) are **authoritative** and are re-read
+   on **every** boot, overwriting the module config in the database.
 2. The admin console stays usable for live troubleshooting, but module config
    edits made through the console or the Admin JSON API are **lost on the next
    pod restart**. Records stored in the database, such as OIDC clients, users
    and partitions, are not module config and do persist.
-3. A change merged to this repo reaches the node only through a local
-   `terraform apply`, which updates the Helm release and rolls the pod.
+3. A change merged to this repo reaches the node only through a manual sync of
+   the Argo CD Application `smilecdr`, which renders the new config and rolls
+   the pod ([sparkey-deploy-runbook.md](sparkey-deploy-runbook.md), section A).
 
-So anything that must persist belongs in `module-config/`, deployed by an
-apply. The earlier model, in which the database was authoritative and the
+So anything that must persist belongs in `module-config/`, deployed by a
+sync. The earlier model, in which the database was authoritative and the
 properties seeded only the first boot, applied to the decommissioned
 `sparked-smilecdr` deployment.
 
@@ -87,7 +88,10 @@ multi-line; it is now seeded from `simplified-multinode.yaml` with escaped
 newlines, so the config is its source of truth).
 
 After changing `smart-post-authorize.js` or a `smart_auth` value, deploy it
-with a `terraform apply`. Running the sync script with `--apply` restarts the
+with a PR and a manual sync of `smilecdr`
+([sparkey-deploy-runbook.md](sparkey-deploy-runbook.md), section A; for the
+script, run `scripts/render_smile_mapped_files.py` first). Running the sync
+script with `--apply` restarts the
 module, briefly interrupting token issuance, and the change still lasts only
 until the next pod restart.
 
@@ -152,7 +156,7 @@ write as one and has no partition-scoped read-only variant:
    `ValueSet`, `CodeSystem`, `SearchParameter`, `Questionnaire`, IG packages) that
    HAPI FHIR always stores in `DEFAULT`. Without it, an authenticated
    tenant-scoped session gets a hard `403 "User does not have access to
-   <Type> resources on the requested partition"` for those types — which breaks
+   <Type> resources on the requested partition"` for those types, which breaks
    any authenticated write that references one (e.g. posting a
    `QuestionnaireResponse` whose `questionnaire` the server resolves against
    `Questionnaire`).

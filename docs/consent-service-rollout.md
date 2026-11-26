@@ -74,6 +74,11 @@ writes the curated dataset over REST.
 
 ### Step 1: deploy in observe mode
 
+> This rollout was done in August 2026 with local Terraform applies. Since the
+> Smile workload moved to Argo CD, a consent change ships as a PR and a manual
+> sync of `smilecdr` ([sparkey-deploy-runbook.md](sparkey-deploy-runbook.md),
+> section A); read "apply" below as that.
+
 Merging changes nothing on the server. Terraform is applied locally only
 (`smile-application.yml` is disabled: plan output in a public repo leaks
 infrastructure detail), so this needs a deliberate apply per
@@ -101,7 +106,7 @@ kubectl --context sparkey -n smile rollout status deployment/smilecdr-scdrnode-a
 
 The Deployment is `RollingUpdate` with `maxSurge: 1` and `maxUnavailable: 0`, so
 the old pod keeps serving until the new one passes its readiness probe. Smile
-CDR's startup probe allows up to 30 minutes, so allow for a slow boot rather
+CDR's startup probe allows up to 20 minutes, so allow for a slow boot rather
 than assuming a hang.
 
 If a rollout does not start, that means helm rendered an identical pod template,
@@ -290,6 +295,10 @@ write the type identified.
 rows that must still be rejected, and runs in CI.
 
 ## Rollback
+
+> Since the Smile workload moved to Argo CD, "apply" here means a PR and a
+> manual sync of `smilecdr` ([sparkey-deploy-runbook.md](sparkey-deploy-runbook.md),
+> section A); a `terraform apply` no longer changes the workload.
 
 Set `consent_service.enabled: false` on the `fhir_endpoint` module and apply.
 That is one key and it takes the script out of the request path entirely.

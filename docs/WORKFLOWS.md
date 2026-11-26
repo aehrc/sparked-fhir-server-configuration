@@ -145,9 +145,8 @@ A repo admin will decide when to deploy based on urgency.
 
 Option B in that comment is wrong, and the bot still posts it: there is no scheduled
 restart, and a pod restart on its own does not pick up merged changes. A merged change
-reaches the server on the next deploy, which today is a local Terraform apply run by a
-repo admin ([runbook step 2.4](runbooks/ig-release.md#smile-argo-move), which also says
-what replaces it). Open #126 corrects the text `pr-merged.yml` posts.
+reaches the server on the next deploy, a manual sync of the Argo CD Application
+`smilecdr` by a repo admin ([runbook step 2.4](runbooks/ig-release.md#step-2-4)). Open #126 corrects the text `pr-merged.yml` posts.
 
 #### Step 7: Verification
 
@@ -203,12 +202,10 @@ well, with the step each one bites in.
 - **Replacing a large package triggers a long expunge**: pod CPU near 1 core and
   intermittent 15 s ingress timeouts for several minutes. It recovers without a restart;
   do not stack another install on top (#92).
-- **A live install is not persistent** until the next deploy (a local Terraform apply on
-  `main` today) updates the seeded `startup_installation_specs`; a restart before that
-  reseeds the old versions. The apply inputs come from Secrets Manager
-  ([smile-deploy-inputs.md](smile-deploy-inputs.md)); see
-  [runbook step 2.4](runbooks/ig-release.md#step-2-4), which also covers the coming move
-  to an Argo CD sync.
+- **A live install is not persistent** until the next deploy (a manual sync of the Argo
+  CD Application `smilecdr`) updates the seeded `startup_installation_specs`; a restart
+  before that reseeds the old versions; see
+  [runbook step 2.4](runbooks/ig-release.md#step-2-4).
 - **Not during an event freeze.** No IG load, reload or apply while an event manifest's
   `freeze` window is open ([runbook constraint 9](runbooks/ig-release.md#4-ordering-constraints)).
   That includes merging a `deploy-immediately` PR, which installs on merge with no dry

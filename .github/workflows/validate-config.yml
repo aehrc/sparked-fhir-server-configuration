@@ -78,14 +78,16 @@ jobs:
           done
 
           # Every script referenced by a consent_service.script.file or
-          # post_authorize_script.file classpath must also be mapped in by
-          # terraform, or the node boots pointing at a file that is not there.
+          # post_authorize_script.file classpath must also be a mapped file
+          # (deploy/smilecdr/mapped-files.yaml, from
+          # scripts/render_smile_mapped_files.py), or the node boots pointing at
+          # a file that is not there.
           echo "📜 Verifying config_seeding script references..."
           for script in $(grep -hoE 'classpath:/?config_seeding/[A-Za-z0-9._-]+\.js([^a-z]|$)' module-config/*.yaml | sed -e 's|.*/||' -e 's|\.js.*|.js|' | sort -u); do
-            if grep -q "module-config/$script" terraform/main.tf; then
-              echo "  ✅ Mapped by terraform: $script"
+            if grep -qF "  $script:" deploy/smilecdr/mapped-files.yaml; then
+              echo "  ✅ Mapped: $script"
             else
-              echo "  ❌ Referenced in module config but not mapped in terraform/main.tf: $script"
+              echo "  ❌ Referenced in module config but not in scripts/render_smile_mapped_files.py: $script"
               missing=1
             fi
           done

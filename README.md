@@ -135,8 +135,7 @@ sparked-fhir-server-configuration/
 │       ├── register-smart-clients.yml  # Register SMART/OIDC clients
 │       ├── validate-config.yml         # Validates config on PR
 │       ├── sync-labels.yml             # Syncs labels.yml (non-destructive)
-│       ├── add-to-project.yml          # Adds new issues to the catalogue board
-│       └── smile-application.yml       # Terraform plan/apply
+│       └── add-to-project.yml          # Adds new issues to the catalogue board
 ├── docs/
 │   ├── SERVICE-CATALOGUE.md          # Catalogue of request types, SLAs, lifecycle
 │   ├── WORKFLOWS.md                  # Complete workflow guide
@@ -246,6 +245,9 @@ stand up your own instance:
   `AWS_OIDC_ROLE_ARN` / `ECR_PULL_ROLE_ARN` as GitHub repository variables. None are committed.
 - Fork the repo, supply your own values, point the Terraform backend at your own
   state bucket, and `terraform apply` from your workstation against your own account.
+  `terraform/main.tf` sets `helm_deploy = false` because an Argo CD Application
+  deploys the workload here (`docs/design/smile-to-argo.md`); set it to `true` to
+  have Terraform install the chart instead.
 - Credentials live in AWS Secrets Manager and GitHub Actions secrets in your own
   org, not in this repository.
 
@@ -367,13 +369,13 @@ The following GitHub configuration is required for CI/CD workflows:
 | `AWS_ACCOUNT_ID` | AWS account ID, used to build the test-data loader ECR image reference. Parameterized so the account ID is not hardcoded in the public repo. |
 | `CATALOGUE_PROJECT_URL` | (optional) URL of the service-catalogue GitHub Project; set to enable auto-adding new issues to the board |
 
-> **Terraform is applied locally, not in CI.** The `Smile Configuration Deployment`
-> workflow (`smile-application.yml`) is intentionally disabled: running
-> `terraform plan`/`apply` against live infrastructure in a public repo would publish
-> plan output (secret ARNs, resource IDs, topology) to PR comments, job summaries,
-> artifacts, and run logs. Apply from a workstation with the gitignored
-> `terraform/backend.hcl` and `terraform/terraform.tfvars`, following the deploy runbook
-> [`docs/terraform-local-deploy.md`](docs/terraform-local-deploy.md).
+> **Nothing here deploys from CI.** The Smile CDR workload is the Argo CD
+> Application `smilecdr` in `aehrc/sparked-argo`, which reads `module-config/` and
+> `deploy/smilecdr/` from `main` and is synced by hand. Terraform (Aurora, IAM,
+> secrets, generator jars; `helm_deploy = false`) is applied from a workstation:
+> running `terraform plan`/`apply` in a public repository's CI would publish plan
+> output (secret ARNs, resource IDs, topology). Both paths are in
+> [`docs/sparkey-deploy-runbook.md`](docs/sparkey-deploy-runbook.md).
 
 ### Repository Secrets (Settings > Secrets and variables > Actions > Secrets)
 
