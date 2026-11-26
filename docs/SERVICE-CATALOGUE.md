@@ -57,9 +57,9 @@ the Sparked FHIR Server nodes.
   edits the package and Terraform config. A human reviews and merges the PR. If
   `deploy-immediately` was requested, deployment runs automatically after merge; otherwise
   a repo admin runs the `Re/load IG Packages` workflow when it suits. Either way the
-  change persists across restarts only after the next deploy, a manual sync of the Argo
-  CD Application `smilecdr` ([runbook step 2.4](runbooks/ig-release.md#step-2-4)); there
-  is no scheduled restart or deploy.
+  merge itself is the deploy of the seed config: the Argo CD Application `smilecdr`
+  syncs automatically and rolls the pod within minutes, after which the change persists
+  across restarts ([runbook step 2.4](runbooks/ig-release.md#step-2-4)).
 - **Automation level:** semi-automated (validate then auto-PR then human merge then optional
   auto-deploy).
 - **SLA:** 1 to 2 weeks end-to-end (calendar lead time); roughly 20 minutes of hands-on time

@@ -66,7 +66,7 @@ is no longer deployed by anything and does not describe tx.dev.
 
 | Target | What it is | Changed through |
 |---|---|---|
-| Sparked Dev FHIR Server | Smile CDR node `aucore`, `https://smile.sparked-fhir.com/aucore/fhir/DEFAULT` | this repo: IG Release request, `Re/load IG Packages` workflow, then a manual sync of the Argo CD Application `smilecdr` ([step 2.4](#step-2-4)) |
+| Sparked Dev FHIR Server | Smile CDR node `aucore`, `https://smile.sparked-fhir.com/aucore/fhir/DEFAULT` | this repo: IG Release request, `Re/load IG Packages` workflow; merging the PR also deploys the seed config through the Argo CD Application `smilecdr`, which syncs automatically ([step 2.4](#step-2-4)) |
 | tx.dev | Ontoserver at `https://tx.dev.hl7.org.au/fhir`, which syndicates from the Atomio feed `hl7au-dev` on `synd.ontoserver.csiro.au` | an entry added by hand to `hl7au-dev` in the Atomio dashboard; the feed list and schedule are in `aehrc/sparked-argo` `apps/ontoserver/values.yaml` (private), and the event freeze pause switch in `apps/ontoserver/values-event-freeze.yaml` (`aehrc/sparked-argo` #385) |
 | Inferno test kits | Ruby gems `au_core_test_kit` and `au_ps_inferno` on RubyGems | `hl7au/au-fhir-core-inferno`, `hl7au/au-ps-inferno` |
 | Inferno platform | staging `https://development.inferno.sparked-fhir.com`, production `https://inferno.hl7.org.au` | `hl7au/au-fhir-inferno`, deployed by ArgoCD from `aehrc/sparked-argo` (private) |
@@ -101,7 +101,7 @@ three cycles, so a new engineer knows who to ask.
 |---|---|---|
 | **Release lead** | Opens and drives the tracking issue, owns Phases 0, 1, 2, 5 to 7 | @KyleOps |
 | **Requester** | Files the Smile IG Release request; says whether test data must change | HL7 AU product team (for example @dt-r) |
-| **Repo admin** (this repo) | Reviews the request, arms or bypasses automation, merges, deploys (a manual Argo CD sync, step 2.4), runs Terraform for infrastructure changes (needs the `AdministratorAccess` SSO permission set) | @KyleOps |
+| **Repo admin** (this repo) | Reviews the request, arms or bypasses automation, merges (the merge is also the Smile deploy: Argo CD syncs automatically, step 2.4), runs Terraform for infrastructure changes (needs the `AdministratorAccess` SSO permission set) | @KyleOps |
 | **Kit maintainer** | Generates the suite and releases the gem (Phase 4) | @projkov |
 | **Platform reviewer** | Reviews `au-fhir-inferno` PRs. The `master` ruleset needs 1 approving review, code-owner review and a green `quality-control`. A kit bump touches `Gemfile*` and `infra/`, which `CODEOWNERS` gives to the release owners, so one of them must approve it. | @KyleOps or @brettesler-ext for a kit bump |
 | **HL7 AU approver** | Signs off anything touching `fhir.hl7.org.au` or tx.hl7 | Brett Esler |
@@ -163,8 +163,8 @@ Each of these has been broken at least once, or would silently break a later ste
    connectathon or testing event, the event manifest `events/<yyyy-mm>-<place>.yaml` in
    this repo sets `freeze.start` and `freeze.end` (for December 2026,
    `events/2026-12-melbourne.yaml`: Fri 4 Dec 17:00 to Fri 11 Dec 17:00 AEDT). Inside that
-   window: no IG load, `Re/load IG Packages` run, Smile deploy (step 2.4) or test data
-   reload on `aucore`; no merge to `hl7au/au-fhir-inferno` `master` (production's chart
+   window: no IG load, `Re/load IG Packages` run, Smile deploy (a merge to
+   `module-config/` or `deploy/`, step 2.4) or test data reload on `aucore`; no merge to `hl7au/au-fhir-inferno` `master` (production's chart
    follows `master`, and Argo CD sync windows on `inferno-prod` and `inferno-ci-build` only
    hold a merge until unfreeze, when it lands unwatched); no new entry in the `hl7au-dev`
    feed (tx.dev's scheduled preload is paused, but a replica that restarts during the
@@ -183,11 +183,13 @@ Each of these has been broken at least once, or would silently break a later ste
 - Write access to this repo (to arm automation, merge and run workflows).
 - Whether an event freeze is coming (constraint 9): `ls events/` in this repo and read
   each upcoming manifest's `freeze` block.
-- For Phase 2 persistence: sync rights on the Argo CD Application `smilecdr`
-  (`argocd login argo.sparked-fhir.com --sso`, the `argocd-admin` or `argocd-developer`
-  group); the procedure is [sparkey-deploy-runbook.md](../sparkey-deploy-runbook.md),
-  section A. Terraform (`AdministratorAccess`, inputs from
-  `scripts/fetch-smile-tfvars.sh`, [smile-deploy-inputs.md](../smile-deploy-inputs.md))
+- For Phase 2 persistence: nothing beyond merge rights, because the merge is the deploy
+  (the Argo CD Application `smilecdr` syncs automatically). A manual sync, needed only
+  for an emergency fix in a freeze or to retry a failed sync, needs sync rights on the
+  Application (the `argocd-admin` or `argocd-developer` group) in the Argo CD UI, or
+  kubectl; the `argocd` CLI's SSO login fails today. The procedure is
+  [sparkey-deploy-runbook.md](../sparkey-deploy-runbook.md), section A. Terraform
+  (`AdministratorAccess`, inputs from `scripts/fetch-smile-tfvars.sh`, [smile-deploy-inputs.md](../smile-deploy-inputs.md))
   is needed only for an infrastructure change, such as a new generator jar.
 - Where the workflows run: `Re/load IG Packages` and the issue automation jobs run on
   GitHub-hosted runners (#124) and reach Smile through its public hostname. The exception
@@ -454,7 +456,9 @@ what that guide leaves implicit.
 - **Who:** repo admin.
 - **Where:** the PR, then **Actions > Re/load IG Packages** (`reload-ig-config.yml`).
 - **When:** not inside an event freeze (constraint 9), and that includes the merge: a PR
-  labelled `deploy-immediately` installs on merge.
+  labelled `deploy-immediately` installs on merge. Every merge of an IG PR is also the
+  Smile deploy of step 2.4: within about two minutes Argo CD rolls the pod onto the new
+  seed config, so merge at a moment a Smile restart is acceptable.
 - **Do:** merge. If the request had `deploy-immediately`, `pr-merged.yml` triggers the
   deploy, and it dispatches `Re/load IG Packages` with `dry_run: 'false'`: **there is no
   dry run and no freeze check on that path**, so merging such a PR is the live install.
@@ -500,31 +504,43 @@ what that guide leaves implicit.
 - **Who:** repo admin.
 - **Where:** Argo CD, on `main` after the PR merged. Since 26 Nov 2026 Argo CD deploys
   the Smile workload: the Application `smilecdr` in aehrc/sparked-argo renders this
-  repository's `main` (`module-config/`, `deploy/smilecdr/mapped-files.yaml`), and
-  Terraform no longer touches the Helm release
+  repository's `main` (`module-config/`, `deploy/smilecdr/mapped-files.yaml`) and syncs
+  automatically with prune and selfHeal, and Terraform no longer touches the Helm release
   ([design/smile-to-argo.md](../design/smile-to-argo.md)). The full procedure is
   [sparkey-deploy-runbook.md](../sparkey-deploy-runbook.md), section A. A new package
   file is first an entry in `scripts/render_smile_mapped_files.py` and a run of it, in the
   same PR (CI fails if the generated file is stale).
-- **When:** not inside an event freeze (constraint 9); the freeze allows a Smile sync
-  for an emergency fix only.
-- **Do:** sync the `smilecdr` Application so the new package files become ConfigMaps and
-  `startup_installation_specs` matches the repo. Pick a window: a `module-config/` change
-  rolls the pod, and the first `$validate` after it can answer 504 while the validator
-  warms (#111). In the Argo CD UI, Refresh the Application, read App Diff (only the
-  ConfigMaps and the Deployment's config hash should change), then Sync with Prune
-  ticked and never Replace or Force; or:
+- **When:** the merge in step 2.3 starts it, so the timing is the merge's: not inside an
+  event freeze (constraint 9). The freeze's deny window holds the automated sync, and a
+  manual sync then goes through for an emergency fix only.
+- **Do:** nothing to press. Within about two minutes of the merge Argo CD renders the
+  new package files as ConfigMaps and rolls the pod, so `startup_installation_specs`
+  matches the repo; the old pod serves until the new one is Ready, and the first
+  `$validate` after the roll can answer 504 while the validator warms (#111). To see the
+  sync at once instead of after the next poll (every 60 s plus up to 60 s of jitter),
+  press Refresh on the `smilecdr` Application in the Argo CD UI. Watch the roll:
 
   ```bash
-  argocd login argo.sparked-fhir.com --sso
-  argocd app diff smilecdr
-  argocd app sync smilecdr --prune
   kubectl --context sparkey get pods -n smile -w
   ```
 
+  A manual sync is needed only in a freeze or to retry a failed sync: UI Sync with Prune
+  ticked, never Replace or Force. The `argocd` CLI cannot start one today (its SSO login
+  fails with `invalid_scope` because Keycloak's `argocd` client rejects the
+  `offline_access` scope, and it also needs `--grpc-web`), so use the UI, or:
+
+  ```bash
+  kubectl --context sparkey -n argocd patch application smilecdr --type merge \
+    -p '{"operation":{"initiatedBy":{"username":"<you>"},"sync":{"syncOptions":["PruneLast=true"],"prune":true}}}'
+  ```
+
+  A `Re/load IG Packages` run started right after the merge (or by `deploy-immediately`)
+  installs on the old pod while the new one boots with the new seed config. Whether that
+  overlap matters has not been tested **(unverified)**.
 - **Verify:** the new pod turns Ready within its 20-minute startup probe and the
   Application is Synced and Healthy; a sync that reports ProgressDeadlineExceeded while
-  the pod is still starting is not a failure yet (section A of the deploy runbook). Then
+  the pod is still starting is not a failure yet: once the pod is Ready, retry it with a
+  manual sync (section A of the deploy runbook). Then
   repeat the step 2.3 checks. With cluster read access, confirm the live spec equals the
   repo's (run from the repo root; `aucore` is the first node in the file, so `grep -m1` picks its line):
 
@@ -547,8 +563,9 @@ what that guide leaves implicit.
   Since #121 the data checks are bounded `_count=1` searches that expect one entry,
   because the server refuses search totals by design (`HAPI-2038`, `HAPI-2037`), so a
   failure is a real failure, and each FAIL line says what came back.
-- **What goes wrong:** skipping this leaves a node whose next restart reseeds the previous
-  versions. A sync for an IG release has not been run yet **(unverified)**; the
+- **What goes wrong:** a sync held by a freeze, or failed and not retried, leaves a node
+  whose next restart reseeds the previous versions. An automated sync for an IG release
+  has not been run yet **(unverified)**; the
   live spec matched the repo on 2026-09-25 and again on 2026-11-26 (verified with the
   `diff` above). The smoke tests, read-only, gave `11 passed, 0 failed` against the
   current node on 2026-11-26 (verified; not after a release).
@@ -1016,7 +1033,7 @@ tracking issue:
 | `fetchDependencies: true` pulls nothing if any version is present | [2.1](#step-2-1), [2.2](#step-2-2) | dependency version absent from the dry-run list | #86, #91, #92 |
 | Superseded StructureDefinitions stay active | [2.3](#step-2-3) | version-less search returns two versions | #45; verified 2026-11-26 |
 | Large package replacement causes a long expunge and ingress timeouts | [2.3](#step-2-3) | pod CPU pinned, 15 s timeouts, no restart | #92 |
-| Live install without a sync means a restart reseeds old versions | [2.4](#step-2-4) | live `startup_installation_specs` differs from the repo | #91, #111 |
+| Live install without a deployed seed config means a restart reseeds old versions | [2.4](#step-2-4) | live `startup_installation_specs` differs from the repo | #91, #111 |
 | Nothing feeds tx.dev automatically | [1.1](#step-1-1) | step 1.2 returns nothing after the 15:00 UTC run | `aehrc/sparked-argo` #285 |
 | Suite loads the IG from `/home/igs` | [4.2](#step-4-2) | `igs '/home/igs/...'` in generated code; "Unable to find/resolve/read -ig" | `au-fhir-inferno` #130; `au-fhir-core-inferno` #316, fixed in #322 (2026-09-29) |
 | Generation workflows open PRs CI never checks | [4.2](#step-4-2) | no checks on the bot PR | `generate-tests.yaml`, `sync-ig-package.yaml` |

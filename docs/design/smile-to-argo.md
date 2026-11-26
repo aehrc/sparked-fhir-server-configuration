@@ -1,15 +1,19 @@
 # Design: the Smile CDR workload as an Argo CD Application
 
-**Status: accepted, being implemented before the December 2026 event freeze.**
-The adoption runs in one weekday window between 10:00 and 15:00 AEDT before
-Thu 3 Dec 2026, so the freeze that starts Fri 4 Dec 17:00 AEDT covers Smile
-mechanically for the first time. It changes no pod template, so Smile does not
-restart. The one step that does restart Smile, secrets through External Secrets
-Operator, follows it in the same window (the owner's ruling, 26 Nov 2026), as a
-separate sync with one planned pod roll. Until the adoption
-lands, Smile is deployed by a local `terraform apply`; from the hand-over PR
-on, [sparkey-deploy-runbook.md](../sparkey-deploy-runbook.md) section A (a PR
-and a manual sync) is the only way a Smile config change ships.
+**Status: implemented on 26 Nov 2026, ahead of the December 2026 event
+freeze.** The plan below put the adoption in one weekday window between 10:00
+and 15:00 AEDT; it ran on 26 Nov 2026 and was synced by hand. It changed no pod
+template: the pod from ReplicaSet `6467767574` (24 Nov) kept serving through
+it. The one step that does restart Smile, secrets through External Secrets
+Operator, followed the same day (the owner's ruling, 26 Nov 2026) as a
+separate manual sync with one planned pod roll (started 23:22 AEDT). After
+both, the `smilecdr` Application was switched to automated sync with prune and
+selfHeal (aehrc/sparked-argo#441), so the freeze that starts Fri 4 Dec 17:00
+AEDT covers Smile mechanically for the first time. A merge to `module-config/`
+or `deploy/` on `main` is now the deploy
+([sparkey-deploy-runbook.md](../sparkey-deploy-runbook.md) section A); a
+manual sync is only for a freeze or to retry a failed one. The adoption and
+ESO sections below keep the plan as it was written for the window.
 
 The pieces:
 
@@ -18,6 +22,7 @@ The pieces:
 | Values Argo CD can read: the bucket name committed, `deploy/smilecdr/mapped-files.yaml` generated, the checks in `scripts/smile_argo_check.py`, CI | this one | before the window; changes nothing live (Terraform renders the same values) |
 | The `smilecdr` Application, its account values, the freeze window, the pairing check | aehrc/sparked-argo | in the window; the Application appears OutOfSync and does nothing until synced by hand |
 | Terraform stops deploying the workload (`helm_deploy = false`), the CI workflow retired, the runbooks rewritten | this one | in the window, **only after** `terraform state rm` (step 5) |
+| Automated sync (prune, selfHeal) on the `smilecdr` Application | aehrc/sparked-argo (#441) | after the adoption and the ESO step, 26 Nov 2026 |
 
 ## Why
 
@@ -42,7 +47,7 @@ Secrets Operator (ESO). D3 said "after the event"; on 26 Nov 2026 the owner
 moved the adoption ahead of it, because the repository is quiet now and a
 zero-diff adoption carries no restart.
 
-## What exists today (checked live, read-only, 26 Nov 2026)
+## What existed before the adoption (checked live, read-only, 26 Nov 2026)
 
 - Terraform stack `terraform/` calls the Smile `sdh-deps` module (v9.0.2). It
   creates the Aurora cluster, the database users (through a Lambda), the IRSA
@@ -124,11 +129,11 @@ render. After the first sync the annotation it writes does not contain
 | Aurora cluster, DB users, KMS keys, DB credential secrets | Terraform (`sdh-deps`, unchanged) |
 | IRSA role and policies, `iam-users-secret.tf` | Terraform |
 | AU PS generator jars in S3 (`aws_s3_object`) | Terraform |
-| Smile Deployment, Services, ConfigMaps, PDB, ServiceAccount (and the SecretProviderClass until the ESO step), SecretStore and ExternalSecrets | Argo CD Application `smilecdr` (sparked-argo `apps/smilecdr.yaml`, project `sparked`) |
+| Smile Deployment, Services, ConfigMaps, PDB, ServiceAccount, SecretStore and ExternalSecrets (and the SecretProviderClass until the ESO step on 26 Nov 2026) | Argo CD Application `smilecdr` (sparked-argo `apps/smilecdr.yaml`, project `sparked`) |
 | HTTPRoutes, network policies | Argo CD (unchanged) |
 | Chart values (`module-config/*.yaml`, `deploy/smilecdr/mapped-files.yaml`) | This repository, public |
 | Account-specific values (IRSA role ARN, secret names, database wiring) | sparked-argo (private), `apps/smilecdr/values-account.yaml`; secret ARNs in `apps/smilecdr/secrets/` |
-| Secrets | AWS Secrets Manager, copied into Kubernetes Secrets by ESO (through the CSI driver until the ESO step) |
+| Secrets | AWS Secrets Manager, copied into Kubernetes Secrets by ESO (through the CSI driver until the ESO step on 26 Nov 2026) |
 
 Terraform keeps the module and sets `helm_deploy = false`, which gates only the
 module's `helm_release` and its `helm_template` data source. The module still
@@ -165,24 +170,28 @@ already use:
   safe commands.
 - **Sync options:** `PruneLast=true`, so superseded hashed ConfigMaps are deleted
   only after the new pod is healthy; a config change whose pod never becomes
-  ready leaves the old ConfigMaps in place. A manual sync prunes only when
-  asked (`argocd app sync smilecdr --prune`, or tick Prune in the UI): without
-  it the old ConfigMaps stay, marked "requires pruning", and the Application
-  stays OutOfSync, which would hide real drift. With `PruneLast` the sync
+  ready leaves the old ConfigMaps in place. The automated sync prunes
+  (`prune: true`); a manual sync prunes only when asked (tick Prune in the UI,
+  or `"prune":true` in a kubectl-started sync): without it the old ConfigMaps
+  stay, marked "requires pruning", and the Application stays OutOfSync, which
+  would hide real drift. With `PruneLast` the sync
   waits for the Deployment to be healthy, and the Deployment's
   `progressDeadlineSeconds` is 600 while a cold start on a new node can take
   longer: the sync can then report Failed (Degraded, ProgressDeadlineExceeded)
   while the new pod is still starting. Wait for the pod; if it becomes Ready,
-  sync again with Prune to remove the old ConfigMaps. Revert only if the
-  startup probe itself fails. Client-side apply (the default), not
+  retry with a manual sync with Prune to remove the old ConfigMaps. Revert
+  only if the startup probe itself fails. Client-side apply (the default), not
   server-side apply: the live objects are owned by the `helm` field manager,
   and server-side apply would conflict with it on the first sync.
 - **No `CreateNamespace`, no `managedNamespaceMetadata`:** the namespace
   exists and `smilecdr-routes` declares it.
-- **Sync policy: manual**, for the adoption and through the event. A merge to
-  `module-config/` then shows the Application OutOfSync and rolls nothing until
-  someone presses Sync. Turning on `automated` (prune, selfHeal) is its own
-  reviewed change after the event.
+- **Sync policy: automated, with prune and selfHeal, since 26 Nov 2026**
+  (aehrc/sparked-argo#441). The design first kept it manual through the
+  December event; the adoption and the ESO step were both synced by hand, and
+  `automated` was turned on after them as its own reviewed change. A merge to
+  `module-config/` or `deploy/` is now the deploy: within about two minutes
+  (Argo CD polls every 60 s plus up to 60 s of jitter; Refresh in the UI skips
+  the wait) Argo CD renders the new hashed ConfigMaps and the pod rolls.
 
 Smile's chart documentation ("ArgoCD Considerations" in `docs/guide/smilecdr/updating.md`
 of smile-dh-helm-charts) recommends `argocd.enabled: true`, which marks the
@@ -191,7 +200,7 @@ still scale. It is **not** set here: it changes the render, so the adoption
 would no longer be zero-diff, and it keeps every superseded ConfigMap forever.
 Today Helm deletes the old ConfigMaps at upgrade time, before the new pod is
 ready; `PruneLast` deletes them later than that, so the behaviour is no worse
-than under Terraform. Reconsider it with the move to automated sync. The same
+than under Terraform. It stayed unset when automated sync was turned on. The same
 guide's "umbrella chart" advice predates multi-source Applications.
 
 ### The two values changes (done)
@@ -286,9 +295,9 @@ with a second person watching. Rehearsed offline; the live steps are 3 to 6.
    Application, OutOfSync, with no operation. Nothing is applied. Run the step
    0 checks again with `--require-main`.
 3. **Read Argo CD's own diff** (UI: the Application, App Diff; or
-   `argocd app diff smilecdr` after `argocd login argo.sparked-fhir.com --sso`).
-   It must show annotations only, nothing under `spec`. The test Pod must not
-   appear.
+   `argocd app diff smilecdr` after `argocd login argo.sparked-fhir.com --sso`,
+   which fails today: see open question 4). It must show annotations only,
+   nothing under `spec`. The test Pod must not appear.
 4. **Sync once by hand**, default options only (UI Sync, or
    `argocd app sync smilecdr`). Before pressing it, Refresh the Application and
    check that the commits it resolved are the two that step 2's checks
@@ -346,7 +355,7 @@ One stray ConfigMap is not part of the release
 earlier revision, still there on 26 Nov). Argo CD does not track it, so it never
 prunes it; delete it by hand after the adoption.
 
-## Secrets through ESO (second step, one planned roll, same window)
+## Secrets through ESO (second step, one planned roll, done 26 Nov 2026)
 
 Swapping the Secrets Store CSI driver for ESO changes the pod template, so it
 is a pod roll: one Smile restart, with the old pod serving until the new one is
@@ -410,10 +419,11 @@ the volumes `smilecdr-users-json` and `smilecdr-token-signing-jwks`, and the
 image pull secret `smilecdr-scdr-image-pull-secrets` removed. Then sync with
 Prune (never Replace or Force).
 
-**Rollback:** revert the sparked-argo PR and sync with Prune. The chart renders
-the SecretProviderClass and the CSI volume again, the CSI driver recreates its
-Secrets when the new pod mounts the volume, and the pod rolls once more; the
-ExternalSecrets and their Secrets are pruned after it is healthy.
+**Rollback:** revert the sparked-argo PR; with automated sync on, merging the
+revert is the sync (with Prune). The chart renders the SecretProviderClass and
+the CSI volume again, the CSI driver recreates its Secrets when the new pod
+mounts the volume, and the pod rolls once more; the ExternalSecrets and their
+Secrets are pruned after it is healthy.
 
 The Secrets Store CSI driver itself stays installed. `smile` held the only
 SecretProviderClass in the cluster (26 Nov 2026), so after this step nothing
@@ -421,22 +431,27 @@ uses the driver; removing it is a separate cleanup after the event.
 
 ## How day-to-day changes work afterwards
 
-- **A config change** is a PR to `module-config/`. Merging it is not yet the
-  deploy: the Application goes OutOfSync, and someone syncs it with Prune
-  (`argocd app sync smilecdr --prune`, or tick Prune in the UI). Argo CD
-  renders a new hashed ConfigMap, the pod template changes, and the pod rolls
-  (up to the startup probe's limit, while the old pod serves). With automated
-  sync on (after the event), merging is the deploy. The ruleset on `main` (one
-  approval) is the review gate.
+- **A config change** is a PR to `module-config/`, and merging it is the
+  deploy. The ruleset on `main` (one approval) is the review gate, and
+  whoever merges picks the moment. Within about two minutes Argo CD renders a
+  new hashed ConfigMap, the pod template changes, and the pod rolls (up to the
+  startup probe's 20 minutes, while the old pod serves; the first `$validate`
+  can answer 504 while the validator warms), then prunes the superseded
+  ConfigMaps. To see a merge at once, press Refresh on the Application.
+- **A manual sync** is only for an emergency fix during a freeze or to retry a
+  failed sync: UI Sync with Prune ticked, never Replace or Force. The `argocd`
+  CLI cannot start one today (open question 4); kubectl can:
+  `kubectl --context sparkey -n argocd patch application smilecdr --type merge -p '{"operation":{"initiatedBy":{"username":"<you>"},"sync":{"syncOptions":["PruneLast=true"],"prune":true}}}'`.
 - **A new mapped file** (package spec or script) is an entry in
   `scripts/render_smile_mapped_files.py` and a run of it.
 - **A new generator jar** still needs Terraform first (the `aws_s3_object`),
   then the values PR that points `copyFiles` at it.
-- **An IG release** that persists `startup_installation_specs` becomes a values
-  PR and a sync, not a local apply.
-- **Console edits** are still lost on restart (`PROPERTIES_UNLOCKED`). With
-  `selfHeal` on, Argo CD also reverts `kubectl edit` on the Deployment; a
-  `kubectl rollout restart` stays (its annotation is never rendered).
+- **An IG release** that persists `startup_installation_specs` is a values PR
+  whose merge deploys it, not a local apply.
+- **Console edits** are still lost on restart (`PROPERTIES_UNLOCKED`).
+  `selfHeal` also reverts a `kubectl edit` or `kubectl scale` of the objects
+  the Application renders; a `kubectl rollout restart` stays (its annotation
+  is never rendered).
 - **Chart upgrades** bump the module and `helm_chart_version` here first, then
   `targetRevision` in sparked-argo (see "Keeping the module and the
   Application honest"). Module upgrades that do not touch the chart (Aurora,
@@ -446,21 +461,22 @@ uses the driver; removing it is a separate cleanup after the event.
 
 The `smilecdr` Application is in the `sparked` project's event sync window
 (sparked-argo `scripts/event-freeze.py`): a `deny` window for the freeze dates
-with `manualSync: true`, so an emergency fix can still be synced by hand. While
-the Application syncs by hand only, the freeze for Smile is in practice
-"nobody presses Sync"; the window is what holds it once `automated` is on, and a
-deny window also suspends `selfHeal`. Because Argo CD renders this repository's
-`main` at sync time, an emergency sync ships everything merged here since the
-last sync: the freeze includes no merges to `module-config/` or `deploy/`, and
-an emergency sync starts by reading App Diff. Node expiry on the `on-demand-prod` pool is
+with `manualSync: true`. With `automated` on, the window is what holds Smile:
+it suspends the automated sync and `selfHeal` for the freeze, and a manual
+sync (UI Sync, Prune ticked, never Replace or Force) still goes through for an
+emergency fix. Because Argo CD renders this repository's `main` at sync time,
+an emergency sync ships everything merged here since the last sync, and the
+automated sync ships whatever was merged during the freeze once the window
+closes: the freeze includes no merges to `module-config/` or `deploy/`, and an
+emergency sync starts by reading App Diff. Node expiry on the `on-demand-prod` pool is
 a separate control (Karpenter) and is not affected by this change.
 
 ## Rollback
 
-- **A bad config change:** `git revert` the PR and sync; Argo CD renders the
-  previous hashed ConfigMaps and the pod rolls back. Argo CD's own history
-  rollback works too, but only with automated sync off, and git stays the
-  record.
+- **A bad config change:** `git revert` the PR and merge the revert; Argo CD
+  renders the previous hashed ConfigMaps and the pod rolls back. Argo CD's own
+  history rollback works only with automated sync off, so it is not the path
+  now, and git stays the record.
 Removing the Application never uses `argocd app delete` without
 `--cascade=false`, nor the UI's default delete: both delete the Deployment
 (see "No resources finalizer" above). The safe way is reverting the
@@ -504,7 +520,11 @@ sparked-argo PR: the app-of-apps prune does not cascade, and a revert keeps
    check with `argocd login argo.sparked-fhir.com --sso` before the window.
    Without the CLI, the UI's Sync button, or the `kubectl patch` of
    `operation` in sparked-argo `docs/event-freeze.md` (Emergencies) with
-   cluster-admin kubectl, does the same.
+   cluster-admin kubectl, does the same. On 26 Nov 2026 the CLI's SSO login
+   failed: Keycloak's `argocd` client rejects the `offline_access` scope the
+   CLI asks for (`invalid_scope`), and the CLI also needs `--grpc-web`. Until
+   that is fixed, use the UI, or start a sync of `smilecdr` with
+   `kubectl --context sparkey -n argocd patch application smilecdr --type merge -p '{"operation":{"initiatedBy":{"username":"<you>"},"sync":{"syncOptions":["PruneLast=true"],"prune":true}}}'`.
 5. **Delete the disabled `smile-application.yml` workflow and its variables?**
    Yes. It never ran for this stack after the repository went public (both jobs
    `if: false`), the OIDC role it assumed no longer exists, and the rollback is
