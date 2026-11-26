@@ -501,17 +501,7 @@ what that guide leaves implicit.
 - **Who:** repo admin.
 - **Where:** Terraform from a workstation, on `main` after the PR merged. On `main` today
   this local apply is the only way a Smile configuration change reaches the server: Argo
-  CD does not deploy the Smile workload.
-- <a id="smile-argo-move"></a>**About to change: Smile moves to Argo CD before the
-  December 2026 event.** The owner brought the adoption forward to a weekday window before
-  Thu 3 Dec 2026, ahead of the freeze (open #127, which updates
-  [design/smile-to-argo.md](../design/smile-to-argo.md) from #120). When open #128 merges
-  in that window, Terraform stops deploying the workload (`helm_deploy = false`) and this
-  step becomes a manual sync of the `smilecdr` Application in Argo CD, following the
-  rewritten [sparkey-deploy-runbook.md](../sparkey-deploy-runbook.md) (section A, PR plus
-  manual sync). The other pages that say "local `terraform apply`" for an IG release point
-  here; change this step when #128 merges and they follow. Until then, use the procedure
-  below. The two gitignored inputs
+  CD does not deploy the Smile workload. The two gitignored inputs
   (`terraform/backend-sparkey.hcl` and `tfvars/sparkey.tfvars`) are kept in Secrets
   Manager under `sparked/smile/terraform/` and fetched with
   `scripts/fetch-smile-tfvars.sh` ([smile-deploy-inputs.md](../smile-deploy-inputs.md),
@@ -519,6 +509,17 @@ what that guide leaves implicit.
   apply needs. The rest of the procedure is in
   [sparkey-deploy-runbook.md](../sparkey-deploy-runbook.md). Use that document, not
   `terraform-local-deploy.md`, which describes the decommissioned stack (#111).
+- <a id="smile-argo-move"></a>**About to change: Smile moves to Argo CD before the
+  December 2026 event.** The owner brought the adoption forward to a weekday window before
+  Thu 3 Dec 2026, ahead of the freeze (open #127, which updates
+  [design/smile-to-argo.md](../design/smile-to-argo.md) from #120). When open #128 merges
+  in that window, Terraform stops deploying the workload (`helm_deploy = false`) and this
+  step becomes a manual sync of the `smilecdr` Application in Argo CD, following the
+  rewritten [sparkey-deploy-runbook.md](../sparkey-deploy-runbook.md) (section A, PR plus
+  manual sync). Until then, use the procedure below. The other pages that describe the
+  local apply for an IG release (the Targets table, the tracking template, `WORKFLOWS.md`
+  and `SERVICE-CATALOGUE.md`) say "today" and link here, so when #128 merges this step is
+  the one to rewrite.
 - **When:** not inside an event freeze (constraint 9); the freeze allows a Smile deploy
   for an emergency fix only.
 - **Do:** plan and apply the Smile deployment so the new package files become ConfigMaps
