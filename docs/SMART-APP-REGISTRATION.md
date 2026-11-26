@@ -16,9 +16,9 @@ Complete guide to registering SMART on FHIR / OIDC clients on the Sparked FHIR S
 | Login Page (aucore) | `https://smile.sparked-fhir.com/aucore/smartauth/signin` |
 | Admin Console | `https://smile.sparked-fhir.com/aucore/console` |
 
-The admin console and the admin JSON API (`/aucore/admin-json`) answer only from allowlisted client addresses (the CSIRO network or VPN); the gateway refuses everyone else. The registration workflows do not go through the gateway: they call the admin JSON API in-cluster from the `arc-runner-smile-admin` runners.
+The admin console and the admin JSON API (`/aucore/admin-json`) answer only from allowlisted client addresses (the CSIRO VPN; being on a CSIRO site without the VPN is not enough); the gateway refuses everyone else. The registration workflows do not go through the gateway: they call the admin JSON API in-cluster from the `arc-runner-smile-admin` runners.
 
-> **Note**: `aucore` is the only node; `ereq` and `hl7au` were decommissioned on 2026-08-03. Each node has its own `smart_auth` and `local_security` modules (via `useDefaultModules`). Clients and users must be registered **per-node** on the target node's smart_auth module. Use `--node` with the registration scripts to target a specific node. All nodes share the same JWKS keystore for token signing.
+> **Note**: `aucore` is the only node; `ereq` and `hl7au` were decommissioned on 2026-08-03. Clients are registered on its `smart_auth` module and users on its `local_security` module. The registration scripts target `aucore` by default.
 
 ## Client Types
 

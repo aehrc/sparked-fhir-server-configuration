@@ -35,8 +35,8 @@ Supporting pieces:
   Both workflows call the API at its in-cluster Service address
   (`SMILECDR_ADMIN_URL`), so they run on `arc-runner-smile-admin`, the scale
   set reserved for the registration jobs. A run from a workstation uses the
-  public admin route, which the gateway allowlists by client address (CSIRO
-  network or VPN).
+  public admin route, which the gateway allowlists by client address (the
+  CSIRO VPN pools; a CSIRO site without the VPN is not on the list).
 - **Users**: `scripts/manage_smart_users.py` creates users in
   `local_security` (definitions in `module-config/connectathon-users.json`).
 - **Anonymous access**: deliberately enabled for the public sandbox. The
