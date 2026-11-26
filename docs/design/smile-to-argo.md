@@ -154,13 +154,19 @@ already use:
   the `secrets.*.secretArn` overrides, the ServiceAccount's IRSA annotation,
   `specs.hostname: ''` (no module-managed ingress) and `replicaCount: 1`.
   ARNs and names only.
-- **No resources finalizer.** With it, deleting the Application, or removing
-  its file (the app-of-apps prunes it), would delete the Deployment. Without
-  it the Application can go and Smile keeps running, which is also the
-  rollback path.
+- **No resources finalizer**, so removing the file (the app-of-apps prunes the
+  Application without cascading) or `kubectl -n argocd delete application
+  smilecdr` leaves Smile running. **Not** so for the two usual ways of
+  deleting: `argocd app delete` defaults to `--cascade=true` and the UI's
+  delete dialog to Foreground, and Argo CD then adds the finalizer itself and
+  deletes all 23 objects, Deployment included. The rollback below names the
+  safe commands.
 - **Sync options:** `PruneLast=true`, so superseded hashed ConfigMaps are deleted
   only after the new pod is healthy; a config change whose pod never becomes
-  ready leaves the old ConfigMaps in place. Client-side apply (the default), not
+  ready leaves the old ConfigMaps in place. A manual sync prunes only when
+  asked (`argocd app sync smilecdr --prune`, or tick Prune in the UI): without
+  it the old ConfigMaps stay, marked "requires pruning", and the Application
+  stays OutOfSync, which would hide real drift. Client-side apply (the default), not
   server-side apply: the live objects are owned by the `helm` field manager,
   and server-side apply would conflict with it on the first sync.
 - **No `CreateNamespace`, no `managedNamespaceMetadata`:** the namespace
@@ -208,7 +214,13 @@ that matters, as long as two things cannot drift silently:
   `python3 scripts/smile_argo_check.py values --argo-repo <sparked-argo> --terraform-output <(cd terraform && terraform output -json smilecdr_helm_values)`.
   It fails on any value the module would set differently from the Application's
   files, for example a new secret, a renamed role or a changed database block
-  in a new module release.
+  in a new module release. The output includes the module's own `--set`
+  overrides (`replicaCount` and `specs.hostname`, which it sets to its
+  `public_fqdn`, empty here), so today's live state compares clean. **A
+  difference is investigated, never synced blind:** copying Terraform's side
+  into `values-account.yaml` can change the render, and a changed render is a
+  pod roll (a non-empty `specs.hostname`, for example, also changes every
+  advertised URL).
 - **The module and chart versions.** sdh-deps v9.0.2 and chart 9.0.2 are
   released together. `smile_argo_check.py pairing` (this repository's CI)
   checks that the module ref and `helm_chart_version` in `terraform/main.tf`
@@ -231,31 +243,44 @@ SSO `AdministratorAccess` (for steps 5 and 6) and Argo CD sync rights (step 4),
 with a second person watching. Rehearsed offline; the live steps are 3 to 6.
 
 0. **Before the window**: the values PR here merged (it changes nothing live),
-   the sparked-argo PR and the hand-over PR approved. Rerun all three checks
-   against `main`:
+   the sparked-argo PR and the hand-over PR approved, the hand-over PR rebased
+   onto `main` the day before. Ask maintainers not to merge to this
+   repository's `main` during the window: Argo CD renders it at sync time, so a
+   merge between the checks and the sync ships with the adoption. Run the
+   three checks against the sparked-argo PR's branch now, and again against
+   both `main`s once step 2 has merged it:
 
    ```bash
-   python3 scripts/smile_argo_check.py values --argo-repo ../sparked-argo \
+   git fetch origin && git checkout --detach origin/main      # in both checkouts, after step 2
+   python3 scripts/smile_argo_check.py values --require-main --argo-repo ../sparked-argo \
      --helm-values <(helm get values smilecdr -n smile --kube-context sparkey -o yaml)
-   python3 scripts/smile_argo_check.py render --argo-repo ../sparked-argo \
+   python3 scripts/smile_argo_check.py render --require-main --argo-repo ../sparked-argo \
      --argocd-image quay.io/argoproj/argocd:v3.6.2
-   python3 scripts/smile_argo_check.py dry-run --argo-repo ../sparked-argo \
+   python3 scripts/smile_argo_check.py dry-run --require-main --argo-repo ../sparked-argo \
      --argocd-image quay.io/argoproj/argocd:v3.6.2
    ```
 
-   The gate: `differences: 0`, `identical objects: 23`, and
+   Each prints the two commits it checked (`--require-main` refuses anything
+   but a clean `origin/main`; leave it out for the branch run). The gate:
+   `differences: 0`, `identical objects: 23`, and
    `objects with a change beyond Argo CD's metadata annotations: 0`, with the
    Deployment line reading `spec.template identical`. Anything else: stop.
 1. **Record the baseline**:
    `kubectl --context sparkey -n smile get pods,rs -o wide` (pod name, age,
    ReplicaSet `6467767574` or whatever is current).
 2. **Merge the sparked-argo PR.** The app-of-apps creates the `smilecdr`
-   Application, OutOfSync, with no operation. Nothing is applied.
+   Application, OutOfSync, with no operation. Nothing is applied. Run the step
+   0 checks again with `--require-main`.
 3. **Read Argo CD's own diff** (UI: the Application, App Diff; or
    `argocd app diff smilecdr` after `argocd login argo.sparked-fhir.com --sso`).
    It must show annotations only, nothing under `spec`. The test Pod must not
    appear.
-4. **Sync once by hand** (UI Sync, or `argocd app sync smilecdr`). Watch
+4. **Sync once by hand**, default options only (UI Sync, or
+   `argocd app sync smilecdr`). Before pressing it, check that the revisions
+   the sync panel shows are the two commits step 2's checks printed. Never
+   tick Replace (it rewrites each object whole and drops the pod template's
+   `restartedAt`: a pod roll) or Force (delete and recreate). Prune is not
+   needed: nothing is tracked yet, so nothing can be pruned. Watch
    `kubectl --context sparkey -n smile get pods -w`: the pod keeps its name and
    age, and no new ReplicaSet appears. A new pod here means the render
    differed: the old pod keeps serving (`maxUnavailable: 0`), so let the roll
@@ -287,12 +312,14 @@ with a second person watching. Rehearsed offline; the live steps are 3 to 6.
    `terraform plan -var-file=../tfvars/sparkey.tfvars` must show no resource
    changes (only the new output and `helm_release_notes` becoming null). Apply
    it to record the output, then run the `values` check with
-   `--terraform-output`.
+   `--terraform-output`; expect `differences: 0`.
 7. **Leave the Helm release secrets** (`sh.helm.release.v1.smilecdr.v*`) for 30
    days as the rollback path, then delete them. Argo CD does not track them.
    Leave the `meta.helm.sh/release-*` annotations and the
    `app.kubernetes.io/managed-by: Helm` label on the objects: Argo CD does not
    remove what it did not render, and the import in the rollback needs them.
+   While the release secrets exist, `helm uninstall smilecdr` still works and
+   deletes every object: nobody runs a Helm command against this release.
 
 One stray ConfigMap is not part of the release
 (`smilecdr-scdr-package-au-base-6-1-1-draft-json-02ed8b...`, a leftover of an
@@ -328,7 +355,8 @@ after the event:
 ## How day-to-day changes work afterwards
 
 - **A config change** is a PR to `module-config/`. Merging it is not yet the
-  deploy: the Application goes OutOfSync, and someone presses Sync. Argo CD
+  deploy: the Application goes OutOfSync, and someone syncs it with Prune
+  (`argocd app sync smilecdr --prune`, or tick Prune in the UI). Argo CD
   renders a new hashed ConfigMap, the pod template changes, and the pod rolls
   (up to the startup probe's limit, while the old pod serves). With automated
   sync on (after the event), merging is the deploy. The ruleset on `main` (one
@@ -354,7 +382,10 @@ The `smilecdr` Application is in the `sparked` project's event sync window
 with `manualSync: true`, so an emergency fix can still be synced by hand. While
 the Application syncs by hand only, the freeze for Smile is in practice
 "nobody presses Sync"; the window is what holds it once `automated` is on, and a
-deny window also suspends `selfHeal`. Node expiry on the `on-demand-prod` pool is
+deny window also suspends `selfHeal`. Because Argo CD renders this repository's
+`main` at sync time, an emergency sync ships everything merged here since the
+last sync: the freeze includes no merges to `module-config/` or `deploy/`, and
+an emergency sync starts by reading App Diff. Node expiry on the `on-demand-prod` pool is
 a separate control (Karpenter) and is not affected by this change.
 
 ## Rollback
@@ -363,14 +394,27 @@ a separate control (Karpenter) and is not affected by this change.
   previous hashed ConfigMaps and the pod rolls back. Argo CD's own history
   rollback works too, but only with automated sync off, and git stays the
   record.
-- **During the window, before step 5:** delete the Application (it has no
-  finalizer, so the workload stays) and revert the sparked-argo PR. Terraform
+Removing the Application never uses `argocd app delete` without
+`--cascade=false`, nor the UI's default delete: both delete the Deployment
+(see "No resources finalizer" above). The safe way is reverting the
+sparked-argo PR: the app-of-apps prune does not cascade, and a revert keeps
+`sparked-project-apps` from recreating the Application.
+
+- **During the window, before step 5:** revert the sparked-argo PR. Terraform
   state still owns the release; nothing else changed.
-- **Abandoning the migration after step 5:** delete the Application (no
-  finalizer, workload stays); revert the hand-over PR (`helm_deploy = true`);
+- **Abandoning the migration after step 5:** revert the sparked-argo PR; revert
+  the hand-over PR (`helm_deploy = true`);
   `terraform import 'module.smile_cdr_dependencies.helm_release.smilecdr[0]' smile/smilecdr`
-  (the Helm release secrets kept in step 7 make this possible); a plan should
-  then show no changes.
+  (the Helm release secrets kept in step 7 make this possible). Not rehearsed,
+  and weaker than it looks: the Helm provider's import (v3.2.0) records only the
+  release's name, chart and status, not its values, so the next plan shows an
+  in-place update, a `helm upgrade` to revision 18. That upgrade is clean only
+  while the live objects still equal revision 17. After any Argo CD config
+  sync, the new hashed ConfigMaps lack Helm's ownership metadata, and the
+  upgrade fails with "invalid ownership metadata" until each is labelled
+  `app.kubernetes.io/managed-by=Helm` and annotated
+  `meta.helm.sh/release-name=smilecdr` and `meta.helm.sh/release-namespace=smile`.
+  Read that plan as closely as any other.
 
 ## Open questions, answered (26 Nov 2026)
 

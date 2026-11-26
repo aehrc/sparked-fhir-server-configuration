@@ -62,6 +62,29 @@ ARGO_ANNOTATIONS = {
 # --- the Application --------------------------------------------------------------
 
 
+def head_report(argo_repo: Path, require_main: bool) -> None:
+    """Print which commits are being checked; with require_main, refuse anything but origin/main.
+
+    Argo CD renders sparked-fhir-server-configuration at `main` and sparked-argo
+    at `HEAD` when it syncs, not these checkouts. A check of a stale or feature
+    checkout says nothing about what a sync applies.
+    """
+    bad = []
+    for label, repo in (("sparked-fhir-server-configuration", ROOT), ("sparked-argo", argo_repo)):
+        def git(*a):
+            return subprocess.run(["git", "-C", str(repo), *a], capture_output=True, text=True).stdout.strip()
+        head = git("rev-parse", "HEAD")
+        main = git("rev-parse", "origin/main")
+        dirty = bool(git("status", "--porcelain", "--untracked-files=no"))
+        print(f"{label}: HEAD {head[:12]}, origin/main {main[:12]}{' (uncommitted changes)' if dirty else ''}")
+        if head != main or dirty:
+            bad.append(label)
+    if bad and require_main:
+        sys.exit(f"--require-main: {', '.join(bad)} not at a clean origin/main; git fetch and check out origin/main first")
+    if bad:
+        print("note: not origin/main, so this checks a branch, not what a sync would apply")
+
+
 def load_app(argo_repo: Path) -> dict:
     app = yaml.safe_load((argo_repo / APP_FILE).read_text())
     chart = next(s for s in app["spec"]["sources"] if s.get("chart"))
@@ -131,7 +154,9 @@ def flatten(d, prefix=""):
 
 
 def cmd_values(args) -> int:
+    head_report(args.argo_repo, args.require_main)
     app = load_app(args.argo_repo)
+    set_keys = set()
     argo = {}
     for f in app["value_files"]:
         argo = merge(argo, yaml.safe_load(f.read_text()) or {})
@@ -144,6 +169,7 @@ def cmd_values(args) -> int:
             theirs = merge(theirs, yaml.safe_load(doc) or {})
         for k, v in (out.get("set") or {}).items():
             set_dotted(theirs, k, v)
+            set_keys.add("." + k.replace("\\.", "."))
         label = "terraform (sdh-deps helm_chart_values + set overrides)"
     else:
         theirs = yaml.safe_load(Path(args.helm_values).read_text()) or {}
@@ -153,8 +179,9 @@ def cmd_values(args) -> int:
     bad = 0
     for k in sorted(set(a) | set(b)):
         x, y = a.get(k, "<absent>"), b.get(k, "<absent>")
-        # --set passes scalars as strings; Helm parses them back to numbers and booleans.
-        if x != y and str(x) != str(y):
+        # Terraform passes --set values as strings and Helm parses them back to
+        # numbers and booleans, so only those keys compare as strings.
+        if x != y and not (k in set_keys and str(x) == str(y)):
             bad += 1
             print(f"{k}\n   {label}: {json.dumps(x)[:160]}\n   argo value files: {json.dumps(y)[:160]}")
     print(f"values compared: {len(set(a) | set(b))} leaves; differences: {bad}")
@@ -242,6 +269,7 @@ def compare(live: dict, render: dict) -> int:
 
 
 def cmd_render(args) -> int:
+    head_report(args.argo_repo, args.require_main)
     app = load_app(args.argo_repo)
     with tempfile.TemporaryDirectory() as tmp:
         work = Path(tmp)
@@ -321,6 +349,7 @@ def cmd_extdiff(args) -> int:
 
 
 def cmd_dry_run(args) -> int:
+    head_report(args.argo_repo, args.require_main)
     app = load_app(args.argo_repo)
     with tempfile.TemporaryDirectory() as tmp:
         work = Path(tmp)
@@ -362,7 +391,7 @@ def cmd_dry_run(args) -> int:
 
 def terraform_versions() -> tuple:
     main_tf = (ROOT / "terraform" / "main.tf").read_text()
-    ref = re.search(r'source\s*=\s*"git::https://gitlab\.com/smilecdr-public/smile-dh-helm-charts//src/main/terraform/sdh-deps\?ref=v([0-9.]+)"', main_tf)
+    ref = re.search(r'^\s*source\s*=\s*"git::https://gitlab\.com/smilecdr-public/smile-dh-helm-charts//src/main/terraform/sdh-deps\?ref=v([0-9.]+)"', main_tf, re.M)
     chart = re.search(r'^\s*helm_chart_version\s*=\s*"([0-9.]+)"', main_tf, re.M)
     if not ref or not chart:
         sys.exit("terraform/main.tf: could not find the sdh-deps module ref or helm_chart_version")
@@ -395,6 +424,7 @@ def main() -> int:
     g = v.add_mutually_exclusive_group(required=True)
     g.add_argument("--terraform-output", help="`terraform output -json smilecdr_helm_values`")
     g.add_argument("--helm-values", help="`helm get values smilecdr -n smile -o yaml`")
+    v.add_argument("--require-main", action="store_true", help="fail unless both checkouts are a clean origin/main (the adoption window)")
     v.set_defaults(func=cmd_values)
 
     for name, func, helptext in (
@@ -406,6 +436,7 @@ def main() -> int:
         p.add_argument("--context", default="sparkey", help="kube context (default sparkey)")
         p.add_argument("--helm", default="helm", help="helm binary when --argocd-image is not given")
         p.add_argument("--argocd-image", help="run the Helm bundled in this Argo CD image (docker), e.g. quay.io/argoproj/argocd:v3.6.2")
+        p.add_argument("--require-main", action="store_true", help="fail unless both checkouts are a clean origin/main (the adoption window)")
         if name == "render":
             p.add_argument("--manifest", help="compare with this file instead of `helm get manifest` of the live release")
             p.add_argument("--save-render", help="also write the render here")

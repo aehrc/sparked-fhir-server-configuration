@@ -9,6 +9,14 @@
 # ---------------------------------------------------------------------------
 # specs.hostname is deliberately NOT overridden here.
 # ---------------------------------------------------------------------------
+# CORRECTION (26 Nov 2026): the sdh-deps module overrides it regardless. With
+# manage_ingress = false it passes `--set specs.hostname=` with its public_fqdn,
+# which is empty, so the live value is '' and not the smile.sparked-fhir.com
+# below. The Argo CD Application keeps '' (sparked-argo
+# apps/smilecdr/values-account.yaml). Changing it renders a new node ConfigMap,
+# rolls the pod and changes every advertised URL described below: a deliberate,
+# tested change of its own, never the fix for a cross-check difference.
+#
 # It is tempting to set it to smile-next.sparked-fhir.com to match the temporary
 # hostname this deployment is reachable on. Do not.
 #
