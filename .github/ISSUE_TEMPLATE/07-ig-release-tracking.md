@@ -31,6 +31,7 @@ Guide Release Request issue.
 | Declared dependencies (step 0.2) | |
 | Related tracking issues (for example AU Base for an AU Core ballot) | |
 | Suite this release replaces on the Inferno site | |
+| Next event freeze (`events/*.yaml` `freeze`), or "none" | |
 
 ## Targets that apply
 
@@ -43,18 +44,19 @@ Guide Release Request issue.
 
 - [ ] 0.1 Package is on `packages.fhir.org` (GET returns 200) ([runbook](https://github.com/aehrc/sparked-fhir-server-configuration/blob/main/docs/runbooks/ig-release.md#step-0-1))
 - [ ] 0.2 Fields above filled in, dependency list recorded, related tracking issues linked ([runbook](https://github.com/aehrc/sparked-fhir-server-configuration/blob/main/docs/runbooks/ig-release.md#step-0-2))
+- [ ] 0.3 No step that changes a live service is planned inside an event freeze window ([runbook, constraint 9](https://github.com/aehrc/sparked-fhir-server-configuration/blob/main/docs/runbooks/ig-release.md#4-ordering-constraints))
 
 ## Phase 1: tx.dev
 
 - [ ] 1.1 Entry added by hand to the `hl7au-dev` Atomio feed (nothing feeds tx.dev automatically); entry title and time added: ([runbook](https://github.com/aehrc/sparked-fhir-server-configuration/blob/main/docs/runbooks/ig-release.md#step-1-1))
-- [ ] 1.2 tx.dev returns the new version's StructureDefinition (after the daily 15:00 UTC sync) ([runbook](https://github.com/aehrc/sparked-fhir-server-configuration/blob/main/docs/runbooks/ig-release.md#step-1-2))
+- [ ] 1.2 tx.dev returns the new version's StructureDefinition (after the daily 15:00 UTC preload, which an event freeze pauses) ([runbook](https://github.com/aehrc/sparked-fhir-server-configuration/blob/main/docs/runbooks/ig-release.md#step-1-2))
 
 ## Phase 2: Sparked Dev FHIR Server (`aucore`)
 
 - [ ] 2.1 [Implementation Guide Release Request](https://github.com/aehrc/sparked-fhir-server-configuration/issues/new?template=01-ig-release-request.yml) raised with **STORE_AND_INSTALL** ticked: # ([runbook](https://github.com/aehrc/sparked-fhir-server-configuration/blob/main/docs/runbooks/ig-release.md#step-2-1))
 - [ ] 2.2 Dependencies checked, coupled packages batched, PR opened: # ([runbook](https://github.com/aehrc/sparked-fhir-server-configuration/blob/main/docs/runbooks/ig-release.md#step-2-2))
 - [ ] 2.3 PR merged and deployed with [Re/load IG Packages](https://github.com/aehrc/sparked-fhir-server-configuration/actions/workflows/reload-ig-config.yml); versioned `$validate` resolves ([runbook](https://github.com/aehrc/sparked-fhir-server-configuration/blob/main/docs/runbooks/ig-release.md#step-2-3))
-- [ ] 2.4 Seed config persisted with Terraform; live `startup_installation_specs` matches the repo ([runbook](https://github.com/aehrc/sparked-fhir-server-configuration/blob/main/docs/runbooks/ig-release.md#step-2-4))
+- [ ] 2.4 Seed config persisted with a local `terraform apply` (inputs from `scripts/fetch-smile-tfvars.sh`); live `startup_installation_specs` matches the repo; `scripts/upgrade_smoke_tests.sh` reports 0 failed ([runbook](https://github.com/aehrc/sparked-fhir-server-configuration/blob/main/docs/runbooks/ig-release.md#step-2-4))
 - [ ] 2.5 AU PS only: `$summary` generator checked ([runbook](https://github.com/aehrc/sparked-fhir-server-configuration/blob/main/docs/runbooks/ig-release.md#step-2-5))
 
 ## Phase 3: Test data
@@ -71,12 +73,13 @@ Guide Release Request issue.
 
 ## Phase 5: Inferno platform, staging
 
-- [ ] 5.1 [`au-fhir-inferno`](https://github.com/hl7au/au-fhir-inferno) PR changes all four together: `Gemfile`+lock, `Gemfile.dev`+lock, warmer (count at most `sessionCacheSize`), kit page `suites`/`version`/`date`; generator ref in `Gemfile.common` checked; preview run passes: hl7au/au-fhir-inferno# ([runbook](https://github.com/aehrc/sparked-fhir-server-configuration/blob/main/docs/runbooks/ig-release.md#step-5-1))
+- [ ] 5.1 [`au-fhir-inferno`](https://github.com/hl7au/au-fhir-inferno) PR changes them together: `Gemfile`+lock, `Gemfile.dev`+lock, warmer (count at most `sessionCacheSize`), kit page `suites`/`version`/`date`, and `Gemfile.ci-build.lock` if `Gemfile.common` changed; generator ref in `Gemfile.common` checked; preview run passes: hl7au/au-fhir-inferno# ([runbook](https://github.com/aehrc/sparked-fhir-server-configuration/blob/main/docs/runbooks/ig-release.md#step-5-1))
 - [ ] 5.2 Merged; staging `/suites/api/test_suites` lists the new suite ([runbook](https://github.com/aehrc/sparked-fhir-server-configuration/blob/main/docs/runbooks/ig-release.md#step-5-2))
 
 ## Phase 6: Inferno platform, production
 
 - [ ] 6.1 Promotion PR for the staging SHA merged; [prod-release](https://github.com/hl7au/au-fhir-inferno/actions/workflows/prod-release.yaml) tagged `v` and production lists the new suite ([runbook](https://github.com/aehrc/sparked-fhir-server-configuration/blob/main/docs/runbooks/ig-release.md#step-6-1))
+- [ ] 6.2 Headless CI recipe (`docs/ci/` in `au-fhir-inferno`) moved to the new release: hl7au/au-fhir-inferno# ([runbook](https://github.com/aehrc/sparked-fhir-server-configuration/blob/main/docs/runbooks/ig-release.md#step-6-2))
 
 ## Phase 7: Smoke run, hand-off, announce
 
