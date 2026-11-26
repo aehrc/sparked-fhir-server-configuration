@@ -4,7 +4,7 @@ This directory contains scripts for managing SmileCDR nodes.
 
 ## Test Data Management
 
-Test data loading and clearing is now handled by the [`sparked-test-data-loader`](https://github.com/aehrc/sparked-test-data-loader) Go tool. The Python scripts (`load_test_data.py`, `clear_test_data.py`) are deprecated and kept for reference only.
+Test data loading and clearing is now handled by the `sparked-test-data-loader` Go tool (`aehrc/sparked-test-data-loader`, an internal repository). The Python scripts (`load_test_data.py`, `clear_test_data.py`) are deprecated and kept for reference only.
 
 ### Using the Go Tool Locally
 
@@ -141,11 +141,14 @@ See [SMART App Registration Guide](../docs/SMART-APP-REGISTRATION.md) for the fu
 
 ## SMART Auth Config Reconciliation
 
-Node module config is database-backed, so console edits drift from the repo.
 `sync_smart_auth.py` diffs the canonical `smart_auth` config (including
 `module-config/smart-post-authorize.js`) against the live Admin JSON API and
-applies the differences. See [SMART Auth Configuration](../docs/smart-auth-config.md)
-for the full drift model.
+can apply the differences. The node runs `PROPERTIES_UNLOCKED`
+(`module-config/values-sparkey.yaml`): module config is re-read from the
+Helm-rendered ConfigMap on every boot, so anything this script applies is lost
+on the next pod restart. Use it to show drift or to try a change live; make the
+lasting change in `module-config/` and deploy it with `terraform apply`. See
+[SMART Auth Configuration](../docs/smart-auth-config.md) for the drift model.
 
 ```bash
 export CSIRO_FHIR_AUTH_64="your_base64_credentials"
@@ -165,6 +168,12 @@ python scripts/sync_smart_auth.py --archive-app-gallery --apply
 
 Applying restarts `smart_auth` on the target node, briefly interrupting token
 issuance and OAuth logins there. Run it outside connectathon hours.
+
+The DEFAULT read-only consent service (`module-config/consent-default-readonly.js`)
+has been enforcing on `aucore` since 2026-08-19, so participant writes to
+`DEFAULT` are refused at request time. `register_smart_client.py` also refuses
+to register a write-capable backend client against `DEFAULT` unless
+`--allow-default-write` is passed for a curator client.
 
 ---
 
@@ -244,14 +253,7 @@ optional arguments:
 
 ## Integration with GitHub Actions
 
-The [manual-ig-load.yml](../.github/workflows/manual-ig-load.yml) workflow uses this script.
-
-Simply:
-1. Go to **Actions** → **Manual Package Management for SmileCDR Nodes**
-2. Click **Run workflow**
-3. Configure parameters and run
-
-The workflow passes all inputs to this script, keeping the logic centralized.
+The [reload-ig-config.yml](../.github/workflows/reload-ig-config.yml) workflow and the IG release dry run in [issue-opened.yml](../.github/workflows/issue-opened.yml) call this script.
 
 ## Testing Locally
 
@@ -307,5 +309,5 @@ python scripts/sync_packages.py \
 
 ## See Also
 
-- [Package Management Workflow Documentation](../docs/package-management-workflow.md)
+- [Workflows](../docs/WORKFLOWS.md)
 - [SmileCDR Documentation](https://smilecdr.com/docs/)

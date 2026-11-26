@@ -222,8 +222,11 @@ def default_write_refusal(client_type: str, scopes: List[str], tenant: str) -> O
     DEFAULT holds the curated shared dataset and is read-only for participants
     under ADR 0001. Smile CDR's FHIR_ACCESS_PARTITION_NAME gates reads and writes
     together, so a client granted DEFAULT plus FHIR_ALL_WRITE can write the shared
-    data. The consent service that would otherwise reject those writes
-    (ADR 0001 point 6) is not wired on any node, so this is the only guard.
+    data. The DEFAULT read-only consent service (ADR 0001 point 6,
+    module-config/consent-default-readonly.js) has been enforcing on aucore since
+    2026-08-19 and rejects those writes at request time; this check keeps such a
+    grant from being created in the first place, so DEFAULT does not depend on
+    the consent service alone.
 
     Only backend-service clients are checked: SMART App Launch clients carry no
     permissions of their own and inherit them from the user who logs in.
