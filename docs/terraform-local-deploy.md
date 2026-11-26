@@ -18,7 +18,7 @@ How to plan and apply the Sparked Smile CDR infrastructure from a workstation.
 > between them.
 
 **Terraform is applied locally, not in CI.** The `Smile Configuration Deployment`
-workflow (`.github/workflows/smile-application.yml`) is intentionally disabled: running
+workflow (`.github/workflows/smile-application.yml`, since removed) was disabled: running
 `terraform plan`/`apply` against live infrastructure in a public repository would publish
 plan output (secret ARNs, resource IDs, topology) to PR comments, job summaries,
 artifacts, and run logs. All real deploys are done from a workstation with the gitignored
