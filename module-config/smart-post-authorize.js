@@ -11,6 +11,9 @@
  * 2. Standalone Launch (no launch token): sets fhirUser from the user's
  *    default launch context Practitioner.
  *
+ * It also offers a patient picker on standalone launches through sandbox
+ * clients only (onSmartLoginPreContextSelection below).
+ *
  * By default SmileCDR sets fhirUser to an auto-generated RelatedPerson.
  * This script overrides that with the correct Practitioner in both flows.
  *
@@ -204,6 +207,87 @@ function onTokenGenerating(theUserSession, theAuthorizationRequestDetails) {
         if (ctx && ctx.resourceId) {
             // resourceId is stored as "Practitioner/xxx" by manage_smart_users.py
             theUserSession.setFhirUserUrl(audience + "/" + ctx.resourceId);
+        }
+    }
+}
+
+/**
+ * Standalone patient picker for sandbox logins.
+ *
+ * Smile CDR calls this after sign-in, before the launch context is chosen.
+ * Each person added to theContextSelectionChoices is offered on a selection
+ * screen, and the chosen person's associatedPatientContextResourceId becomes
+ * the patient launch context. When no person is added, no screen is shown and
+ * the login continues as before.
+ *
+ * Scope: it acts only for clients whose id starts with "sbx-" (the sandbox
+ * clients that aehrc/sparked-sandbox registers as sbx-<id>-<kind>), only on a
+ * standalone launch that asked for launch/patient (an EHR launch already
+ * names its patient), and only when the user has two or more default launch
+ * contexts of type patient (the sandbox writes one per starter patient, all
+ * in the sandbox's own partition). It offers nothing else and never changes
+ * authorities or scopes, so every other client on aucore is untouched.
+ *
+ * Fail-open: any error is logged and swallowed, and persons are added only
+ * after the whole list is built, so a failure while reading the session adds
+ * no person and the login continues as it would without this function.
+ */
+function onSmartLoginPreContextSelection(theUserSession, theContextSelectionChoices) {
+    try {
+        if (!theUserSession || !theContextSelectionChoices) {
+            return;
+        }
+        var clientId = beanProperty(theUserSession, "oidcClientId", "getOidcClientId");
+        if (clientId === null || clientId === undefined || String(clientId).indexOf("sbx-") !== 0) {
+            return;
+        }
+
+        var scopes = approvedScopesOf(theUserSession);
+        if (!scopes || scopes.indexOf("launch/patient") < 0 || scopes.indexOf("launch") >= 0) {
+            return;
+        }
+
+        var contexts = beanProperty(theUserSession, "defaultLaunchContexts", "getDefaultLaunchContexts");
+        var list = [];
+        if (contexts !== null && contexts !== undefined) {
+            if (Array.isArray(contexts)) {
+                list = contexts;
+            } else if (typeof contexts.iterator === "function") {
+                var it = contexts.iterator();
+                while (it.hasNext()) {
+                    list.push(it.next());
+                }
+            }
+        }
+
+        var choices = [];
+        for (var i = 0; i < list.length; i++) {
+            var ctx = list[i];
+            if (!ctx) {
+                continue;
+            }
+            var type = beanProperty(ctx, "contextType", "getContextType");
+            var resourceId = beanProperty(ctx, "resourceId", "getResourceId");
+            if (type !== null && type !== undefined && String(type).toLowerCase() === "patient" &&
+                    resourceId !== null && resourceId !== undefined && String(resourceId) !== "") {
+                choices.push(String(resourceId));
+            }
+        }
+        if (choices.length < 2) {
+            return;
+        }
+
+        for (var j = 0; j < choices.length; j++) {
+            var person = theContextSelectionChoices.addPerson();
+            person.givenName = "Patient";
+            person.familyName = choices[j];
+            person.associatedPatientContextResourceId = choices[j];
+        }
+    } catch (e) {
+        try {
+            Log.warn("Sandbox patient picker skipped: " + e);
+        } catch (ignored) {
+            // Logging must not fail the login either.
         }
     }
 }
