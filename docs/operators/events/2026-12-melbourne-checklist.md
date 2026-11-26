@@ -150,10 +150,8 @@ Open the tracking issue with `gh issue create --title "Operator checklist: Melbo
     ```sh
     kubectl --context sparkey -n argocd logs sts/argocd-application-controller --since=10m \
       | grep 'Sync prevented by sync window' | grep -c 'application=inferno-prod'   # more than 0
-    argocd login <the sparkey Argo CD host> --sso --grpc-web   # once per session; the host is in aehrc/sparked-argo docs/argocd.md
-    argocd app get inferno-prod | grep 'SyncWindow:'   # Manual Allowed (Sync Allowed = no active window)
     ```
-    Repeat the log grep with `application=ontoserver` and `application=smilecdr-routes` for the `sparked` project.
+    Repeat the log grep with `application=ontoserver`, `application=smilecdr-routes` and `application=smilecdr` for the `sparked` project. In the Argo CD UI, each frozen Application's summary shows its sync window as Manual Allowed (Sync Allowed means no window is active). The `argocd` CLI's `--sso` login fails with `invalid_scope` (Keycloak's `argocd` client does not allow `offline_access`), so use the UI.
   - Karpenter: in Grafana Explore (Mimir), `karpenter_nodepools_allowed_disruptions{nodepool=~"on-demand|on-demand-prod|spot"}` drops to 0 for the frozen reasons.
   - Smile: the `smilecdr` Argo CD Application is in the `sparked` deny window (manual sync stays possible for an emergency); no `terraform apply` either (Aurora, IAM, secrets; convention).
   - Inferno: no promotion merge until the freeze ends. `inferno-prod` renders `master`, and the `inferno` sync window keeps it on the revision it had at the freeze start: the log grep above shows the window holding it.
@@ -163,6 +161,7 @@ Open the tracking issue with `gh issue create --title "Operator checklist: Melbo
     kubectl --context sparkey -n argocd patch application <app> --type merge \
       -p '{"operation":{"initiatedBy":{"username":"<you>"},"sync":{"syncStrategy":{"hook":{}}}}}'
     ```
+    For `smilecdr`, prune and keep `PruneLast`, or the superseded hashed ConfigMaps stay and the Application stays OutOfSync: `-p '{"operation":{"initiatedBy":{"username":"<you>"},"sync":{"prune":true,"syncOptions":["PruneLast=true"]}}}'`. In the UI, tick Prune; never Replace or Force.
   - Emergency Inferno rollback: revert the last promotion PR on hl7au/au-fhir-inferno `master` (a revert PR puts the previous image back in `infra/helm/inferno/values-prod.yaml`), merge it, then sync `inferno-prod` by hand. A manual sync ships everything on `master` since the freeze started, so check `git log` for `infra/helm/inferno/` first.
   - Emergency dependency bump: Actions, Renovate, Run workflow, tick `ignore_freeze`.
   - Emergency node repack: karpenter-config is not in a window; delete the event block from the NodePool and merge.
