@@ -1,5 +1,7 @@
 # Multitenancy demo: ereq pilot walkthrough
 
+> **Historical.** The `ereq` node, its tenants and the demo users below were decommissioned on 2026-08-02 (#87); nothing in this walkthrough runs today. Kept as the record of the July 2026 pilot.
+
 A guided demo of partition-based multitenancy on the `ereq` node, as rolled out per
 [ADR 0001](adr/0001-partition-based-multitenancy.md) and the [rollout plan](multitenancy-rollout-plan.md).
 Every command below was executed and verified on 2026-07-13/14 against the live server.
