@@ -210,4 +210,4 @@ body:
         4. **You will be notified** with your client details and endpoint URLs
         5. **For Backend Service clients**, the client secret will be communicated securely (not posted in the issue)
 
-        Tenant creation and login user accounts are not automated: if you asked for a new tenant, or your SMART App Launch client needs a user, an admin sets them up by hand before or after step 3.
+        Tenant creation and login user accounts are not automated. If you asked for a new tenant, an admin creates it by hand before step 3; registration stops if the tenant does not exist yet. If your SMART App Launch client needs a login user, an admin sets it up by hand, before or after step 3.
