@@ -18,6 +18,17 @@ output "smilecdr_helm_values" {
   sensitive   = true
   value = {
     values = module.smile_cdr_dependencies.helm_chart_values
-    set    = local.helm_chart_values_set_overrides
+    # The module merges its own overrides under ours before calling Helm
+    # (sdh-deps v9.0.2 locals.tf, helm_chart_values_set_overrides):
+    # replicaCount and specs.hostname = its public_fqdn, which is "" here
+    # (manage_ingress = false). It does not export that merged map, so it is
+    # rebuilt here; ours win, as they do in the module.
+    set = merge(
+      {
+        "replicaCount"   = 1
+        "specs.hostname" = module.smile_cdr_dependencies.url
+      },
+      local.helm_chart_values_set_overrides
+    )
   }
 }

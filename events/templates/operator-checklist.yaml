@@ -180,7 +180,7 @@ items:
          ```
          Spot nodes usually go sooner; if one is still there, decide whether to roll it this evening (`kubectl delete nodeclaim <name>`, a cluster write).
       2. Ask whoever publishes to the `hl7au-dev` and `hl7au-fragments` syndication feeds to hold from {{ freeze.start }} to {{ freeze.end }}: a replica restart still runs the startup preload.
-      3. Tell maintainers: no merges to aehrc/sparked-argo `main` and no Smile sync or `terraform apply` from {{ freeze.start }} except emergencies; no Inferno promotion merges and no merges to hl7au/au-fhir-inferno `master` that change `infra/helm/inferno/` (prod renders `master`; the sync window holds them, but an emergency manual sync would ship them).
+      3. Tell maintainers: no merges to aehrc/sparked-argo `main` and no Smile sync or `terraform apply` and no merges to this repository's `module-config/` or `deploy/` (a Smile sync renders `main`) from {{ freeze.start }} except emergencies; no Inferno promotion merges and no merges to hl7au/au-fhir-inferno `master` that change `infra/helm/inferno/` (prod renders `master`; the sync window holds them, but an emergency manual sync would ship them).
   - anchor: freeze_start
     offset_days: -1
     only_for: [2026-12-melbourne]

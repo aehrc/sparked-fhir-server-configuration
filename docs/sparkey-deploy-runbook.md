@@ -84,7 +84,12 @@ last sync.
    one(s) to prune, and the Deployment's volume references. Anything else
    (a Service, the ServiceAccount, the SecretProviderClass) is not your change:
    stop and find out why.
-4. **Sync** (UI Sync, or `argocd app sync smilecdr`) and watch:
+4. **Sync with Prune** (UI Sync with Prune ticked, or
+   `argocd app sync smilecdr --prune`; without it the superseded ConfigMaps
+   stay and the Application stays OutOfSync). Never tick Replace (it drops the
+   pod template's `restartedAt`, a second roll) or Force. Check the revision
+   the sync panel shows is the merge you mean: a sync renders this repository's
+   `main`, so it also ships anything else merged since the last sync. Watch:
 
    ```bash
    kubectl --context sparkey -n smile rollout status deployment/smilecdr-scdrnode-aucore --timeout=30m
@@ -197,8 +202,11 @@ python3 scripts/smile_argo_check.py values --argo-repo ../sparked-argo \
   --terraform-output <(cd terraform && terraform output -json smilecdr_helm_values)
 ```
 
-A difference is fixed in `apps/smilecdr/values-account.yaml` in sparked-argo,
-then synced (section A). A module or chart bump: bump the module ref and
+A difference is investigated, never synced blind: copying Terraform's side
+into `apps/smilecdr/values-account.yaml` in sparked-argo can change the render,
+and a changed render is a pod roll (a non-empty `specs.hostname`, for example,
+also changes every advertised URL). Fix it there only once you know which side
+is right, and sync it as a planned change (section A). A module or chart bump: bump the module ref and
 `helm_chart_version` in `terraform/main.tf` here first (CI checks they agree),
 apply, run this check, then bump `targetRevision` in `apps/smilecdr.yaml` there
 (its CI checks it against `main` here).

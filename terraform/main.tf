@@ -269,8 +269,8 @@ locals {
   route53_create_record = true
 
   # Secret ARNs injected as --set overrides rather than committed to the values
-  # files. Kept in a local so output smilecdr_helm_values can expose exactly what
-  # the module would pass to Helm. The tokenSigningKeystore entry is only
+  # files. Kept in a local so output smilecdr_helm_values (outputs.tf) can
+  # expose them with the module's own overrides. The tokenSigningKeystore entry is only
   # meaningful when an overlay declares the matching mount; merging a stray key
   # is harmless when it does not.
   helm_chart_values_set_overrides = merge(
@@ -307,6 +307,18 @@ locals {
   tags = {
     Name       = var.name
     Repository = "github.com/aehrc/sparked-fhir-server-configuration"
+  }
+}
+
+# module-config/simplified-multinode.yaml names the generator jar bucket as a
+# literal (Argo CD cannot template it); var.s3_bucket_name is what the IRSA role
+# may read and where the jars below are uploaded. Warn when the two part.
+check "smile_jar_bucket_matches_values" {
+  assert {
+    condition = alltrue([
+      for m in regexall("bucket: (\\S+)", file("../module-config/simplified-multinode.yaml")) : m[0] == var.s3_bucket_name
+    ])
+    error_message = "module-config/simplified-multinode.yaml names a copyFiles bucket other than var.s3_bucket_name."
   }
 }
 
