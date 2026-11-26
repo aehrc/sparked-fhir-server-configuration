@@ -23,6 +23,51 @@ Supporting pieces:
   issuance. It injects patient/encounter context from EHR launch tokens and
   sets `fhirUser` to the correct Practitioner (Smile CDR otherwise invents a
   RelatedPerson). Backend service (client credentials) flows are skipped.
+  When neither the launch value's `practitioner` key nor a `practitioner`
+  default context names fhirUser, a sandbox login's default context of
+  type `sbx-fhiruser` (written by aehrc/sparked-sandbox, for example
+  `Patient/<sandbox id>-<patient>` when the deployment names a Patient as
+  fhirUser) sets it, if its resource id is `Patient/<id>` or
+  `Practitioner/<id>`; other users have no such context and are unchanged.
+  Each launch value (other than `practitioner`) always becomes a launch
+  resource id, but becomes an access token claim only when the app was not
+  granted the matching `launch/<key>` scope. With `launch/patient` or
+  `launch/encounter` granted, Smile CDR puts that claim in the token itself
+  from the launch resource ids, and a second claim for the same key throws
+  `IllegalArgumentException` in
+  `SmartTokenEnhancerSvcImpl.validateDontAlreadyHaveClaim`, so the token
+  request failed with HTTP 500 (measured on `aucore` 2026-11-27 for an EHR
+  launch asking for `launch launch/patient`). Neither scope source alone
+  is trusted to equal the grant: the user session's approved scopes may
+  carry approvals remembered from an earlier consent, and the whitelisted
+  `scope` request parameter may name a scope the user declined. So the
+  claim is skipped only when `launch/<key>` is in the approved scopes and,
+  when the request parameter is readable, in it as well; when the approved
+  scopes are unreadable the request parameter decides alone, and when
+  neither can be read the claim is added as before. The same script also offers a **patient picker for sandbox
+  logins**: `onSmartLoginPreContextSelection` adds one person per sandbox
+  patient on the user, so Smile CDR shows its context selection screen and
+  puts the chosen patient's resource id into the launch context. Smile CDR
+  stores at most one default launch context per context type per user (a
+  user PUT with three `patient` contexts failed with HTTP 500 on the unique
+  constraint `idx_userdeflnchctx_user_ctyp`, measured on `aucore`
+  2026-11-27), but it accepts and returns context types of its users' own
+  choosing unchanged. So the sandbox's default patient is the `patient`
+  context and each further starter patient is a context of type
+  `sbx-patient-<n>` (`sbx-patient-2`, `sbx-patient-3`, ...). The choices are
+  the `patient` context first, then the `sbx-patient-<n>` contexts in
+  ascending order of `<n>`, skipping empty and repeated resource ids. It
+  acts only for clients whose id starts with `sbx-` (registered by
+  aehrc/sparked-sandbox, which writes those contexts), only on a standalone
+  launch granted `launch/patient` without `launch`, and only when that gives
+  two or more choices. It never changes authorities or scopes, and any
+  error is logged and swallowed, so no other client on `aucore` is
+  affected. Each person's patient id is written before its names, so a
+  failure partway through adding never leaves a named person without a
+  patient id; the persons already added stay (Smile CDR has no call to
+  remove one), and a failure on the patient id write itself can leave one
+  empty person. `node scripts/test_smart_post_authorize.js`
+  unit tests both (CI runs it in `validate-config.yml`).
 - **Client registration**: a GitHub issue from template 05 is registered by
   the `register-smart-client` job in `.github/workflows/issue-labeled.yml`
   once an admin applies the `ready-for-automation` label; it runs
@@ -95,6 +140,28 @@ script, run `scripts/render_smile_mapped_files.py` first). Running the sync
 script with `--apply` restarts the
 module, briefly interrupting token issuance, and the change still lasts only
 until the next pod restart.
+
+Live check after a sync that changes `smart-post-authorize.js`, from the
+CSIRO VPN against a test sandbox, before either sandbox launch flag is
+switched on:
+
+- On one non-sandbox client and user (such clients remember approvals): an
+  EHR launch asking for `launch launch/patient` first, then one asking for
+  `launch` alone; both tokens carry `patient`. This catches the claim rule
+  reading remembered approvals when the request's `scope` is unreadable.
+- An EHR launch asking for `launch` alone still returns `patient` in the
+  token response and in the access token.
+- An EHR launch asking for `launch launch/patient` returns 200 and a token
+  carrying `patient` (was HTTP 500).
+- A non-sandbox client's standalone login is unchanged: no chooser, and the
+  same patient as before.
+- A sandbox standalone launch asking for `launch/patient` without `launch`
+  shows the chooser, and the chosen patient is the token's bare `patient`.
+- A sandbox login with an `sbx-fhiruser` context of `Patient/...` gets that
+  Patient as `fhirUser` on a standalone launch.
+- Client credentials are unchanged.
+- A sandbox EHR launch asking for `launch/encounter`, with no encounter in
+  the launch value, gets a token.
 
 ## hl7au was excluded (historical)
 
