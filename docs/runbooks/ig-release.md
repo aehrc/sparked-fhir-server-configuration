@@ -183,13 +183,12 @@ Each of these has been broken at least once, or would silently break a later ste
 - Write access to this repo (to arm automation, merge and run workflows).
 - Whether an event freeze is coming (constraint 9): `ls events/` in this repo and read
   each upcoming manifest's `freeze` block.
-- For Phase 2 persistence: AWS IAM Identity Center access to the Sparked account with the
-  `AdministratorAccess` permission set (profile `csiro-fhir`). The two gitignored apply
-  inputs come from Secrets Manager through `scripts/fetch-smile-tfvars.sh`
-  ([smile-deploy-inputs.md](../smile-deploy-inputs.md), #119), and the plan and apply
-  follow [sparkey-deploy-runbook.md](../sparkey-deploy-runbook.md). That document still
-  describes sparkey as the parallel stack; it is now the only one (#111, corrected by
-  open PR #115).
+- For Phase 2 persistence: sync rights on the Argo CD Application `smilecdr`
+  (`argocd login argo.sparked-fhir.com --sso`, the `argocd-admin` or `argocd-developer`
+  group); the procedure is [sparkey-deploy-runbook.md](../sparkey-deploy-runbook.md),
+  section A. Terraform (`AdministratorAccess`, inputs from
+  `scripts/fetch-smile-tfvars.sh`, [smile-deploy-inputs.md](../smile-deploy-inputs.md))
+  is needed only for an infrastructure change, such as a new generator jar.
 - Where the workflows run: `Re/load IG Packages` and the issue automation jobs run on
   GitHub-hosted runners (#124) and reach Smile through its public hostname. The exception
   is SMART client registration (`register-smart-client` in `issue-labeled.yml`, and
@@ -549,7 +548,7 @@ what that guide leaves implicit.
   because the server refuses search totals by design (`HAPI-2038`, `HAPI-2037`), so a
   failure is a real failure, and each FAIL line says what came back.
 - **What goes wrong:** skipping this leaves a node whose next restart reseeds the previous
-  versions. The Terraform step itself was not re-run for this runbook **(unverified)**; the
+  versions. A sync for an IG release has not been run yet **(unverified)**; the
   live spec matched the repo on 2026-09-25 and again on 2026-11-26 (verified with the
   `diff` above). The smoke tests, read-only, gave `11 passed, 0 failed` against the
   current node on 2026-11-26 (verified; not after a release).

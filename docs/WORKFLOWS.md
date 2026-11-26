@@ -205,8 +205,7 @@ well, with the step each one bites in.
 - **A live install is not persistent** until the next deploy (a manual sync of the Argo
   CD Application `smilecdr`) updates the seeded `startup_installation_specs`; a restart
   before that reseeds the old versions; see
-  [runbook step 2.4](runbooks/ig-release.md#step-2-4)
-  to an Argo CD sync.
+  [runbook step 2.4](runbooks/ig-release.md#step-2-4).
 - **Not during an event freeze.** No IG load, reload or apply while an event manifest's
   `freeze` window is open ([runbook constraint 9](runbooks/ig-release.md#4-ordering-constraints)).
   That includes merging a `deploy-immediately` PR, which installs on merge with no dry
