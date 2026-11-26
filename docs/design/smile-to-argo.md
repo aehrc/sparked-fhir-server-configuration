@@ -6,8 +6,9 @@ Thu 3 Dec 2026, so the freeze that starts Fri 4 Dec 17:00 AEDT covers Smile
 mechanically for the first time. It changes no pod template, so Smile does not
 restart. The one step that does restart Smile, secrets through External Secrets
 Operator, is separate and planned for after the event. Until the adoption
-lands, Smile is deployed by a local `terraform apply` as described in
-[sparkey-deploy-runbook.md](../sparkey-deploy-runbook.md).
+lands, Smile is deployed by a local `terraform apply`; from the hand-over PR
+on, [sparkey-deploy-runbook.md](../sparkey-deploy-runbook.md) section A (a PR
+and a manual sync) is the only way a Smile config change ships.
 
 The pieces:
 
@@ -166,7 +167,13 @@ already use:
   ready leaves the old ConfigMaps in place. A manual sync prunes only when
   asked (`argocd app sync smilecdr --prune`, or tick Prune in the UI): without
   it the old ConfigMaps stay, marked "requires pruning", and the Application
-  stays OutOfSync, which would hide real drift. Client-side apply (the default), not
+  stays OutOfSync, which would hide real drift. With `PruneLast` the sync
+  waits for the Deployment to be healthy, and the Deployment's
+  `progressDeadlineSeconds` is 600 while a cold start on a new node can take
+  longer: the sync can then report Failed (Degraded, ProgressDeadlineExceeded)
+  while the new pod is still starting. Wait for the pod; if it becomes Ready,
+  sync again with Prune to remove the old ConfigMaps. Revert only if the
+  startup probe itself fails. Client-side apply (the default), not
   server-side apply: the live objects are owned by the `helm` field manager,
   and server-side apply would conflict with it on the first sync.
 - **No `CreateNamespace`, no `managedNamespaceMetadata`:** the namespace
@@ -276,8 +283,14 @@ with a second person watching. Rehearsed offline; the live steps are 3 to 6.
    It must show annotations only, nothing under `spec`. The test Pod must not
    appear.
 4. **Sync once by hand**, default options only (UI Sync, or
-   `argocd app sync smilecdr`). Before pressing it, check that the revisions
-   the sync panel shows are the two commits step 2's checks printed. Never
+   `argocd app sync smilecdr`). Before pressing it, Refresh the Application and
+   check that the commits it resolved are the two that step 2's checks
+   printed (the sync panel shows no commits; a multi-source Application
+   resolves every source afresh when it syncs):
+   `kubectl --context sparkey -n argocd get application smilecdr -o jsonpath='{.status.sync.revisions}'`
+   lists them in source order (chart version, this repository, sparked-argo).
+   After the sync, `{.status.operationState.syncResult.revisions}` shows what
+   was applied. Never
    tick Replace (it rewrites each object whole and drops the pod template's
    `restartedAt`: a pod roll) or Force (delete and recreate). Prune is not
    needed: nothing is tracked yet, so nothing can be pruned. Watch

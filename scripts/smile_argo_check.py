@@ -72,17 +72,24 @@ def head_report(argo_repo: Path, require_main: bool) -> None:
     bad = []
     for label, repo in (("sparked-fhir-server-configuration", ROOT), ("sparked-argo", argo_repo)):
         def git(*a):
-            return subprocess.run(["git", "-C", str(repo), *a], capture_output=True, text=True).stdout.strip()
+            r = subprocess.run(["git", "-C", str(repo), *a], capture_output=True, text=True)
+            if r.returncode != 0:
+                sys.exit(f"{label}: git {' '.join(a)} failed: {r.stderr.strip()}")
+            return r.stdout.strip()
         head = git("rev-parse", "HEAD")
-        main = git("rev-parse", "origin/main")
         dirty = bool(git("status", "--porcelain", "--untracked-files=no"))
-        print(f"{label}: HEAD {head[:12]}, origin/main {main[:12]}{' (uncommitted changes)' if dirty else ''}")
+        # The remote's main, not the local origin/main ref, which may be stale.
+        remote = git("ls-remote", "origin", "refs/heads/main").split()
+        main = remote[0] if remote else ""
+        if not head or not main:
+            sys.exit(f"{label}: could not read HEAD or the remote main")
+        print(f"{label}: HEAD {head[:12]}, remote main {main[:12]}{' (uncommitted changes)' if dirty else ''}")
         if head != main or dirty:
             bad.append(label)
     if bad and require_main:
-        sys.exit(f"--require-main: {', '.join(bad)} not at a clean origin/main; git fetch and check out origin/main first")
+        sys.exit(f"--require-main: {', '.join(bad)} not at a clean copy of the remote main; git fetch and check out origin/main first")
     if bad:
-        print("note: not origin/main, so this checks a branch, not what a sync would apply")
+        print("note: not the remote main, so this checks a branch, not what a sync would apply")
 
 
 def load_app(argo_repo: Path) -> dict:
