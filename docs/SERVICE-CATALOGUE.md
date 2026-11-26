@@ -19,7 +19,8 @@ As a best practice (not a hard SLA), an admin acknowledges new requests within 2
    with the technical fields.
 4. Watch the labels on your issue. They track your request through the [lifecycle](#request-lifecycle).
 5. When the request reaches `deployed`, test it and confirm on the issue so it can be
-   marked `complete`.
+   marked `complete`. For an IG release a repo admin sets `deployed` once the server has
+   rolled after the merge and passed its checks.
 
 Blank issues are disabled. If nothing here fits (a bug, a question, an idea, or a
 rollback), use the **General / Bug / Question** offering.
@@ -59,8 +60,10 @@ the Sparked FHIR Server nodes.
   automatically and rolls the pod within about 2 minutes, and the new pod installs the
   packages from its seed config as it starts (up to 20 minutes to be ready), after which
   the change persists across restarts ([runbook step 2.4](runbooks/ig-release.md#step-2-4)).
-  A repo admin runs the `Re/load IG Packages` workflow only if something is missing after
-  the roll, never during it ([runbook step 2.3](runbooks/ig-release.md#step-2-3)).
+  After the roll a repo admin runs the step 2.4 checks, including a read-only
+  `Re/load IG Packages` dry run that lists package drift both ways, runs it live only if
+  that dry run shows a missing version (never during the roll), and labels the request
+  `deployed` ([runbook step 2.4](runbooks/ig-release.md#step-2-4)).
 - **Automation level:** semi-automated (validate then auto-PR then human merge, which
   deploys).
 - **SLA:** 1 to 2 weeks end-to-end (calendar lead time); roughly 20 minutes of hands-on time
@@ -214,7 +217,7 @@ stateDiagram-v2
 | `approved` | Approved to proceed; also the gate for the test-data load path | Admin |
 | `ready-for-automation` | Approved specifically for automation; the gate automation watches | Admin |
 | `in-progress` | PR created, work underway, or client being registered | Automation / Admin |
-| `deployed` | Change applied; awaiting requestor verification | Automation / Admin |
+| `deployed` | Change applied; awaiting requestor verification | Admin (IG release: after the post-merge roll and its checks, [runbook step 2.4](runbooks/ig-release.md#step-2-4)); a manual `Re/load IG Packages` run with `issue_number` also sets it |
 | `complete` | Verified and closed | Requestor confirms, Admin closes |
 | `blocked` | Waiting on an external dependency (orthogonal to the states above) | Admin |
 
@@ -241,7 +244,9 @@ environment; requires Brett Esler sign-off, see [Environment scrutiny](#environm
 **Priority:** `priority:critical`, `priority:high`, `priority:medium`, `priority:low`.
 
 **Automation gates / states:** `ready-for-automation`, `auto-pr-created`, `auto-registered`,
-`needs-manual-intervention`.
+`needs-manual-intervention`. Automation adds `needs-manual-intervention` when a step fails
+(PR creation, client registration, or the post-merge notice); the repo admin who finishes
+that step by hand, or posts the missing update, removes it.
 
 **General / triage:** `bug`, `enhancement`, `question`, `documentation`, `duplicate`,
 `wontfix`, `automation`.
@@ -299,9 +304,11 @@ is not enforced by automation.
      `auto-pr-created`; a human reviews and merges it.
    - SMART Client: the client is registered live on the target nodes (no PR).
    - Test-data load: the load runs automatically.
-5. **Deploy.** For IG releases, the merge deploys the change: Argo CD rolls the server within
-   about 2 minutes, and the new pod installs the packages as it starts. The issue is labelled
-   `deployed` once the roll has finished.
+5. **Deploy.** For IG releases, the merge deploys the change: outside an event freeze Argo CD
+   starts rolling the server within about 2 minutes, and the new pod installs the packages as
+   it starts. A repo admin labels the issue `deployed` once the roll has finished and passed
+   its checks. A Terminology Content change merges without changing anything live; the
+   tx.dev feed entry is added by hand.
 6. **Verify.** You test the change and confirm on the issue so it can be marked `complete`.
 
 Configuration Changes and non-test-data Operations are handled manually end-to-end; they do

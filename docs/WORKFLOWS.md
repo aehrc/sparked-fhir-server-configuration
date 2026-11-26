@@ -117,17 +117,20 @@ Repo admins will:
 
 #### Step 6: Deployment
 
-The merge is the deploy. Nothing is dispatched at the merge; the Argo CD Application
-`smilecdr` syncs `main` automatically and starts a new Smile pod within about 2 minutes,
-and the new pod installs the packages from its seed config as it starts. It can take up to
-20 minutes to be ready, and the old pod serves until then
-([runbook step 2.4](runbooks/ig-release.md#step-2-4)). A repo admin runs `Re/load IG
-Packages` (dry run first) only if something is missing after that roll has finished, and
-never during it ([runbook step 2.3](runbooks/ig-release.md#step-2-3)).
+The merge is the deploy. Nothing is dispatched at the merge; outside an event change freeze
+the Argo CD Application `smilecdr` syncs `main` automatically and starts a new Smile pod
+within about 2 minutes, and the new pod installs the packages from its seed config as it
+starts. It can take up to 20 minutes to be ready, and the old pod serves until then
+([runbook step 2.4](runbooks/ig-release.md#step-2-4)). In a freeze the automated sync is
+held, so a merge ships only with a manual sync, or by itself when the freeze ends. After
+the roll a repo admin runs the step 2.4 checks, including a read-only `Re/load IG
+Packages` dry run that lists package drift both ways, runs it live only if that dry run
+shows a missing version (never during the roll), and then labels the issue `deployed`.
 
 #### Step 7: Verification
 
-When the PR merges, you'll receive:
+When the PR merges, you'll receive the notice below (a Terminology Content Change PR gets
+a variant that says the merge changes nothing live):
 ```markdown
 ## PR #45 Merged Successfully
 
@@ -138,20 +141,24 @@ Add International Patient Summary 2.0.0 to aucore (Issue #42)
 
 ### The merge deploys it
 Argo CD syncs the Smile workload (the `smilecdr` Application) from `main` on its own, so nobody needs to run anything:
-- **Time**: Argo CD starts a new Smile pod within about 2 minutes, and the new pod can take up to 20 minutes to be ready
+- **Time**: outside an event change freeze, Argo CD starts a new Smile pod within about 2 minutes, and the new pod can take up to 20 minutes to be ready
 - **Packages**: the new pod installs the packages from its seed config as it starts
 - **Downtime**: none expected (the old pod serves until the new one is ready)
 
-### If something is missing after the roll
-Only once the roll has finished (one pod, Ready), and only if a package is still missing, a repo admin runs the "Re/load IG Packages" workflow, dry run first. Never during the roll: the new pod is already installing the same packages, and a second install stacked on top of it is unsafe.
+### After the roll
+Once the roll has finished (one pod, Ready), a repo admin checks the node, including a read-only "Re/load IG Packages" dry run that lists package drift both ways, and then labels this issue `deployed`. A live "Re/load IG Packages" run follows only if the post-roll dry run shows drift, and never during the roll: the new pod is already installing the same packages, and a second install stacked on top of it is unsafe.
 
 ### Event freezes
-Nothing merges during an event change freeze, except a fix for an outage.
+During an event change freeze the automated sync is held, so a merge to `module-config/` or `deploy/` ships only with a manual sync, or by itself when the freeze ends. That is why such merges are not made during a freeze, except a fix for an outage.
 
-Once the new pod is ready, please verify the deployment meets your acceptance criteria and comment here with your results.
+---
+
+When this issue is labelled `deployed`, please verify the deployment meets your acceptance criteria and comment here with your results. A repo admin will then mark the issue as complete.
+
+**Note**: Please do not close this issue manually. It will remain open for verification.
 ```
 
-Test and verify:
+Once the issue is labelled `deployed`, test and verify:
 - Access the FHIR endpoints
 - Validate resources against new profiles
 - Confirm acceptance criteria
@@ -469,10 +476,12 @@ Track your request through these stages:
      within about 2 minutes (up to 20 minutes for the new pod to be ready)
    - The new pod installs the packages from its seed config; do not run `Re/load IG
      Packages` during the roll
-   - Only if something is missing after the roll, run `Re/load IG Packages` by hand, dry
-     run first, passing the request's `issue_number`
-     ([runbook step 2.3](runbooks/ig-release.md#step-2-3))
-   - Label the issue `deployed` once the roll has finished
+   - After the roll, run the step 2.4 checks, including a `Re/load IG Packages` dry run
+     (`package_source: config`), which lists drift both ways; run it live, passing the
+     request's `issue_number`, only if that dry run shows a missing version
+     ([runbook step 2.4](runbooks/ig-release.md#step-2-4))
+   - Then mark the request deployed:
+     `gh issue edit <N> --add-label deployed --remove-label in-progress`
 
 6. **Monitor and close**
    - Watch for requester verification
@@ -515,8 +524,8 @@ Track your request through these stages:
 - Force reinstalling packages
 
 **Steps:**
-1. Go to Actions → "Reload IG Packages for SmileCDR Nodes"
-2. Run workflow with appropriate settings
+1. Go to Actions → "Re/load IG Packages" (never while Argo CD is rolling Smile after a merge)
+2. Run workflow with appropriate settings, dry run first
 3. Monitor logs
 4. Verify packages installed
 5. Update related issue if applicable
@@ -532,6 +541,15 @@ Track your request through these stages:
 - Check validation passed first
 - Review workflow logs in Actions tab
 - Verify simplified-multinode.yaml is valid YAML
+
+**Post-merge notice fails (`needs-manual-intervention` on the request):**
+- `pr-merged.yml` could not post its notice; the merge itself still deployed whatever it
+  changed under `module-config/` or `deploy/`
+- Check the linked workflow run, then post the missing notice or a status update on the
+  issue by hand
+- The repo admin who posts that follow-up removes `needs-manual-intervention`
+  (`gh issue edit <N> --remove-label needs-manual-intervention`); the issue then carries
+  on as usual, with `deployed` added after the roll's checks
 
 **Deployment fails:**
 - Check SmileCDR logs

@@ -128,7 +128,7 @@ sparked-fhir-server-configuration/
 │       ├── issue-opened.yml            # Validates requests on creation
 │       ├── issue-labeled.yml           # Creates PRs automatically
 │       ├── pr-merged.yml               # Posts the post-merge deployment notice
-│       ├── reload-ig-config.yml        # Deploys packages to nodes
+│       ├── reload-ig-config.yml        # Loads packages by hand after the roll; dry run by default
 │       ├── load-test-data.yml          # Load FHIR test data to a node
 │       ├── clear-test-data.yml         # Clear FHIR test data from a node
 │       ├── manage-test-data.yml        # Common test data operations (clear+load, expunge)
@@ -281,13 +281,13 @@ gh run view <run-id> --log
 1. **Monitor new issues** - Review and validate requests
 2. **Approve automation** - Add `ready-for-automation` label when ready
 3. **Review auto-PRs** - Check configuration before merging
-4. **Merge outside a freeze** - The merge deploys it; Re/load IG Packages only after the roll, if needed
+4. **Merge outside a freeze** - The merge deploys it; after the roll, a Re/load IG Packages dry run checks drift and the issue is labelled `deployed`
 5. **Monitor verification** - Ensure requesters verify deployments
 6. **Close issues** - When verified and complete
 
 ### Common Admin Tasks
 
-**Manually deploy packages:**
+**Manually deploy packages** (only after the roll that follows a merge has finished, never during it; dry run first):
 ```bash
 # Via GitHub Actions
 Actions → "Re/load IG Packages" → Run workflow

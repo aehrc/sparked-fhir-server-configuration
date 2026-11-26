@@ -331,16 +331,19 @@ jobs:
 
             ### Post-Merge Actions
             After merging this PR:
-            1. **The merge deploys it**: Argo CD rolls Smile within about 2 minutes and the new pod installs the packages from its seed config (up to 20 minutes to be ready); run Re/load IG Packages by hand only after the roll, and only if something is missing
-            2. **Requester will be notified** about deployment
-            3. **Requester will verify** deployment meets acceptance criteria
-            4. **Issue will be closed** once verified
+            1. **The merge deploys it**: outside an event change freeze, Argo CD rolls Smile within about 2 minutes and the new pod installs the packages from its seed config (up to 20 minutes to be ready)
+            2. **After the roll**, an admin runs the step 2.4 checks, including a Re/load IG Packages dry run (read-only, package_source config), runs it live only if that dry run shows drift, and labels issue #${issueNumber} \`deployed\` (docs/runbooks/ig-release.md, step 2.4)
+            3. **Requester will be notified** about deployment
+            4. **Requester will verify** deployment meets acceptance criteria
+            5. **Issue will be closed** once verified
 
             ### Rollback Plan
-            If issues occur after merge:
-            1. Revert this PR
-            2. Merge the revert: the \`smilecdr\` Application in Argo CD syncs it automatically (docs/sparkey-deploy-runbook.md, section A)
-            3. Update issue #${issueNumber} with rollback status
+            If issues occur after merge (docs/runbooks/ig-release.md, section 9):
+            1. Revert this PR and merge the revert outside an event freeze: the \`smilecdr\` Application in Argo CD syncs it automatically and rolls Smile (docs/sparkey-deploy-runbook.md, section A). In a freeze, only for an emergency, with a manual sync
+            2. Wait for the roll and run the step 2.4 checks
+            3. Then run Re/load IG Packages with package_source config, dry run first, and live only if the dry run would still uninstall this PR's version
+            4. Check versioned \`$validate\` against the previous version and run the smoke tests
+            5. Update issue #${issueNumber} with rollback status
 
             ---
             Related to #${issueNumber}
