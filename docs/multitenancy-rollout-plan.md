@@ -84,6 +84,9 @@ Scope decision (2026-07-13): team-internal accounts (`ADMIN`, `DevTester`, `plac
   - Participant write removal on aucore DEFAULT (per named confirmation): users `CONNECTATHON-USER-05`, `CONNECTATHON-USER-06`, `ILYA`, `PATIENT-DASHBOARD`, and the deferred OIDC client `connectathon-backend-02` (now `FHIR_ALL_READ` only). `WRITERTEST` kept as a team test account, to be revisited at the workshop. Before-state snapshots retained.
   - The tenant-aware `smart-post-authorize.js` was confirmed deployed (shipped with the 2026-07-14 helm chart 9.0.2 apply), so SMART tokens on aucore now derive fhirUser URLs from the request audience.
   - Operational note: OIDC client updates PUT by clientId in the URL path (PUT by pid returns 400).
+- **2026-08-03**: `ereq` and `hl7au` nodes decommissioned (#87), with the cutover to the sparkey cluster (#88). This is stage 1 of 2 (nodes disabled, their databases kept; see the header of `module-config/simplified-multinode.yaml`), so the ereq tenants `SCENARIO-EREQ-MEDS` and `VENDOR-DEMO` are no longer reachable. `aucore` is the only node.
+- **2026-08-19**: the DEFAULT read-only consent service (`module-config/consent-default-readonly.js`) wired on `aucore` in observe mode (#97) and switched to enforcing the same day (#100). Participant writes to `DEFAULT` are now refused at request time; see `docs/consent-service-rollout.md`.
+- **2026-11-21**: tenants observed on `aucore` by an anonymous probe of `GET /aucore/fhir/<TENANT>/Patient?_count=1`: `PLATYPUS` and `FHIRFROG` exist (403 "User does not have access to Patient resources on the requested partition"); `VENDOR-DEMO` does not exist (404 "Partition name \"VENDOR-DEMO\" is not valid"), although it was created on aucore on 2026-07-15 above. When or how it was removed is not recorded. The same probe on 2026-11-26 gave the same three answers.
 
 ## Phase 3: aucore, then hardening
 
