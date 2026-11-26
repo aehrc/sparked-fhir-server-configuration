@@ -6,7 +6,7 @@ Open the tracking issue with `gh issue create --title "Operator checklist: Melbo
 
 - Event: Tue 8 to Thu 10 Dec 2026 (T = Tue 8 Dec 2026)
 - Freeze: Fri 4 Dec 2026, 17:00 AEDT to Fri 11 Dec 2026, 17:00 AEDT
-- Sandbox: planned, mode `event`; opens Wed 2 Dec 2026, 09:00 AEDT; creation closes Thu 10 Dec 2026, 17:00 AEDT; expires overnight from Thu 17 to Fri 18 Dec 2026 (AEDT)
+- Sandbox: open, mode `event`; opens Wed 2 Dec 2026, 09:00 AEDT; creation closes Thu 10 Dec 2026, 17:00 AEDT; expires overnight from Thu 17 to Fri 18 Dec 2026 (AEDT)
 - Inferno: v1.2.3 (planned); https://github.com/hl7au/au-fhir-inferno/pull/223
 - Participant guide: `docs/participants/2026-12-melbourne.md`
 

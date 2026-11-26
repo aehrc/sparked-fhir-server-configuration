@@ -200,8 +200,8 @@ sandbox:
   # access code), on-request (the Sparked team issues sandboxes from a
   # pre-made batch by Zulip direct message; no web address, no access code),
   # or cancelled (the guide then describes the fallback).
-  status: planned
-  decision: Go/no-go on Mon 30 Nov 2026
+  status: open
+  decision: Confirmed on Thu 26 Nov 2026; open to participants from Wed 2 Dec 2026, 09:00 AEDT
   url: https://sandbox.sparked-fhir.com
   mode: event
   # Rendered as "From <opens>, the code is <this>." The code itself never
