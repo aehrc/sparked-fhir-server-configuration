@@ -1,5 +1,12 @@
 # Confluence Content for Connectathon Pages
 
+For the HL7 Australia WGM and Melbourne FHIR Connectathon (8 to 10 December 2026),
+the participant guide is [`docs/participants/2026-12-melbourne.md`](participants/2026-12-melbourne.md).
+On Confluence, link to it rather than copying it: it is rendered from
+`events/2026-12-melbourne.yaml` and kept current for the event. The content below
+is for the participant capability table row and a standing SMART page; where it
+and the guide differ, the guide is right.
+
 ## 1. New Sparked Dev FHIR Server Table Entry
 
 Add a **new row** in the participant capability table for the Sparked Dev FHIR Server (separate from the existing HL7 AU Reference Server at fhir.hl7.org.au):
@@ -14,7 +21,7 @@ Add a **new row** in the participant capability table for the Sparked Dev FHIR S
 
 **Smart App Host:** Yes
 
-**Registration required:** Yes, either via GitHub Issue or contact Sparked Infrastructure Team <sparked@csiro.au>
+**Registration required:** Not to read. Reads, searches, `$validate` and `$summary` on `DEFAULT` need no login. For a writable space with its own clients, see the sandboxes in the participant guide.
 
 **Connection Details:**
 
@@ -22,18 +29,16 @@ Endpoint: https://smile.sparked-fhir.com/aucore/fhir/DEFAULT
 
 Anonymous access (no auth): Read and search AU Core test data only. No write capability.
 
-SMART on FHIR (with authorization): Read and write capability depending on scopes and permissions granted.
+SMART on FHIR (with authorization): Read on the shared `DEFAULT` partition, which is read-only for participants with or without a token. Writable sandboxes for the December 2026 event are planned, not yet confirmed (go/no-go on Mon 30 Nov 2026); each comes with its own FHIR base URL, clients and login user. See the participant guide.
+
+Participant guide: https://github.com/aehrc/sparked-fhir-server-configuration/blob/main/docs/participants/2026-12-melbourne.md
 
 SMART Endpoints:
-- Authorize: https://smile.sparked-fhir.com/aucore/smartauth/authorize
+- Authorize: https://smile.sparked-fhir.com/aucore/smartauth/oauth/authorize
 - Token: https://smile.sparked-fhir.com/aucore/smartauth/oauth/token
-- Well-Known: https://smile.sparked-fhir.com/aucore/smartauth/.well-known/smart-configuration
+- Well-Known: https://smile.sparked-fhir.com/aucore/fhir/DEFAULT/.well-known/smart-configuration
 
-Pre-configured connectathon clients available (see guide).
-
-To register a custom SMART App client:
-1. Create a GitHub Issue: https://github.com/aehrc/sparked-fhir-server-configuration/issues/new?template=05-smart-app-registration.yml
-2. Or contact sparked@csiro.au
+Questions: the Sparked FHIR Server topic on Zulip, https://chat.fhir.org/#narrow/channel/179173-australia/topic/Sparked.20FHIR.20Server
 
 **Additional comments:** For SMART App clients, refer to the guide: SMART App Launch using Sparked FHIR Server
 
@@ -53,16 +58,16 @@ Copy the content below into the new page:
 
 The Sparked Dev FHIR Server (`smile.sparked-fhir.com`) supports SMART on FHIR for connecting third-party applications. This is a separate system from the HL7 AU Reference Server (`fhir.hl7.org.au`).
 
-This page describes how to register your SMART App client and connect to the Sparked Dev FHIR Server.
+This page describes how to register your SMART App client and connect to the Sparked Dev FHIR Server. For the December 2026 Melbourne connectathon, start with the [participant guide](https://github.com/aehrc/sparked-fhir-server-configuration/blob/main/docs/participants/2026-12-melbourne.md): if the event sandboxes go ahead, each sandbox comes with its own clients and login user, and no registration below is needed.
 
 ## Key Endpoints
 
 | Endpoint | URL |
 |----------|-----|
 | FHIR Base | https://smile.sparked-fhir.com/aucore/fhir/DEFAULT |
-| SMART Configuration | https://smile.sparked-fhir.com/aucore/smartauth/.well-known/smart-configuration |
+| SMART Configuration | https://smile.sparked-fhir.com/aucore/fhir/DEFAULT/.well-known/smart-configuration |
 | OpenID Configuration | https://smile.sparked-fhir.com/aucore/smartauth/.well-known/openid-configuration |
-| Authorize | https://smile.sparked-fhir.com/aucore/smartauth/authorize |
+| Authorize | https://smile.sparked-fhir.com/aucore/smartauth/oauth/authorize |
 | Token | https://smile.sparked-fhir.com/aucore/smartauth/oauth/token |
 
 **Note:** `fhir.hl7.org.au` is the HL7 AU official reference server (a separate system). The Sparked Dev FHIR Server uses `smile.sparked-fhir.com` for all endpoints.
@@ -75,7 +80,8 @@ This page describes how to register your SMART App client and connect to the Spa
 - No authorization required
 
 **SMART on FHIR (with authentication):**
-- Read and write capability (depending on granted scopes and user permissions)
+- Read on `DEFAULT`, which is read-only for participants with or without a token
+- Write only in your own space: an event sandbox (see the participant guide), or a tenant an admin sets up on request outside events
 - Requires registered SMART client
 - User login and scope approval required (for SMART App Launch)
 
@@ -115,20 +121,20 @@ Permissions are **automatically configured** during registration based on the re
 
 | Scopes | Permissions Granted |
 |--------|-------------------|
-| `system/*.read` | `ROLE_FHIR_CLIENT`, `FHIR_CAPABILITIES`, `FHIR_ALL_READ`, partition access (`DEFAULT`) |
-| `system/*.*` | All of the above + `FHIR_ALL_WRITE`, `FHIR_TRANSACTION` |
+| `system/*.read` | `ROLE_FHIR_CLIENT`, `FHIR_CAPABILITIES`, `FHIR_ALL_READ`, partition access (`DEFAULT`, or your tenant) |
+| `system/*.*` | All of the above + `FHIR_ALL_WRITE`, `FHIR_TRANSACTION`, `FHIR_ALL_DELETE`, on your own tenant only (write scopes against `DEFAULT` are refused) |
 
-No additional setup is needed — backend service clients are ready to use immediately after registration.
+No additional setup is needed: backend service clients are ready to use immediately after registration.
 
 ### SMART App Launch Clients
 
 Permissions come from the **user** who logs in and authorizes the app (not the client definition). Users must have:
 
-- `ROLE_FHIR_CLIENT` — base role for FHIR access
-- `FHIR_ALL_READ` — read access to FHIR resources
-- `FHIR_CAPABILITIES` — access to the CapabilityStatement
-- `FHIR_ACCESS_PARTITION_NAME: DEFAULT` — access to the DEFAULT partition
-- `FHIR_ALL_WRITE` (optional) — write access, if needed
+- `ROLE_FHIR_CLIENT`: base role for FHIR access
+- `FHIR_ALL_READ`: read access to FHIR resources
+- `FHIR_CAPABILITIES`: access to the CapabilityStatement
+- `FHIR_ACCESS_PARTITION_NAME: DEFAULT`: access to the DEFAULT partition
+- `FHIR_ALL_WRITE` (optional): write access, if needed
 
 Connectathon user accounts will be pre-configured with appropriate permissions. Contact the Sparked team if you need a user account.
 
@@ -141,13 +147,13 @@ The server advertises the following SMART capabilities:
 - `client-public`
 - `client-confidential-symmetric`
 - `context-ehr-patient`
+- `context-ehr-encounter`
 - `context-standalone-patient`
 - `sso-openid-connect`
 - `permission-patient`
 - `permission-offline`
 
-PKCE Required: No (recommended but not enforced)
-PKCE Plain Challenge Supported: Yes
+PKCE: `S256` is the only challenge method the discovery document advertises.
 
 ## How to Register a SMART App Client
 
@@ -178,14 +184,14 @@ Email **sparked@csiro.au** with the following details:
 
 ### Option 3: Use a Pre-configured Connectathon Client
 
-For connectathon events, pre-configured clients are available for quick use:
+These clients were handed out at earlier events. For the December 2026 event, clients come with a sandbox instead (see the participant guide); ask the Sparked team before relying on one of these.
 
 | Client ID | Type | Scopes |
 |-----------|------|--------|
 | `connectathon-app-01` through `connectathon-app-06` | SMART App Launch (read-only) | `launch/patient patient/*.read openid fhirUser offline_access` |
 | `connectathon-app-07`, `connectathon-app-08` | SMART App Launch (read+write) | `launch/patient patient/*.read patient/*.write openid fhirUser offline_access` |
 | `connectathon-backend-01` | Backend Service (read-only) | `system/*.read` |
-| `connectathon-backend-02` | Backend Service (read+write) | `system/*.*` |
+| `connectathon-backend-02` | Backend Service (read-only since 2026-07-15) | `system/*.*` |
 
 Pre-configured SMART App Launch clients support these redirect URIs:
 - `http://localhost:3000/callback`
@@ -219,7 +225,7 @@ When you register (or are assigned a pre-configured client), the Sparked team wi
 - Client Secret
 - Endpoint URLs
 
-No additional setup is needed on the server side — your client and user account will be pre-configured with the appropriate permissions.
+No additional setup is needed on the server side: your client and user account will be pre-configured with the appropriate permissions.
 
 ## Testing Your Connection
 
@@ -231,7 +237,7 @@ No additional setup is needed on the server side — your client and user accoun
 2. Your app directs the user to the authorize endpoint:
 
 ```
-https://smile.sparked-fhir.com/aucore/smartauth/authorize?
+https://smile.sparked-fhir.com/aucore/smartauth/oauth/authorize?
   response_type=code&
   client_id=YOUR_CLIENT_ID&
   redirect_uri=YOUR_REDIRECT_URI&
@@ -281,10 +287,10 @@ curl -H "Authorization: Bearer ACCESS_TOKEN" \
 
 | Problem | Solution |
 |---------|----------|
-| HTTP 403 "Access denied" with valid token | Check that your user account has the required permissions (see Scopes and Permissions above). For Backend Service clients, permissions are set automatically — contact the Sparked team if you still get 403. |
+| HTTP 403 "Access denied" with valid token | Check that your user account has the required permissions (see Scopes and Permissions above). For Backend Service clients, permissions are set automatically; contact the Sparked team if you still get 403. |
 | Token request returns HTML instead of JSON | You're hitting the login page. Use `/aucore/smartauth/oauth/token` not `/aucore/smartauth/signin` or `/aucore/smartauth/token`. |
-| Scopes granted but still 403 | For SMART App Launch clients, the logged-in user needs matching permissions. For Backend Service clients, permissions are automatic — contact the Sparked team if this persists. |
-| Anonymous POST returns 403 | Expected behavior. Anonymous access is read-only. Use SMART authentication for write operations. |
+| Scopes granted but still 403 | For SMART App Launch clients, the logged-in user needs matching permissions. For Backend Service clients, permissions are automatic; contact the Sparked team if this persists. |
+| POST or PUT to `DEFAULT` returns 403 | Expected behavior. `DEFAULT` is read-only for participants, with or without a token. Write in your own sandbox or tenant. |
 | Can't find the token endpoint | The correct path is `/aucore/smartauth/oauth/token` (note the `/oauth/` segment). Check the `.well-known/smart-configuration` endpoint for the canonical URLs. |
 
 ## Resources
