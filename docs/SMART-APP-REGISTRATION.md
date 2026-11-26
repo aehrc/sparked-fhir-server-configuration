@@ -2,7 +2,7 @@
 
 Complete guide to registering SMART on FHIR / OIDC clients on the Sparked FHIR Server (SmileCDR).
 
-> **Coming to the HL7 Australia WGM and Melbourne FHIR Connectathon (8 to 10 December 2026)?** Read the [participant guide](participants/2026-12-melbourne.md) first. The shared `DEFAULT` partition is read-only for participants, and if the event sandboxes go ahead, each sandbox comes with its own FHIR base URL, clients and login user, with no registration needed.
+> **Coming to the HL7 Australia WGM and Melbourne FHIR Connectathon (8 to 10 December 2026)?** Read the [participant guide](participants/2026-12-melbourne.md) first. The shared `DEFAULT` partition is read-only for participants, and each event sandbox (the guide gives their status) comes with its own FHIR base URL, clients and login user, with no registration needed.
 
 ## Key Endpoints
 

@@ -29,7 +29,7 @@ Endpoint: https://smile.sparked-fhir.com/aucore/fhir/DEFAULT
 
 Anonymous access (no auth): Read and search AU Core test data only. No write capability.
 
-SMART on FHIR (with authorization): Read on the shared `DEFAULT` partition, which is read-only for participants with or without a token. Writable sandboxes for the December 2026 event are planned, not yet confirmed (go/no-go on Mon 30 Nov 2026); each comes with its own FHIR base URL, clients and login user. See the participant guide.
+SMART on FHIR (with authorization): Read on the shared `DEFAULT` partition, which is read-only for participants with or without a token. The writable space for the December 2026 event is an event sandbox, with its own FHIR base URL, clients and login user; the participant guide says whether and when sandboxes are open.
 
 Participant guide: https://github.com/aehrc/sparked-fhir-server-configuration/blob/main/docs/participants/2026-12-melbourne.md
 
@@ -58,7 +58,7 @@ Copy the content below into the new page:
 
 The Sparked Dev FHIR Server (`smile.sparked-fhir.com`) supports SMART on FHIR for connecting third-party applications. This is a separate system from the HL7 AU Reference Server (`fhir.hl7.org.au`).
 
-This page describes how to register your SMART App client and connect to the Sparked Dev FHIR Server. For the December 2026 Melbourne connectathon, start with the [participant guide](https://github.com/aehrc/sparked-fhir-server-configuration/blob/main/docs/participants/2026-12-melbourne.md): if the event sandboxes go ahead, each sandbox comes with its own clients and login user, and no registration below is needed.
+This page describes how to register your SMART App client and connect to the Sparked Dev FHIR Server. For the December 2026 Melbourne connectathon, start with the [participant guide](https://github.com/aehrc/sparked-fhir-server-configuration/blob/main/docs/participants/2026-12-melbourne.md): each event sandbox (the guide gives their status) comes with its own clients and login user, with no registration below needed.
 
 ## Key Endpoints
 

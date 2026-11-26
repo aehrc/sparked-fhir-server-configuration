@@ -5,7 +5,7 @@ server, so its content has been replaced by this pointer.
 
 For the HL7 Australia WGM and Melbourne FHIR Connectathon (8 to 10 December 2026),
 use the [participant guide](participants/2026-12-melbourne.md). It covers the
-endpoints, SMART discovery, the test data, the planned writable sandboxes, the
+endpoints, SMART discovery, the test data, the writable event sandboxes, the
 change freeze and the known issues, and it is kept current for the event.
 
 What changed since the July handout, in short:
