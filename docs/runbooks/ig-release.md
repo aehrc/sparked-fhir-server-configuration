@@ -7,7 +7,7 @@ platform (staging and production), and the test data on the server.
 | | |
 |---|---|
 | **Track each release in** | one [IG Release Tracking issue](../../.github/ISSUE_TEMPLATE/07-ig-release-tracking.md) per IG version ([open one](https://github.com/aehrc/sparked-fhir-server-configuration/issues/new?template=07-ig-release-tracking.md)) |
-| **Last verified** | 2026-09-25, against `main` of this repo, the default branches of `hl7au/au-fhir-inferno`, `au-fhir-core-inferno`, `au-ps-inferno` and `inferno_suite_generator`, `main` of `aehrc/sparked-argo` (private), and the live services named below. Commands marked "verified" were run that day; anything not verified is marked **(unverified)** inline. Phase 1 was rewritten and re-checked on 2026-09-29, after the tx-dev fhir-ig-feeder was decommissioned (`aehrc/sparked-argo` #285). |
+| **Last verified** | 2026-11-26, against `main` of this repo, the default branches of `hl7au/au-fhir-inferno`, `au-fhir-core-inferno` and `au-ps-inferno`, `main` of `aehrc/sparked-argo` (private), the `sparkey` cluster (read-only) and the live services named below. First written and checked on 2026-09-25 to 29; every command marked "verified" was re-run on 2026-11-26 unless it gives another date. Anything not verified is marked **(unverified)** inline. |
 | **Typical elapsed time** | 10 to 12 days from publication to production Inferno for the last two AU Core cycles; the Smile server alone took 1 and 7 days in those cycles, and 18 days for AU Core 2.0.0 (see [History](#history)). |
 
 ## Contents
@@ -66,11 +66,19 @@ is no longer deployed by anything and does not describe tx.dev.
 
 | Target | What it is | Changed through |
 |---|---|---|
-| Sparked Dev FHIR Server | Smile CDR node `aucore`, `https://smile.sparked-fhir.com/aucore/fhir/DEFAULT` | this repo: IG Release request, `Re/load IG Packages` workflow, Terraform |
-| tx.dev | Ontoserver at `https://tx.dev.hl7.org.au/fhir`, which syndicates from the Atomio feed `hl7au-dev` on `synd.ontoserver.csiro.au` | an entry added by hand to `hl7au-dev` in the Atomio dashboard; the feed list and schedule are in `aehrc/sparked-argo` `apps/ontoserver/values.yaml` (private) |
+| Sparked Dev FHIR Server | Smile CDR node `aucore`, `https://smile.sparked-fhir.com/aucore/fhir/DEFAULT` | this repo: IG Release request, `Re/load IG Packages` workflow, then a local `terraform apply` whose inputs come from Secrets Manager (#119). Argo CD does not deploy Smile; moving it there is designed for after the December 2026 event ([design/smile-to-argo.md](../design/smile-to-argo.md), #120) and not built |
+| tx.dev | Ontoserver at `https://tx.dev.hl7.org.au/fhir`, which syndicates from the Atomio feed `hl7au-dev` on `synd.ontoserver.csiro.au` | an entry added by hand to `hl7au-dev` in the Atomio dashboard; the feed list and schedule are in `aehrc/sparked-argo` `apps/ontoserver/values.yaml` (private), and the event freeze pause switch in `apps/ontoserver/values-event-freeze.yaml` (`aehrc/sparked-argo` #385) |
 | Inferno test kits | Ruby gems `au_core_test_kit` and `au_ps_inferno` on RubyGems | `hl7au/au-fhir-core-inferno`, `hl7au/au-ps-inferno` |
 | Inferno platform | staging `https://development.inferno.sparked-fhir.com`, production `https://inferno.hl7.org.au` | `hl7au/au-fhir-inferno`, deployed by ArgoCD from `aehrc/sparked-argo` (private) |
 | Test data | the AU FHIR test data set loaded onto `aucore` | `hl7au/au-fhir-test-data`, loaded by this repo's `Manage Test Data` workflow |
+
+Not a target: the ci-build environment `https://ci-build.inferno.sparked-fhir.com`
+(`hl7au/au-fhir-inferno` #221, #222; Argo CD Application `inferno-ci-build`). It runs
+each kit's CI-build suite (`au_core_ci_build`, `au_ps_ci_build`), regenerated nightly from
+the IG's CI build on `build.fhir.org` on each kit's `ci-build` branch, and is launched
+from a radio on staging's kit pages. It follows the IG's CI build by itself, so a
+published release changes nothing there, but it is the place to look at a ballot's
+content before it is published.
 
 ### Out of scope: hand-offs only
 
@@ -93,7 +101,7 @@ three cycles, so a new engineer knows who to ask.
 |---|---|---|
 | **Release lead** | Opens and drives the tracking issue, owns Phases 0, 1, 2, 5 to 7 | @KyleOps |
 | **Requester** | Files the Smile IG Release request; says whether test data must change | HL7 AU product team (for example @dt-r) |
-| **Repo admin** (this repo) | Reviews the request, arms or bypasses automation, merges, deploys, runs Terraform | @KyleOps |
+| **Repo admin** (this repo) | Reviews the request, arms or bypasses automation, merges, deploys, runs Terraform (needs the `AdministratorAccess` SSO permission set, step 2.4) | @KyleOps |
 | **Kit maintainer** | Generates the suite and releases the gem (Phase 4) | @projkov |
 | **Platform reviewer** | Reviews `au-fhir-inferno` PRs. The `master` ruleset needs 1 approving review, code-owner review and a green `quality-control`. A kit bump touches `Gemfile*` and `infra/`, which `CODEOWNERS` gives to the release owners, so one of them must approve it. | @KyleOps or @brettesler-ext for a kit bump |
 | **HL7 AU approver** | Signs off anything touching `fhir.hl7.org.au` or tx.hl7 | Brett Esler |
@@ -118,7 +126,8 @@ flowchart TD
 
 Phases 1, 2 and 4 start in parallel once the tracking issue exists. The joins are the
 [ordering constraints](#4-ordering-constraints). tx.dev does not gate starting Phase 2;
-it gates judging validation results (constraint 2), so it joins at the smoke run.
+it gates judging validation results (constraint 2), so it joins at the smoke run. No
+step that changes a live service may land inside an event freeze (constraint 9).
 
 ## 4. Ordering constraints
 
@@ -150,13 +159,42 @@ Each of these has been broken at least once, or would silently break a later ste
    Phase 7; otherwise failures are about the environment, not the kit.
 8. **Staging verified before the production promotion PR is merged.** Staging and
    production run the same image, so staging is the last place to catch a bad bump.
+9. **Nothing that changes a live service lands inside an event freeze.** For a
+   connectathon or testing event, the event manifest `events/<yyyy-mm>-<place>.yaml` in
+   this repo sets `freeze.start` and `freeze.end` (for December 2026,
+   `events/2026-12-melbourne.yaml`: Fri 4 Dec 17:00 to Fri 11 Dec 17:00 AEDT). Inside that
+   window: no IG load, `Re/load IG Packages` run, Smile `terraform apply` or test data
+   reload on `aucore`; no merge to `hl7au/au-fhir-inferno` `master` (production's chart
+   follows `master`, and Argo CD sync windows on `inferno-prod` and `inferno-ci-build` only
+   hold a merge until unfreeze, when it lands unwatched); no new entry in the `hl7au-dev`
+   feed (tx.dev's scheduled preload is paused, but a replica that restarts during the
+   freeze still runs its startup preload, which would load the entry on that replica
+   alone). Kit work that changes no live service (steps 4.1 to 4.4, a platform PR left
+   unmerged) can go on. Work backwards from the freeze: the event runbook in
+   `aehrc/sparked-argo` (`docs/runbooks/event-runbook.md`, sections 1 to 3) wants the
+   Inferno release participants will use on production two weeks before the event and no
+   platform upgrade merged after T-1 week. A release that cannot finish by then starts
+   after unfreeze.
 
 ## 5. Before you start
 
 - Write access to this repo (to arm automation, merge and run workflows).
-- For Phase 2 persistence: AWS SSO access to the Sparked account and the Terraform setup in
-  [sparkey-deploy-runbook.md](../sparkey-deploy-runbook.md). That document still describes
-  sparkey as the parallel stack; it is now the only one (tracked in #111).
+- Whether an event freeze is coming (constraint 9): `ls events/` in this repo and read
+  each upcoming manifest's `freeze` block.
+- For Phase 2 persistence: AWS IAM Identity Center access to the Sparked account with the
+  `AdministratorAccess` permission set (profile `csiro-fhir`). The two gitignored apply
+  inputs come from Secrets Manager through `scripts/fetch-smile-tfvars.sh`
+  ([smile-deploy-inputs.md](../smile-deploy-inputs.md), #119), and the plan and apply
+  follow [sparkey-deploy-runbook.md](../sparkey-deploy-runbook.md). That document still
+  describes sparkey as the parallel stack; it is now the only one (#111, corrected by
+  open PR #115).
+- Where the workflows run: `Re/load IG Packages`, `Manage Test Data` and every issue
+  automation job run on GitHub-hosted runners (#124) and reach Smile through its public
+  hostname. Only the SMART client registration jobs run on the `arc-runner-smile-admin`
+  set inside `sparkey`, because they call the admin JSON API in-cluster (#122); no IG
+  release step needs that API. The admin JSON API and admin console answer only to an IP
+  allowlist at the gateway (`aehrc/sparked-argo` #388); the FHIR and package endpoints
+  are not on it.
 - Write access to `hl7au/au-fhir-inferno` (Phases 5 and 6). Kit repos only if you are the
   kit maintainer.
 - `curl` and `jq`. Every check below is a plain HTTPS GET unless it says otherwise.
@@ -244,7 +282,8 @@ is the process that was used before the feeder went live on 2026-07-05.
   feeder's Keycloak client (scopes `onto/synd.read` and `onto/synd.write` in
   [`terminology-servers/tx-dev-helm-values.yaml`](../../terminology-servers/tx-dev-helm-values.yaml)),
   whose `clientId` and `clientSecret` are in the Secrets Manager secret `fhir-feeder-tx-dev`
-  (ap-southeast-2). That secret still exists (verified 2026-09-29). `aehrc/sparked-argo`
+  (ap-southeast-2). That secret still exists (verified 2026-11-26, metadata only; last
+  read 2026-09-28). `aehrc/sparked-argo`
   #285 lists deleting it, and revoking the client, as manual follow-ups. Do not delete the
   secret or revoke the client until a human write path to `hl7au-dev` is confirmed:
   someone has added an entry with their own login. Until then, losing it may leave nobody
@@ -253,11 +292,17 @@ is the process that was used before the feeder went live on 2026-07-05.
   with AAF against the syndication server `https://synd.ontoserver.csiro.au`), feed
   `hl7au-dev`. tx.dev's Ontoserver reads that feed, alongside `hl7au-fragments` and the
   NCTS SNOMED CT feed (`atom.preload.feedLocation` and `atom.syndication.feedLocation` in
-  `aehrc/sparked-argo` `apps/ontoserver/values.yaml`, verified on `main`). The step-by-step
+  `aehrc/sparked-argo` `apps/ontoserver/values.yaml` on `main`, and the same values on the
+  running StatefulSet, verified). The step-by-step
   procedure, with screenshots, is the HL7 Confluence page
   [Process: HL7 AU Dev Terminology Server](https://confluence.hl7.org/pages/viewpage.action?pageId=265093732)
   (space HAFWG). Its link to the Ontoserver configuration in `aehrc/sparked-infrastructure`
-  is stale; the configuration now lives in `aehrc/sparked-argo`.
+  is stale; the configuration now lives in `aehrc/sparked-argo` (page read 2026-09-29, not
+  re-read).
+- **When:** not inside an event freeze (constraint 9). An entry added during a freeze is
+  not picked up by a scheduled run, because the freeze pauses it, but a replica that
+  restarts reads it in its startup preload, so the two replicas would serve different
+  content for the rest of the event.
 - **Do:**
   1. Download the package and read the values the entry needs (verified):
 
@@ -281,7 +326,7 @@ is the process that was used before the feeder went live on 2026-07-05.
 
   None of this has been exercised since the feeder was decommissioned **(unverified)**.
 - **Verify:** the entry is listed in the feed details in Atomio. The feed answers `401` to
-  an anonymous GET (verified 2026-09-29), so there is no `curl` check here; step 1.2 is the
+  an anonymous GET (verified), so there is no `curl` check here; step 1.2 is the
   end-to-end check.
 - **What goes wrong:** skipping this step. Until #285 AU Base, AU Core and AU eRequesting
   reached tx.dev without anyone acting, and only AU PS (pinned in the feeder config) needed
@@ -294,19 +339,35 @@ is the process that was used before the feeder went live on 2026-07-05.
 - **Where:** `https://tx.dev.hl7.org.au/fhir`. Each of the two Ontoserver replicas preloads
   its feeds once a day at **15:00 UTC** (`atom.preload.schedule.cron` in `aehrc/sparked-argo`
   `apps/ontoserver/values.yaml`, and `TZ=UTC` on the pods, verified) and again on startup.
-  The only evidence of ingestion is a startup preload reading `hl7au-dev` entries on
-  2026-09-28, verified in the replica logs. Both replicas restarted after that day's
-  15:00 UTC run, so no scheduled run is in the current logs, and a scheduled run picking up
-  an entry added after the last startup has not been observed **(unverified)**. Allow up to
-  a day after step 1.1, and record in the tracking issue whether the scheduled run picked
-  the entry up, so the next release knows.
+  The scheduled run fires on both replicas: Loki holds PreloadScheduler's "Commenced
+  scheduled preload job" three times per replica over the three days to 2026-11-26, and
+  the 2026-11-25 15:01 UTC run's `InstallArtefactJob` lines (verified). A scheduled run
+  picking up an entry added after the last startup has still not been observed, because
+  no entry has been added since the feeder was decommissioned **(unverified)**. Allow up
+  to a day after step 1.1, and record in the tracking issue whether the scheduled run
+  picked the entry up, so the next release knows.
+
+  During an event freeze the scheduled run is switched off by the overlay
+  `apps/ontoserver/values-event-freeze.yaml` (`atom.preload.schedule.cron: "-"`,
+  `aehrc/sparked-argo` #385), so nothing added to the feed reaches tx.dev until unfreeze.
+  Check which cron is live before waiting for one:
+
+  ```bash
+  kubectl --context sparkey -n ontoserver get sts ontoserver-statefulset -o json \
+    | jq -r '.spec.template.spec.containers[0].env[] | select(.name=="atom.preload.schedule.cron") | .value'
+  # "0 0 15 * * *" normally; "-" while a freeze has paused it
+  ```
 - **Do:** wait for the next 15:00 UTC run. Do not use the Confluence page's alternative of
   loading the entry from the Ontoserver UI. tx.dev runs two replicas and each holds its own
   index, so content loaded through one replica is not indexed on the other, which then
-  answers HTTP 500 to `$expand` and `$validate-code` for it until the scheduled run (from
-  the `allowScaledReadWrite` comment in `apps/ontoserver/values.yaml`). tx.dev is also
-  configured read-only for FHIR writes (`ontoserver.security.readOnly.fhir: "true"`), so
-  the UI load may be refused outright. The UI load was not tried **(unverified)**.
+  answers HTTP 500 to `$expand` and `$validate-code` for it until the scheduled run. Since
+  `aehrc/sparked-argo` #320 both replicas run with `isReadOnly: true`, which refuses
+  `$x-load-package` and the `/api` load handlers, so the UI load should be refused
+  outright (from the comment on `isReadOnly` in `apps/ontoserver/values.yaml`, and
+  `ontoserver.deployment.readOnly=true` on the running pods, verified; the UI load itself
+  was not tried, **unverified**). The same comment warns against
+  `POST /synd/redoPreload` and `/synd/fetchSyndicatedContentEntry`: they stay open to a
+  `synd.write` token but reach one replica only.
 - **Verify** (verified): AU Core and AU PS ship no ValueSets of their own, so check a
   StructureDefinition; AU Base also ships ValueSets, which can be checked by `version`.
 
@@ -379,9 +440,10 @@ what that guide leaves implicit.
   `terraform/main.tf`. The package JSON says `"installMode": "STORE_AND_INSTALL"`.
 - **What goes wrong:** the `ready-for-automation` path (`issue-labeled.yml`, job
   `create-ig-pr`) last completed on 2026-05-11. Every run from 2026-07-28 hit a
-  `startup_failure`, fixed in #90, and no IG release has exercised it since
-  **(unverified end to end)**. If it fails, run `apply_ig_release.py` locally, which is how
-  #91 was produced.
+  `startup_failure`, fixed in #90, and no IG release has exercised it since: the workflow
+  has not run at all after 2026-09-10 (checked 2026-11-26), so its move to a
+  GitHub-hosted runner (#124) is untried too **(unverified end to end)**. If it fails,
+  run `apply_ig_release.py` locally, which is how #91 was produced.
 
 <a id="step-2-3"></a>
 #### 2.3 Merge and deploy to the running node
@@ -391,7 +453,11 @@ what that guide leaves implicit.
 - **Do:** merge. If the request had `deploy-immediately`, `pr-merged.yml` triggers the
   deploy. Otherwise run `Re/load IG Packages` with `nodes: aucore`,
   `package_source: config`, **`dry_run: true` first**, then `dry_run: false`, and pass the
-  request's `issue_number` so results are posted there.
+  request's `issue_number` so results are posted there. The workflow runs on a
+  GitHub-hosted runner (#124) and installs through the node's package registry endpoint
+  `https://smile.sparked-fhir.com/aucore/package/` with the repo's basic-auth secret; that
+  endpoint is not on the gateway's admin allowlist (anonymously it answers Smile's own
+  `403 Access is denied`, verified). Its last run was on 2026-08-05.
 - **Verify** (verified): the new profile version is present and active, and `$validate`
   resolves it. Use an existing test-data Patient (for example `hennessy-billy`):
 
@@ -409,7 +475,7 @@ what that guide leaves implicit.
   exactly what it prints for a version the node does not have.
 - **What goes wrong:**
   - **Old StructureDefinitions linger.** Uninstalling the superseded version does not purge
-    its conformance resources: today `au-core-patient` 2.1.0-draft is still active beside
+    its conformance resources: `au-core-patient` 2.1.0-draft is still active beside
     3.0.0-ballot1 (verified). A version-less canonical can resolve to the old one, so
     always validate with `|<version>` and tell testers to do the same. Cleanup is a
     separate decision (#45).
@@ -422,16 +488,30 @@ what that guide leaves implicit.
 #### 2.4 Persist the seed config
 
 - **Who:** repo admin.
-- **Where:** Terraform from a workstation, on `main` after the PR merged. One-time setup
-  (the gitignored `backend-sparkey.hcl` and `tfvars/sparkey.tfvars`) is in
+- **Where:** Terraform from a workstation, on `main` after the PR merged. This local
+  apply is the only way a Smile configuration change reaches the server today: Argo CD
+  does not deploy the Smile workload, and the move to an Argo CD Application
+  ([design/smile-to-argo.md](../design/smile-to-argo.md), #120) is a design for after the
+  December 2026 event that would replace this step. The two gitignored inputs
+  (`terraform/backend-sparkey.hcl` and `tfvars/sparkey.tfvars`) are kept in Secrets
+  Manager under `sparked/smile/terraform/` and fetched with
+  `scripts/fetch-smile-tfvars.sh` ([smile-deploy-inputs.md](../smile-deploy-inputs.md),
+  #119); reading them needs the `AdministratorAccess` permission set, the same set an
+  apply needs. The rest of the procedure is in
   [sparkey-deploy-runbook.md](../sparkey-deploy-runbook.md). Use that document, not
   `terraform-local-deploy.md`, which describes the decommissioned stack (#111).
+- **When:** not inside an event freeze (constraint 9); the freeze allows a Smile apply
+  for an emergency fix only.
 - **Do:** plan and apply the Smile deployment so the new package files become ConfigMaps
   and `startup_installation_specs` matches the repo. Pick a window: a `module-config/`
   change rolls the pod, and the first `$validate` after it can answer 504 while the
   validator warms (#111).
 
   ```bash
+  aws sso login --profile csiro-fhir
+  export AWS_PROFILE=csiro-fhir
+  scripts/fetch-smile-tfvars.sh            # writes both inputs (0600); refuses to overwrite a local edit
+  scripts/fetch-smile-tfvars.sh status     # both must match the stored copies
   cd terraform
   terraform init -reconfigure -backend-config=backend-sparkey.hcl   # must not prompt for `key`; if it does, stop
   terraform plan -var-file=../tfvars/sparkey.tfvars -out=sparkey.plan
@@ -453,9 +533,21 @@ what that guide leaves implicit.
     && echo "live matches repo"
   ```
 
+  Then run the smoke tests from the repo root (read-only by default; they read the Smile
+  admin password from Secrets Manager and never print it):
+
+  ```bash
+  scripts/upgrade_smoke_tests.sh -o smoke-after-ig-release.md   # good: 0 failed
+  ```
+
+  Since #121 the data checks are bounded `_count=1` searches that expect one entry,
+  because the server refuses search totals by design (`HAPI-2038`, `HAPI-2037`), so a
+  failure is a real failure, and each FAIL line says what came back.
 - **What goes wrong:** skipping this leaves a node whose next restart reseeds the previous
   versions. The Terraform step itself was not re-run for this runbook **(unverified)**; the
-  live spec matched the repo on 2026-09-25.
+  live spec matched the repo on 2026-09-25 and again on 2026-11-26 (verified with the
+  `diff` above). The smoke tests, read-only, gave `11 passed, 0 failed` against the
+  current node on 2026-11-26 (verified; not after a release).
 
 <a id="step-2-5"></a>
 #### 2.5 AU PS only: check the `$summary` generator
@@ -490,20 +582,31 @@ what that guide leaves implicit.
 - **Who:** repo admin.
 - **Where:** **Actions > Manage Test Data** (`manage-test-data.yml`), operation
   `clear-and-load-aucore`. (An Operational Request with `approved` runs a load without the
-  clear.)
+  clear.) The jobs run on GitHub-hosted runners (#124) and write straight to Smile; the
+  FHIRFlare upload path is gone (#117).
+- **When:** not inside an event freeze (constraint 9). A reload is a bulk write; the event
+  manifest's `data` block says whether one is planned before the event.
 - **Do:** run with `dry_run: true`, read the summary, then run for real with the tracking
   issue number in `issue_number`. `dry_run` defaults to **false** on this workflow, so set
   it explicitly: the real run wipes the node's data.
 - **Verify:** the posted summary shows the file count and 0 failed (or the failures are
   triaged on the issue); `curl -s "$FHIR/Patient/hennessy-billy" -o /dev/null -w '%{http_code}\n'`
-  returns 200.
+  returns 200. The loader's public status page lists what is loaded and whether it is
+  current (verified; both data sets `intact` on 2026-11-26):
+
+  ```bash
+  curl -s https://loader.sparked-fhir.com/api/v1/public/nodes \
+    | jq -r '.[] | .installations[] | "\(.datasetName)\t\(.version[0:7])\t\(.integrity)\t\(.freshness)"'
+  ```
+
 - **What goes wrong:**
   - The clear is a wipe-all with expunge. It does not touch installed IGs: the loader's
     delete list contains no conformance types (verified in `aehrc/sparked-test-data-loader`,
-    private).
-  - The last two `main` runs of this workflow failed (2026-07-14, 2026-08-24) before fixes
-    #103 and #104 merged, and it has not run on `main` since **(unverified end to end)**.
-    Run the dry run first.
+    private, on 2026-09-25).
+  - The last real runs of this workflow failed (2026-07-14, 2026-08-24) before fixes
+    #103 and #104 merged. Since then only a dry run has run on `main` (2026-09-29,
+    succeeded), and none at all since #117 and #124 changed the load path and the runner
+    **(unverified end to end)**. Run the dry run first.
 
 ### Phase 4: Test kit (gem)
 
