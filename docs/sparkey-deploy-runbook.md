@@ -87,16 +87,23 @@ last sync.
 4. **Sync with Prune** (UI Sync with Prune ticked, or
    `argocd app sync smilecdr --prune`; without it the superseded ConfigMaps
    stay and the Application stays OutOfSync). Never tick Replace (it drops the
-   pod template's `restartedAt`, a second roll) or Force. Check the revision
-   the sync panel shows is the merge you mean: a sync renders this repository's
-   `main`, so it also ships anything else merged since the last sync. Watch:
+   pod template's `restartedAt`, a second roll) or Force. A sync renders this
+   repository's `main`, so it also ships anything else merged since the last
+   sync: after a Refresh, the commits it will use are in
+   `kubectl --context sparkey -n argocd get application smilecdr -o jsonpath='{.status.sync.revisions}'`
+   (the sync panel shows none). Watch:
 
    ```bash
-   kubectl --context sparkey -n smile rollout status deployment/smilecdr-scdrnode-aucore --timeout=30m
+   kubectl --context sparkey get pods -n smile -w
    ```
 
    `PruneLast` deletes the superseded ConfigMaps only after the new pod is
-   healthy.
+   healthy. The Deployment's progress deadline is 10 minutes and a cold start
+   on a new node can take longer, so the sync (and `kubectl rollout status`)
+   can report Failed (ProgressDeadlineExceeded) while the new pod is still
+   starting. Wait for the pod: once it is Ready, sync again with Prune to
+   remove the old ConfigMaps. Revert only if the startup probe itself fails
+   (the pod restarts or never turns Ready within its 20 minutes).
 5. **Verify** (section C).
 
 ## B. An infrastructure change (Aurora, IAM, secrets, generator jars)
@@ -131,8 +138,10 @@ last sync.
 > `sparkey.tfvars` sets every variable it would set. Terraform still auto-loads
 > it on every run, and a `-var-file` only overrides the variables it mentions,
 > so a leftover copy pins `smilecdr_iam_role_name` to that stack's IAM role,
-> which no longer exists. `scripts/fetch-smile-tfvars.sh` prints a note when it
-> finds one.
+> which no longer exists. The value in `sparkey.tfvars` is what stops that pin
+> from winning when you pass the var file; deleting the leftover protects a run
+> that forgets it. `scripts/fetch-smile-tfvars.sh` prints a note when it finds
+> one.
 
 > **The backend key is in the `-backend-config` file, not in `provider.tf`.**
 > If `terraform init` ever prompts interactively for `key`, you passed no
@@ -250,7 +259,9 @@ directory, outside the repository, because nothing in `.gitignore` covers it.
   infrastructure team before starting.
 - **Abandoning Argo CD for the workload**: the Rollback section of
   [design/smile-to-argo.md](design/smile-to-argo.md) (delete the Application
-  without cascading, `helm_deploy = true`, `terraform import` of the release).
+  by reverting its sparked-argo PR, never `argocd app delete` or the UI's
+  default delete; then `helm_deploy = true` and `terraform import` of the
+  release).
 
 ## Build history: standing up sparkey (2026-08)
 

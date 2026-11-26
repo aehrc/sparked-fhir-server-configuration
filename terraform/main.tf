@@ -315,9 +315,13 @@ locals {
 # may read and where the jars below are uploaded. Warn when the two part.
 check "smile_jar_bucket_matches_values" {
   assert {
-    condition = alltrue([
-      for m in regexall("bucket: (\\S+)", file("../module-config/simplified-multinode.yaml")) : m[0] == var.s3_bucket_name
-    ])
+    condition = alltrue(flatten([
+      for node in values(try(yamldecode(file("../module-config/simplified-multinode.yaml")).cdrNodes, {})) : [
+        for copy in values(try(node.copyFiles, {})) : [
+          for src in try(copy.sources, []) : try(src.bucket, var.s3_bucket_name) == var.s3_bucket_name
+        ]
+      ]
+    ]))
     error_message = "module-config/simplified-multinode.yaml names a copyFiles bucket other than var.s3_bucket_name."
   }
 }

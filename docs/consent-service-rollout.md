@@ -74,6 +74,11 @@ writes the curated dataset over REST.
 
 ### Step 1: deploy in observe mode
 
+> This rollout was done in August 2026 with local Terraform applies. Since the
+> Smile workload moved to Argo CD, a consent change ships as a PR and a manual
+> sync of `smilecdr` ([sparkey-deploy-runbook.md](sparkey-deploy-runbook.md),
+> section A); read "apply" below as that.
+
 Merging changes nothing on the server. Terraform is applied locally only
 (`smile-application.yml` is disabled: plan output in a public repo leaks
 infrastructure detail), so this needs a deliberate apply per
