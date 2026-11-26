@@ -128,6 +128,89 @@ mappedFiles:
       // pushing this script to each node, so keep the URL on a single line.
       var DEFAULT_AUDIENCE_BASE = "https://smile.sparked-fhir.com/aucore/fhir/DEFAULT";
 
+      /**
+       * Flatten a scope source into an array of scope strings, or null when it
+       * cannot be read. Accepts a space-separated string, a JS array, or a Java
+       * collection (List or Set, read by index or through its iterator).
+       */
+      function scopeList(theScopes) {
+          if (theScopes === null || theScopes === undefined) {
+              return null;
+          }
+          var items = [];
+          if (typeof theScopes === "string") {
+              items = [theScopes];
+          } else if (Array.isArray(theScopes)) {
+              items = theScopes;
+          } else if (typeof theScopes.iterator === "function") {
+              var it = theScopes.iterator();
+              while (it.hasNext()) {
+                  items.push(it.next());
+              }
+          } else if (typeof theScopes.size === "function" && typeof theScopes.get === "function") {
+              for (var i = 0; i < theScopes.size(); i++) {
+                  items.push(theScopes.get(i));
+              }
+          } else {
+              return null;
+          }
+          var out = [];
+          for (var j = 0; j < items.length; j++) {
+              if (items[j] === null || items[j] === undefined) {
+                  continue;
+              }
+              var parts = String(items[j]).split(/\s+/);
+              for (var k = 0; k < parts.length; k++) {
+                  if (parts[k]) {
+                      out.push(parts[k]);
+                  }
+              }
+          }
+          return out;
+      }
+
+      /** Read a bean property, trying the property form first and then its getter. */
+      function beanProperty(theObject, theName, theGetter) {
+          var value = theObject[theName];
+          if ((value === null || value === undefined) && typeof theObject[theGetter] === "function") {
+              value = theObject[theGetter]();
+          }
+          return value;
+      }
+
+      /** The user's approved scopes as an array, or null when they cannot be read. */
+      function approvedScopesOf(theUserSession) {
+          try {
+              var scopes = scopeList(beanProperty(theUserSession, "approvedScopes", "getApprovedScopes"));
+              // An empty set is treated as unreadable: an approved login always has
+              // at least one scope, so empty means "not populated at this point".
+              return scopes && scopes.length > 0 ? scopes : null;
+          } catch (e) {
+              return null;
+          }
+      }
+
+      /**
+       * The scopes of this token request: the user's approved scopes, else the
+       * whitelisted "scope" request parameter, else null when neither can be read.
+       */
+      function tokenScopesOf(theUserSession, theAuthorizationRequestDetails) {
+          var scopes = approvedScopesOf(theUserSession);
+          if (scopes) {
+              return scopes;
+          }
+          try {
+              var reqParams = theAuthorizationRequestDetails.getRequestParameters();
+              if (reqParams) {
+                  scopes = scopeList(reqParams.get("scope"));
+                  return scopes && scopes.length > 0 ? scopes : null;
+              }
+          } catch (e) {
+              // Fall through: unreadable.
+          }
+          return null;
+      }
+
       function onTokenGenerating(theUserSession, theAuthorizationRequestDetails) {
           // Client Credentials (backend service) flows have no user session: there is
           // no user, launch context, or fhirUser to inject. Skip all user-oriented
@@ -181,15 +264,27 @@ mappedFiles:
                   launchParams = {};
               }
               var params = Object.getOwnPropertyNames(launchParams);
+              var tokenScopes = tokenScopesOf(theUserSession, theAuthorizationRequestDetails);
 
               for (var i = 0; i < params.length; i++) {
                   var key = params[i];
                   var value = launchParams[key];
 
                   if (key !== "practitioner") {
-                      // Inject patient, encounter, etc. as token claims and launch context
-                      theAuthorizationRequestDetails.addAccessTokenClaim(key, value);
+                      // Inject patient, encounter, etc. as launch context, and as a
+                      // token claim unless Smile CDR adds that claim itself. When the
+                      // app was granted the matching launch/<key> scope (for example
+                      // "launch launch/patient"), Smile puts the claim into the token
+                      // from the launch resource ids, and a second addAccessTokenClaim
+                      // for the same key throws IllegalArgumentException in
+                      // SmartTokenEnhancerSvcImpl.validateDontAlreadyHaveClaim, failing
+                      // the token request with HTTP 500 (measured on aucore
+                      // 2026-11-27). When the scopes cannot be read, the claim is
+                      // added as before.
                       theUserSession.addLaunchResourceId(key, value);
+                      if (!tokenScopes || tokenScopes.indexOf("launch/" + key) < 0) {
+                          theAuthorizationRequestDetails.addAccessTokenClaim(key, value);
+                      }
                   }
 
                   if (key === "practitioner") {
