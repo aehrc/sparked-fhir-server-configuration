@@ -61,8 +61,8 @@ The sparkey deployment runs the node in `PROPERTIES_UNLOCKED` mode:
    the Argo CD Application `smilecdr`, which renders the new config and rolls
    the pod ([sparkey-deploy-runbook.md](sparkey-deploy-runbook.md), section A).
 
-So anything that must persist belongs in `module-config/`, deployed by an
-apply. The earlier model, in which the database was authoritative and the
+So anything that must persist belongs in `module-config/`, deployed by a
+sync. The earlier model, in which the database was authoritative and the
 properties seeded only the first boot, applied to the decommissioned
 `sparked-smilecdr` deployment.
 
@@ -156,7 +156,7 @@ write as one and has no partition-scoped read-only variant:
    `ValueSet`, `CodeSystem`, `SearchParameter`, `Questionnaire`, IG packages) that
    HAPI FHIR always stores in `DEFAULT`. Without it, an authenticated
    tenant-scoped session gets a hard `403 "User does not have access to
-   <Type> resources on the requested partition"` for those types — which breaks
+   <Type> resources on the requested partition"` for those types, which breaks
    any authenticated write that references one (e.g. posting a
    `QuestionnaireResponse` whose `questionnaire` the server resolves against
    `Questionnaire`).

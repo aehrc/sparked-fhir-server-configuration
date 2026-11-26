@@ -316,7 +316,7 @@ locals {
 check "smile_jar_bucket_matches_values" {
   assert {
     condition = alltrue(flatten([
-      for node in values(try(yamldecode(file("../module-config/simplified-multinode.yaml")).cdrNodes, {})) : [
+      for node in values(yamldecode(file("../module-config/simplified-multinode.yaml")).cdrNodes) : [
         for copy in values(try(node.copyFiles, {})) : [
           for src in try(copy.sources, []) : try(src.bucket, var.s3_bucket_name) == var.s3_bucket_name
         ]
