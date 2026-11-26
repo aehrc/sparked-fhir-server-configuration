@@ -592,11 +592,11 @@ this repo's workflows. Its data sets are defined in that repo's
 `aehrc/au-fhir-test-data` named by the AU Core data set's `gitBranch`** (a Sparked branch of
 `hl7au/au-fhir-test-data`; the public API below prints it); AU Base,
 AU Patient Summary and AU eRequesting come from `hl7au/au-fhir-test-data` `master`. The
-branch is upstream `master` plus three commits, explained in its `SPARKED-BRANCH.md`:
+branch is upstream `master` plus one commit per fix and the commits that write its `SPARKED-BRANCH.md`:
 eight `au-core` examples lose an `au-erequesting-*` claim in `meta.profile`, which `aucore`
 rejects with `VALIDATION_VAL_PROFILE_UNKNOWN_NOT_POLICY` because it does not carry
 `hl7.fhir.au.ereq`; `Patient/roberts-fred`, referenced from `au-core` but defined only in
-`au-erequesting`, is copied into `au-core`; and the third commit adds that README. Each
+`au-erequesting`, is copied into `au-core`; the rest add and update that README. Each
 load records an installation (the data set, the exact commit and a manifest of every
 resource that landed), which the loader rechecks hourly for integrity (still on the
 server) and freshness (pinned commit against the head of the configured branch).
@@ -624,26 +624,34 @@ curl -s https://loader.sparked-fhir.com/api/v1/public/datasets \
   1. Confirm whether the release needs new or changed test data and that it has merged
      upstream, or record "no change" on the tracking issue.
   2. If the AU Core data changed upstream, make a new Sparked branch from the new
-     upstream `master` and pick the current branch's own commits onto it
-     (`SPARKED-BRANCH.md` lists them). Never rebase or force-push the branch the loader
-     has installed: it is the rollback until the new one is loaded and checked. First
-     check whether upstream has fixed either defect (the two checks under **Verify**, run
-     against upstream); if it has, leave that commit out, and once both are gone, point
-     the loader's AU Core data set back at `hl7au` `master` instead of a new branch.
+     upstream `master` and pick onto it only the fix commits still needed. Never rebase
+     or force-push the branch the loader has installed: it is the rollback until the new
+     one is loaded and checked. First check that the AU Core data set's `gitRepoUrl` is
+     the `aehrc` fork, and whether upstream has fixed either defect (the two checks under
+     **Verify**, run against upstream); leave out the commit for a fixed one, and once
+     both are fixed, point the loader's AU Core data set back at `hl7au` `master` instead
+     of making a branch.
 
      ```bash
      git clone https://github.com/aehrc/au-fhir-test-data && cd au-fhir-test-data
      git remote add upstream https://github.com/hl7au/au-fhir-test-data
      git fetch upstream master
      OLD=$(curl -s https://loader.sparked-fhir.com/api/v1/public/datasets \
-       | jq -r '.[] | select(.name=="AU Core") | .gitBranch')
+       | jq -r '.[] | select(.name=="AU Core") | "\(.gitRepoUrl) \(.gitBranch)"')
+     echo "$OLD"   # must be the aehrc fork and a sparked-aucore-loadable branch
+     OLD=${OLD##* }
      NEW=sparked-aucore-loadable-$(date +%Y-%m)
+     git log --oneline --reverse upstream/master.."origin/$OLD"   # the fix commits and README commits
      git switch -c "$NEW" upstream/master
-     git cherry-pick $(git rev-list --reverse upstream/master.."origin/$OLD")
-     # update SPARKED-BRANCH.md (base commit, predecessor branch), commit
+     git cherry-pick <each fix commit still needed>   # a conflict or empty pick means upstream changed it: check, then skip
+     git checkout "origin/$OLD" -- SPARKED-BRANCH.md
+     # edit SPARKED-BRANCH.md: base commit and date, predecessor branch, fixes carried
+     git add SPARKED-BRANCH.md && git commit -m "Describe this branch as the <month> refresh"
      git push origin "$NEW"
      ```
 
+     The new branch is then ahead of upstream by the fixes still needed plus one README
+     commit.
      Then open the loader values PR setting the AU Core `gitBranch` to the new branch.
      Merging it restarts the loader (Reloader), which then reports AU Core
      `update-available` until step 3.2 runs.
@@ -655,14 +663,14 @@ curl -s https://loader.sparked-fhir.com/api/v1/public/datasets \
 
   ```bash
   gh api "repos/aehrc/au-fhir-test-data/compare/hl7au:au-fhir-test-data:master...$NEW" \
-    -q '"ahead \(.ahead_by), behind \(.behind_by)"'   # good: ahead 4 (fewer once a fix lands upstream), behind 0
+    -q '"ahead \(.ahead_by), behind \(.behind_by)"'   # good: behind 0, ahead = fixes still needed + 1 (the README; ahead 4 for sparked-aucore-loadable-2026-11)
   grep -l au-erequesting au-fhir-test-data-set/au-core/*.json   # good: no output
   ls au-fhir-test-data-set/au-core/Patient-roberts-fred.json
   ```
 
 - **What goes wrong:**
-  - Reloading before the data merges, or before the branch is rebased, reloads the old
-    data.
+  - Reloading before the data merges, or before the new branch is made and the loader
+    points at it, reloads the old data.
   - **The loader's `current` for AU Core means current against the Sparked branch, not
     against upstream.** On 2026-11-26 `sparked-aucore-loadable` still sat on upstream
     `ecc2ff7` (2026-08-24), 147 commits and 247 changed `au-core` files behind upstream
@@ -670,7 +678,7 @@ curl -s https://loader.sparked-fhir.com/api/v1/public/datasets \
     above). AU Patient Summary, which reads upstream directly, showed `update-available`.
   - Both defects were still upstream on 2026-11-26: eight `au-core` files claim an
     `au-erequesting` profile and `au-core` has no `Patient-roberts-fred.json` (verified on
-    `af8a563`). Rebasing without the patch makes the next load fail those nine.
+    `af8a563`). A branch without the patch makes the next load fail those nine.
   - The loader reads the branch by name, so changing or deleting the branch it tracks
     changes what the loader installs. Delete an old branch only once nothing has it
     installed and the event it served is over.
@@ -697,7 +705,10 @@ curl -s https://loader.sparked-fhir.com/api/v1/public/datasets \
   event manifest pins the data (`data.sets`), update its commits in the same change.
 
   Update decides what to delete by comparing the old manifest with what succeeded this
-  time, so **a resource whose PUT fails during the Update is deleted from the server**.
+  time, so **a resource the old installation loaded whose PUT fails during the Update is
+  deleted from the server** (unless the load as a whole errors out, which prunes nothing,
+  or something still references it, which leaves it in place, unmanaged, with "could not
+  be deleted" in the operation log).
   The loader retries a 429 or 5xx three times over about 7 seconds, which a terminology
   reindex outlasts (Ontoserver answered 503 "compiled against a previous index version"
   for about 40 seconds on 2026-11-26). Run it outside terminology maintenance, and if the
