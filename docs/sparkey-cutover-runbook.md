@@ -255,7 +255,10 @@ follow-up below rather than fixed here.
 
 ### Config parity, checked after the cutover
 
-`scripts/config_diff.py` compares runtime module config between the two servers.
+`scripts/config_diff.py` compared runtime module config between the two servers.
+The old cluster was destroyed on 2026-08-27, so it has nothing left to compare;
+the version used for this check is at commit `33903c9` (#88) if a comparison is
+ever needed again.
 Result on 2026-08-03: **3 real differences**, all intentional (137 further
 differences suppressed as empty-vs-absent serialisation noise, and 20 modules
 present only on the old server, which is the ereq/hl7au decommission).
