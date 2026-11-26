@@ -140,23 +140,15 @@ jobs:
 
             Neither option runs during an event change freeze (no IG package load and no apply), except to fix an outage.
 
-            ### Option A: Immediate Deployment
-            A repo admin can trigger immediate deployment:
-            - **Time**: 2-5 minutes
-            - **Downtime**: None (rolling update)
-            - **Risk**: Low (can be rolled back)
+            ### The merge deploys it
+            Argo CD syncs the Smile workload (the \`smilecdr\` Application) from \`main\` on its own, so a change to \`module-config/\` or \`deploy/\` reaches the server without anyone running anything:
+            - **Time**: about 2 minutes to start, then up to 20 minutes for the new pod to be ready
+            - **Downtime**: None expected (the old pod serves until the new one is ready)
 
-            To deploy immediately, a repo admin can run the "Re/load IG Packages" workflow manually.
-
-            ### Option B: Wait for the Next Terraform Apply
-            Changes will be applied on the next terraform apply, which a repo admin runs locally. There is no scheduled restart, and a pod restart on its own does not pick up merged changes:
-            - **Time**: Variable (whenever the next deploy is run)
-            - **Downtime**: None expected (the apply rolls the pod)
-            - **Effort**: A repo admin runs the apply
+            ### If the packages need loading now
+            Once that roll has finished (one pod, Ready), a repo admin can run the "Re/load IG Packages" workflow. Not during the roll: the new pod installs the same packages from its seed config.
 
             ---
-
-            **A repo admin will decide when to deploy based on urgency and current server status.**
 
             Once deployed, you'll be asked to verify the deployment meets your acceptance criteria.
 

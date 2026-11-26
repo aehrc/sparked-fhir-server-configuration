@@ -57,12 +57,13 @@ The sparkey deployment runs the node in `PROPERTIES_UNLOCKED` mode:
    edits made through the console or the Admin JSON API are **lost on the next
    pod restart**. Records stored in the database, such as OIDC clients, users
    and partitions, are not module config and do persist.
-3. A change merged to this repo reaches the node only through a manual sync of
-   the Argo CD Application `smilecdr`, which renders the new config and rolls
-   the pod ([sparkey-deploy-runbook.md](sparkey-deploy-runbook.md), section A).
+3. A change merged to this repo reaches the node through the Argo CD
+   Application `smilecdr`, which syncs automatically: within about two minutes
+   of the merge it renders the new config and rolls the pod
+   ([sparkey-deploy-runbook.md](sparkey-deploy-runbook.md), section A).
 
 So anything that must persist belongs in `module-config/`, deployed by a
-sync. The earlier model, in which the database was authoritative and the
+merge. The earlier model, in which the database was authoritative and the
 properties seeded only the first boot, applied to the decommissioned
 `sparked-smilecdr` deployment.
 
@@ -88,7 +89,7 @@ multi-line; it is now seeded from `simplified-multinode.yaml` with escaped
 newlines, so the config is its source of truth).
 
 After changing `smart-post-authorize.js` or a `smart_auth` value, deploy it
-with a PR and a manual sync of `smilecdr`
+with a PR; merging it is the deploy
 ([sparkey-deploy-runbook.md](sparkey-deploy-runbook.md), section A; for the
 script, run `scripts/render_smile_mapped_files.py` first). Running the sync
 script with `--apply` restarts the

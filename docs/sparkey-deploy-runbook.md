@@ -13,12 +13,19 @@ stack and are kept only as history; do not apply from them.
 
 | What | Owner | How a change ships |
 |---|---|---|
-| The workload: Deployment, Services, the hashed ConfigMaps, ServiceAccount, SecretProviderClass | Argo CD Application `smilecdr` in `aehrc/sparked-argo` (`apps/smilecdr.yaml`), values from `module-config/` and `deploy/smilecdr/` on `main` here | PR here, merge, then **Sync** the Application by hand (section A) |
+| The workload: Deployment, Services, the hashed ConfigMaps, ServiceAccount, the SecretStore `smilecdr-store` and its ten ExternalSecrets | Argo CD Application `smilecdr` in `aehrc/sparked-argo` (`apps/smilecdr.yaml`), values from `module-config/` and `deploy/smilecdr/` on `main` here | PR here, then merge: **the merge is the deploy** (section A) |
 | Aurora, the database users, IRSA role and policies, KMS, credential secrets, the generator jars in S3 | Terraform `terraform/` here (sdh-deps v9.0.2, `helm_deploy = false`) | PR here, merge, then a local `terraform apply` (section B) |
 
-Merging to `main` deploys nothing by itself in either case. The `smilecdr`
-Application syncs by hand only until automated sync is turned on after the
-December 2026 event (a separate, reviewed change in sparked-argo).
+Since 26 Nov 2026 the `smilecdr` Application syncs automatically, with prune
+and selfHeal: a merge to `module-config/` or `deploy/` on `main` here reaches
+the server within about two minutes, and whoever merges picks the moment. A
+Terraform change still deploys nothing until someone applies it.
+
+Smile's Kubernetes Secrets come from External Secrets Operator: the
+ExternalSecrets in sparked-argo `apps/smilecdr/secrets/external-secrets.yaml`
+copy the AWS Secrets Manager secrets into `smilecdr-db-<db>`,
+`smilecdr-registry`, `smilecdr-users` and `smilecdr-token-signing` in
+namespace `smile`. The Secrets Store CSI driver no longer serves Smile.
 
 The second half of this document,
 [Build history](#build-history-standing-up-sparkey-2026-08), records how the
@@ -31,10 +38,12 @@ emergency fix. For the December 2026 event the freeze runs from Fri 4 Dec 2026,
 17:00 AEDT to Fri 11 Dec 2026, 17:00 AEDT. The `smilecdr` Application is in
 the `sparked` project's deny sync window with `manualSync: true`: the window
 stops any automated sync or self-heal, and a manual Sync still goes through for
-an emergency. A Terraform apply is still held by convention. The freeze
-mechanisms and the emergency path are in sections 2 and 3 of
-`docs/runbooks/event-runbook.md` in `aehrc/sparked-argo`; the event's dated
-steps are in this repository's operator checklist,
+an emergency. Because a merge is the deploy, the freeze also means no merges to
+`module-config/` or `deploy/` here: anything merged during it ships by itself
+once the window closes, or with the next emergency sync. A Terraform apply is
+still held by convention. The freeze mechanisms and the emergency path are in
+sections 2 and 3 of `docs/runbooks/event-runbook.md` in `aehrc/sparked-argo`;
+the event's dated steps are in this repository's operator checklist,
 [`docs/operators/events/`](operators/events/). An emergency change is
 announced in `#sparked-deployments`.
 
@@ -48,28 +57,37 @@ had `subscription.rest_hook_enabled = false`.
 
 Every change under `module-config/` (and every mapped file, generated into
 `deploy/smilecdr/mapped-files.yaml` by `scripts/render_smile_mapped_files.py`)
-reaches the server through the `smilecdr` Application, and **a change that
-alters the render rolls the pod**. The chart's `autoDeploy` suffixes ConfigMap
-names with a content hash, so new config means a new pod template. The
-Deployment is `RollingUpdate` with `maxSurge: 1` and `maxUnavailable: 0`, so the
-old pod serves until the new one is ready. A second Smile pod does not fit on
-the current `on-demand-prod` node, so Karpenter first launches another node and
-the new pod boots there; the emptied node is consolidated afterwards. The
-startup probe allows 20 minutes from container start, and the first
-`$validate` calls after the roll can answer 504 while the validator warms (see
-[sparkey-cutover-runbook.md](sparkey-cutover-runbook.md)). Pick a window
-outside events and outside a freeze.
+reaches the server through the `smilecdr` Application, and **merging it to
+`main` is the deploy**. The Application syncs automatically with prune and
+selfHeal: Argo CD polls the repositories every 60 seconds plus up to 60 seconds
+of jitter, so within about two minutes of the merge it renders the new config,
+and **a change that alters the render rolls the pod**. The chart's `autoDeploy`
+suffixes ConfigMap names with a content hash, so new config means a new pod
+template. The Deployment is `RollingUpdate` with `maxSurge: 1` and
+`maxUnavailable: 0`, so the old pod serves until the new one is ready. A second
+Smile pod does not fit on the current `on-demand-prod` node, so Karpenter first
+launches another node and the new pod boots there; the emptied node is
+consolidated afterwards. The startup probe allows 20 minutes from container
+start, and the first `$validate` calls after the roll can answer 504 while the
+validator warms (see [sparkey-cutover-runbook.md](sparkey-cutover-runbook.md)).
+Whoever merges picks the moment: merge outside events and outside a freeze, at
+a time a Smile restart is acceptable.
 
 The node runs `PROPERTIES_UNLOCKED` (`module-config/values-sparkey.yaml`): the
 rendered config is re-read on every boot, so console edits to module config do
 not survive a restart, and a restart does not pick up anything merged since the
 last sync.
 
-1. **PR and merge here.** A mapped file change: edit the source under
-   `module-config/`, run `python3 scripts/render_smile_mapped_files.py`, commit
-   both; CI fails a stale copy.
-2. **Snapshot Aurora** if the change can touch data or schema (an IG install,
-   a persistence module setting):
+selfHeal puts back what the Application renders: a `kubectl edit` or
+`kubectl scale` of these objects is reverted at the next reconcile. A
+`kubectl rollout restart` stays, because its `restartedAt` annotation is never
+rendered.
+
+1. **PR here.** A mapped file change: edit the source under `module-config/`,
+   run `python3 scripts/render_smile_mapped_files.py`, commit both; CI fails a
+   stale copy.
+2. **Snapshot Aurora before merging** if the change can touch data or schema
+   (an IG install, a persistence module setting):
 
    ```bash
    aws rds create-db-cluster-snapshot \
@@ -78,20 +96,17 @@ last sync.
      --region ap-southeast-2
    ```
 
-3. **Read the diff.** In the Argo CD UI (`https://argo.sparked-fhir.com`,
-   Keycloak login), open `smilecdr`, App Diff; or
-   `argocd app diff smilecdr`. Expect the new hashed ConfigMap(s), the old
-   one(s) to prune, and the Deployment's volume references. Anything else
-   (a Service, the ServiceAccount, the SecretProviderClass) is not your change:
-   stop and find out why.
-4. **Sync with Prune** (UI Sync with Prune ticked, or
-   `argocd app sync smilecdr --prune`; without it the superseded ConfigMaps
-   stay and the Application stays OutOfSync). Never tick Replace (it drops the
-   pod template's `restartedAt`, a second roll) or Force. A sync renders this
-   repository's `main`, so it also ships anything else merged since the last
-   sync: after a Refresh, the commits it will use are in
-   `kubectl --context sparkey -n argocd get application smilecdr -o jsonpath='{.status.sync.revisions}'`
-   (the sync panel shows none). Watch:
+3. **Merge.** That starts the deploy. To see it at once rather than after the
+   next poll, open `smilecdr` in the Argo CD UI (`https://argo.sparked-fhir.com`,
+   Keycloak login) and press Refresh.
+4. **Watch.** The sync result (UI: the Application's last sync; or
+   `kubectl --context sparkey -n argocd get application smilecdr -o jsonpath='{.status.operationState.syncResult.revisions}'`
+   for the commits it used, in source order) should show the new hashed
+   ConfigMap(s), the Deployment's volume references, and the superseded
+   ConfigMap(s) pruned. Anything else changing (a Service, the ServiceAccount,
+   the SecretStore or an ExternalSecret) is not your change: find out why. A
+   sync renders this repository's `main`, so it also ships anything else
+   merged and not yet live. Watch the pod:
 
    ```bash
    kubectl --context sparkey get pods -n smile -w
@@ -101,10 +116,35 @@ last sync.
    healthy. The Deployment's progress deadline is 10 minutes and a cold start
    on a new node can take longer, so the sync (and `kubectl rollout status`)
    can report Failed (ProgressDeadlineExceeded) while the new pod is still
-   starting. Wait for the pod: once it is Ready, sync again with Prune to
-   remove the old ConfigMaps. Revert only if the startup probe itself fails
-   (the pod restarts or never turns Ready within its 20 minutes).
+   starting. Wait for the pod: once it is Ready, if the Application still
+   shows the failed sync with the old ConfigMaps waiting to be pruned, retry
+   it with a manual sync (below). Revert only if the startup probe itself
+   fails (the pod restarts or never turns Ready within its 20 minutes).
 5. **Verify** (section C).
+
+### A manual sync
+
+A manual sync is now needed only in two cases: an emergency fix during an
+event freeze (the deny window holds the automated sync), or a retry of a sync
+that failed. In the Argo CD UI: Refresh, read App Diff (only what you expect
+should change), then Sync with **Prune** ticked (without it the superseded
+ConfigMaps stay and the Application stays OutOfSync). Never tick Replace (it
+drops the pod template's `restartedAt`, a second roll) or Force. A manual sync
+also renders `main`, so it ships everything merged since the last sync: after
+a Refresh, the commits it will use are in
+`kubectl --context sparkey -n argocd get application smilecdr -o jsonpath='{.status.sync.revisions}'`
+(the sync panel shows none). Then watch as in step 4.
+
+The `argocd` CLI cannot do this today: its SSO login
+(`argocd login argo.sparked-fhir.com --sso`) fails because Keycloak's `argocd`
+client rejects the `offline_access` scope (`invalid_scope`), and the CLI also
+needs `--grpc-web`. Use the UI, or start the same sync with kubectl (rights to
+patch Applications in namespace `argocd`):
+
+```bash
+kubectl --context sparkey -n argocd patch application smilecdr --type merge \
+  -p '{"operation":{"initiatedBy":{"username":"<you>"},"sync":{"syncOptions":["PruneLast=true"],"prune":true}}}'
+```
 
 ## B. An infrastructure change (Aurora, IAM, secrets, generator jars)
 
@@ -215,7 +255,8 @@ A difference is investigated, never synced blind: copying Terraform's side
 into `apps/smilecdr/values-account.yaml` in sparked-argo can change the render,
 and a changed render is a pod roll (a non-empty `specs.hostname`, for example,
 also changes every advertised URL). Fix it there only once you know which side
-is right, and sync it as a planned change (section A). A module or chart bump: bump the module ref and
+is right, and merge it as a planned change: a merge there is a deploy too
+(section A). A module or chart bump: bump the module ref and
 `helm_chart_version` in `terraform/main.tf` here first (CI checks they agree),
 apply, run this check, then bump `targetRevision` in `apps/smilecdr.yaml` there
 (its CI checks it against `main` here).
@@ -246,7 +287,8 @@ directory, outside the repository, because nothing in `.gitignore` covers it.
 
 - **The new pod never becomes ready**: the old pod keeps serving
   (`maxUnavailable: 0`) and `PruneLast` has kept its ConfigMaps. Revert the
-  change in git and sync again.
+  change in git; merging the revert deploys it. If the Application does not
+  pick it up, start a manual sync (section A).
 - **Data or schema damage**: a last resort. Restoring the snapshot taken before
   the change (`aws rds restore-db-cluster-from-snapshot`) creates a **new**
   Aurora cluster under a new identifier, with no instances until you add one;
@@ -254,9 +296,9 @@ directory, outside the repository, because nothing in `.gitignore` covers it.
   Terraform state still point at the old cluster, so the new one has to be
   swapped in (Smile's database connection pointed at the new endpoint, or the
   clusters renamed) and Terraform reconciled before you revert the change and
-  sync (or apply) the previous good config. None of this has been rehearsed on
-  sparkey: the steps are unverified, so work them out with the Sparked
-  infrastructure team before starting.
+  deploy (merge, or apply) the previous good config. None of this has been
+  rehearsed on sparkey: the steps are unverified, so work them out with the
+  Sparked infrastructure team before starting.
 - **Abandoning Argo CD for the workload**: the Rollback section of
   [design/smile-to-argo.md](design/smile-to-argo.md) (delete the Application
   by reverting its sparked-argo PR, never `argocd app delete` or the UI's

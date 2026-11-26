@@ -371,7 +371,8 @@ The following GitHub configuration is required for CI/CD workflows:
 
 > **Nothing here deploys from CI.** The Smile CDR workload is the Argo CD
 > Application `smilecdr` in `aehrc/sparked-argo`, which reads `module-config/` and
-> `deploy/smilecdr/` from `main` and is synced by hand. Terraform (Aurora, IAM,
+> `deploy/smilecdr/` from `main` and syncs automatically: a merge there is the
+> deploy, and the pod rolls within minutes. Terraform (Aurora, IAM,
 > secrets, generator jars; `helm_deploy = false`) is applied from a workstation:
 > running `terraform plan`/`apply` in a public repository's CI would publish plan
 > output (secret ARNs, resource IDs, topology). Both paths are in

@@ -135,7 +135,7 @@ body:
       description: How can this change be reverted if issues occur?
       placeholder: |
         - Revert to previous simplified-multinode.yaml
-        - Sync the smilecdr Argo CD Application to the reverted configuration
+        - Merge the revert; the smilecdr Argo CD Application syncs it automatically
         - No database migrations, so clean rollback possible
     validations:
       required: false

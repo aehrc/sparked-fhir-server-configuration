@@ -129,24 +129,10 @@ You will receive another comment with deployment results.
 ```
 
 **If you didn't request immediate deployment:**
-```markdown
-## ✅ PR #45 Merged - Deployment Options
-
-Your requested changes have been approved and merged.
-
-**Option A: Immediate Deployment**
-A repo admin can deploy immediately (2-5 minutes, no downtime)
-
-**Option B: Wait for Next Server Restart**
-Changes apply automatically on next restart (zero risk, may take hours/days)
-
-A repo admin will decide when to deploy based on urgency.
-```
-
-Option B in that comment is wrong, and the bot still posts it: there is no scheduled
-restart, and a pod restart on its own does not pick up merged changes. A merged change
-reaches the server on the next deploy, a manual sync of the Argo CD Application
-`smilecdr` by a repo admin ([runbook step 2.4](runbooks/ig-release.md#step-2-4)). Open #126 corrects the text `pr-merged.yml` posts.
+The comment says the merge deploys the change: the Argo CD Application `smilecdr` syncs
+automatically and rolls the pod within minutes
+([runbook step 2.4](runbooks/ig-release.md#step-2-4)). A repo admin runs `Re/load IG
+Packages` only after that roll has finished.
 
 #### Step 7: Verification
 
@@ -202,9 +188,10 @@ well, with the step each one bites in.
 - **Replacing a large package triggers a long expunge**: pod CPU near 1 core and
   intermittent 15 s ingress timeouts for several minutes. It recovers without a restart;
   do not stack another install on top (#92).
-- **A live install is not persistent** until the next deploy (a manual sync of the Argo
-  CD Application `smilecdr`) updates the seeded `startup_installation_specs`; a restart
-  before that reseeds the old versions; see
+- **A live install is not persistent** until the deploy (the automatic sync of the
+  Argo CD Application `smilecdr` that follows the merge) updates the seeded
+  `startup_installation_specs`; a restart before that, or during a freeze that holds
+  the sync, reseeds the old versions; see
   [runbook step 2.4](runbooks/ig-release.md#step-2-4).
 - **Not during an event freeze.** No IG load, reload or apply while an event manifest's
   `freeze` window is open ([runbook constraint 9](runbooks/ig-release.md#4-ordering-constraints)).

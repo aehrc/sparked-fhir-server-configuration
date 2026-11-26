@@ -147,7 +147,8 @@ can apply the differences. The node runs `PROPERTIES_UNLOCKED`
 (`module-config/values-sparkey.yaml`): module config is re-read from the
 Helm-rendered ConfigMap on every boot, so anything this script applies is lost
 on the next pod restart. Use it to show drift or to try a change live; make the
-lasting change in `module-config/` and deploy it with `terraform apply`. See
+lasting change in `module-config/` in a PR; merging it is the deploy (Argo CD syncs
+the `smilecdr` Application). See
 [SMART Auth Configuration](../docs/smart-auth-config.md) for the drift model.
 
 ```bash

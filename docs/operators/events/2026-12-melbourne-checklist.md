@@ -19,19 +19,12 @@ Open the tracking issue with `gh issue create --title "Operator checklist: Melbo
 
 ## Fri 27 Nov 2026 (T-11)
 
-- [ ] **Smile node roll and AMQ fix (one-off; one day, any day of the week, since the Drifted budget opens daily 08:00 to 19:00 AEDT; one restart; before the sandbox scratch run below and any other bulk write, and by Mon 30 Nov at the latest, or Smile restarts at 12:29 AEDT on Thu 10 Dec).** The live NodeClaim `on-demand-prod-pr76v` was created 2026-11-10T01:29:08Z with `expireAfter: 720h` and expires 2026-12-10T01:29:08Z; disruption budgets cannot stop expiration in Karpenter v1. Separately, until aehrc/sparked-fhir-server-configuration#123 is applied, every resource write adds about 1.6 KB to a broker queue nothing drains, and Smile is evicted at about 65,000 messages, so the scratch run, the sandbox batch and any test-data reload wait for this item.
-  1. Between 08:00 and 18:00 AEDT, merge aehrc/sparked-argo#384 (`on-demand-prod` `expireAfter: Never`). The node now counts as drifted, but the Drifted budget holds it until 19:00 AEDT.
-  2. Confirm Argo synced it: `kubectl --context sparkey get nodepool on-demand-prod -o jsonpath='{.spec.template.spec.expireAfter}{"\n"}'` prints `Never`.
-  3. Before 19:00 AEDT the same day, run the local Smile `terraform apply` of #123 (merged), and watch:
-     ```sh
-     kubectl --context sparkey get nodeclaims -l karpenter.sh/nodepool=on-demand-prod -w
-     kubectl --context sparkey -n smile get pods -w
-     curl -s -o /dev/null -w '%{http_code}\n' https://smile.sparked-fhir.com/aucore/fhir/DEFAULT/metadata
-     ```
-     The apply is a RollingUpdate (`maxSurge: 1, maxUnavailable: 0`) and a second Smile pod does not fit on the current node, so Karpenter launches a new node from the new template and the old pod serves until the new one is Ready. Expect one new NodeClaim, the new pod Ready, `200` throughout, then the old NodeClaim gone once empty: near-zero downtime (inferred, not observed). Nothing is left to drift at 19:00, so no evicting roll follows.
-  4. Check: `kubectl --context sparkey get nodeclaims -l karpenter.sh/nodepool=on-demand-prod -o jsonpath='{.items[*].spec.expireAfter}{"\n"}'` prints `Never`.
-  5. Do not reverse the order: an apply first and #384 later restarts Smile twice, the second time by eviction at 19:00 (about 7 to 10 minutes down). If #123 is not merged in time, merge #384 alone in the same slot: at 19:00 AEDT Karpenter launches the new node, then evicts the single pod (eviction ignores `maxSurge`), about 7 to 10 minutes down; announce it. Merged outside the slot, that roll starts within a few minutes of Argo's poll.
-  6. If #384 is not merged by Mon 30 Nov, the fallback is a forceful roll at a chosen hour, `kubectl --context sparkey delete nodeclaim on-demand-prod-pr76v` (no pre-spun node, so a longer gap: node launch plus startup, up to the 20-minute startup probe ceiling), any time after 2026-11-11 17:00 AEDT so the new 30-day clock ends after the freeze. It is a cluster write: the operator's call. A #123 apply on its own also moves Smile to a fresh node whose 30 days end after the freeze, with no eviction.
+- [ ] **Smile node roll and AMQ fix: check only (done 22 to 26 Nov 2026).** aehrc/sparked-argo#384 (`on-demand-prod` `expireAfter: Never`) and aehrc/sparked-fhir-server-configuration#123 (the AMQ fix) merged on 22 Nov, and Smile has since moved to Argo CD (a local `terraform apply` no longer touches it). Confirm nothing expires during the event:
+  ```sh
+  kubectl --context sparkey get nodepool on-demand-prod -o jsonpath='{.spec.template.spec.expireAfter}{"\n"}'   # Never
+  kubectl --context sparkey get nodeclaims -l karpenter.sh/nodepool=on-demand-prod -o jsonpath='{range .items[*]}{.metadata.name} {.spec.expireAfter}{"\n"}{end}'   # every line ends in Never
+  ```
+  If either prints anything else, stop and raise it: an expiring NodeClaim restarts Smile when it expires.
 - [ ] Sandbox service shown end to end on a scratch tenant: create, token, write, reset, expire. Then confirm the one source of the sandbox caps and dates, the ConfigMap in aehrc/sparked-argo `apps/sparked-sandbox/manifests/config.yaml` (#393), says what the manifest mirrors: `max_live` 30, `resource_ceiling` 10,000, `pool_target` 0, `sandboxes_expire` at the start of the expiry day (overnight from Thu 17 to Fri 18 Dec 2026 (AEDT)), and for web creations only `creates_per_ip_per_day` 60 and `pre_event.creates_per_ip_per_day` 3. If they differ, change the ConfigMap first (a sparked-argo PR), then copy its values to the manifest and re-render. Once Gate A is deployed, the cluster holds the same:
   ```sh
   kubectl --context sparkey -n sparked-sandbox get configmap sandbox-config -o jsonpath='{.data.config\.yaml}' \
@@ -149,11 +142,9 @@ Open the tracking issue with `gh issue create --title "Operator checklist: Melbo
   - Argo CD (v3.6.2 sets no Application condition when a window blocks auto-sync or self-heal; it logs it once per reconcile):
     ```sh
     kubectl --context sparkey -n argocd logs sts/argocd-application-controller --since=10m \
-      | grep 'Sync prevented by sync window' | grep -c 'application=inferno-prod'   # more than 0
-    argocd login <the sparkey Argo CD host> --sso --grpc-web   # once per session; the host is in aehrc/sparked-argo docs/argocd.md
-    argocd app get inferno-prod | grep 'SyncWindow:'   # Manual Allowed (Sync Allowed = no active window)
+      | grep 'Sync prevented by sync window' | grep -c 'application=inferno-prod '   # more than 0 (the trailing space keeps prefixes out)
     ```
-    Repeat the log grep with `application=ontoserver` and `application=smilecdr-routes` for the `sparked` project.
+    Repeat the log grep with `'application=ontoserver '`, `'application=smilecdr-routes '` and `'application=smilecdr '` (trailing space, so `smilecdr` does not also count `smilecdr-routes`) for the `sparked` project. In the Argo CD UI, each frozen Application's summary shows its sync window as Manual Allowed (Sync Allowed means no window is active). The `argocd` CLI's `--sso` login fails with `invalid_scope` (Keycloak's `argocd` client does not allow `offline_access`), so use the UI.
   - Karpenter: in Grafana Explore (Mimir), `karpenter_nodepools_allowed_disruptions{nodepool=~"on-demand|on-demand-prod|spot"}` drops to 0 for the frozen reasons.
   - Smile: the `smilecdr` Argo CD Application is in the `sparked` deny window (manual sync stays possible for an emergency); no `terraform apply` either (Aurora, IAM, secrets; convention).
   - Inferno: no promotion merge until the freeze ends. `inferno-prod` renders `master`, and the `inferno` sync window keeps it on the revision it had at the freeze start: the log grep above shows the window holding it.
@@ -163,6 +154,7 @@ Open the tracking issue with `gh issue create --title "Operator checklist: Melbo
     kubectl --context sparkey -n argocd patch application <app> --type merge \
       -p '{"operation":{"initiatedBy":{"username":"<you>"},"sync":{"syncStrategy":{"hook":{}}}}}'
     ```
+    For `smilecdr`, prune and keep `PruneLast`, or the superseded hashed ConfigMaps stay and the Application stays OutOfSync: `-p '{"operation":{"initiatedBy":{"username":"<you>"},"sync":{"prune":true,"syncOptions":["PruneLast=true"]}}}'`. In the UI, tick Prune; never Replace or Force.
   - Emergency Inferno rollback: revert the last promotion PR on hl7au/au-fhir-inferno `master` (a revert PR puts the previous image back in `infra/helm/inferno/values-prod.yaml`), merge it, then sync `inferno-prod` by hand. A manual sync ships everything on `master` since the freeze started, so check `git log` for `infra/helm/inferno/` first.
   - Emergency dependency bump: Actions, Renovate, Run workflow, tick `ignore_freeze`.
   - Emergency node repack: karpenter-config is not in a window; delete the event block from the NodePool and merge.
@@ -207,7 +199,7 @@ Open the tracking issue with `gh issue create --title "Operator checklist: Melbo
 
 ## Fri 11 Dec 2026 (T+3)
 
-- [ ] Freeze ends at Fri 11 Dec 2026, 17:00 AEDT. Nothing to do at that moment: the sync windows and event budgets end on their own.
+- [ ] **Freeze ends at Fri 11 Dec 2026, 17:00 AEDT.** The sync windows and event budgets end on their own, and every automated Application then syncs whatever merged during the freeze, unattended. Before the end, check what will ship: for Smile, Refresh `smilecdr` and read App Diff, and list the commits behind it with `git log $(kubectl --context sparkey -n argocd get application smilecdr -o jsonpath='{.status.operationState.syncResult.revisions[1]}')..origin/main -- module-config deploy` in this repository (index 2 and `-- apps/smilecdr apps/smilecdr.yaml` in aehrc/sparked-argo). Anything there rolls Smile at the end of the freeze; if that is not wanted, revert it or sync it by hand at a chosen time.
 - [ ] **After the freeze ends: resume the tx.dev preload.** (Before then the window holds the sync.)
   ```sh
   # In an aehrc/sparked-argo checkout:
