@@ -130,7 +130,8 @@ shows a missing version (never during the roll), and then labels the issue `depl
 #### Step 7: Verification
 
 When the PR merges, you'll receive the notice below (a Terminology Content Change PR gets
-a variant that says the merge changes nothing live):
+a variant that says the merge changes nothing live, and a PR that changes both Smile and
+terminology server files gets the notice below followed by the terminology hand steps):
 ```markdown
 ## PR #45 Merged Successfully
 
@@ -146,7 +147,7 @@ Argo CD syncs the Smile workload (the `smilecdr` Application) from `main` on its
 - **Downtime**: none expected (the old pod serves until the new one is ready)
 
 ### After the roll
-Once the roll has finished (one pod, Ready), a repo admin checks the node, including a read-only "Re/load IG Packages" dry run that lists package drift both ways, and then labels this issue `deployed`. A live "Re/load IG Packages" run follows only if the post-roll dry run shows drift, and never during the roll: the new pod is already installing the same packages, and a second install stacked on top of it is unsafe.
+Once the roll has finished (one pod, Ready), a repo admin checks the node, including a read-only "Re/load IG Packages" dry run that lists package drift both ways, and then labels this issue `deployed`. A live "Re/load IG Packages" run follows only if the post-roll dry run shows a missing package version, and never during the roll: the new pod is already installing the same packages, and a second install stacked on top of it is unsafe.
 
 ### Event freezes
 During an event change freeze the automated sync is held, so a merge to `module-config/` or `deploy/` ships only with a manual sync, or by itself when the freeze ends. That is why such merges are not made during a freeze, except a fix for an outage.

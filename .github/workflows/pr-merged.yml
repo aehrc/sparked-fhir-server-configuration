@@ -39,7 +39,8 @@ jobs:
       # Both IG release and TX content change PRs carry auto-pr-created, but
       # only a change to module-config/ or deploy/ reaches a live service on
       # merge (Argo CD rolls Smile). The changed paths decide which notice is
-      # posted, so a TX requester is never told Smile is rolling.
+      # posted, so a TX requester is never told Smile is rolling, and a PR that
+      # touches both keeps the TX hand steps alongside the Smile notice.
       - name: Classify the merged change
         id: classify
         if: steps.extract.outputs.issue_number
@@ -55,12 +56,9 @@ jobs:
             const paths = files.map(f => f.filename);
             const under = prefixes => paths.some(p => prefixes.some(prefix => p.startsWith(prefix)));
 
-            let kind = 'other';
-            if (under(['module-config/', 'deploy/'])) {
-              kind = 'smile';
-            } else if (under(['terminology-servers/'])) {
-              kind = 'tx';
-            }
+            const smile = under(['module-config/', 'deploy/']);
+            const tx = under(['terminology-servers/']);
+            const kind = smile && tx ? 'both' : smile ? 'smile' : tx ? 'tx' : 'other';
             console.log(`Changed paths: ${paths.join(', ')}`);
             console.log(`Notice kind: ${kind}`);
             core.setOutput('kind', kind);
@@ -92,26 +90,41 @@ jobs:
             - **Downtime**: none expected (the old pod serves until the new one is ready)
 
             ### After the roll
-            Once the roll has finished (one pod, Ready), a repo admin checks the node, including a read-only "Re/load IG Packages" dry run that lists package drift both ways, and then labels this issue \`deployed\`. A live "Re/load IG Packages" run follows only if the post-roll dry run shows drift, and never during the roll: the new pod is already installing the same packages, and a second install stacked on top of it is unsafe.
+            Once the roll has finished (one pod, Ready), a repo admin checks the node, including a read-only "Re/load IG Packages" dry run that lists package drift both ways, and then labels this issue \`deployed\`. A live "Re/load IG Packages" run follows only if the post-roll dry run shows a missing package version, and never during the roll: the new pod is already installing the same packages, and a second install stacked on top of it is unsafe.
 
             ### Event freezes
             During an event change freeze the automated sync is held, so a merge to \`module-config/\` or \`deploy/\` ships only with a manual sync, or by itself when the freeze ends. That is why such merges are not made during a freeze, except a fix for an outage.`;
 
+            const txSteps = `- **tx.dev**: a repo admin adds the matching entry to the \`hl7au-dev\` Atomio feed by hand ([IG release runbook step 1.1](${runbook}#step-1-1))
+            - **tx.hl7**: a repo admin hands the change to its HL7 AU owners ([runbook step 7.2](${runbook}#step-7-2))`;
+            const txFreeze = `During an event change freeze no new entry goes into the \`hl7au-dev\` feed ([runbook constraint 9](${runbook}#4-ordering-constraints)).`;
+
             const txSection = `### Merging changes nothing live
             This change touches only the terminology server values, and no feeder syncs either server (the tx-dev feeder was decommissioned on 2026-09-29), so nothing rolls and Smile is not affected:
-            - **tx.dev**: a repo admin adds the matching entry to the \`hl7au-dev\` Atomio feed by hand ([IG release runbook step 1.1](${runbook}#step-1-1))
-            - **tx.hl7**: a repo admin hands the change to its HL7 AU owners ([runbook step 7.2](${runbook}#step-7-2))
+            ${txSteps}
 
             Only the line for the servers this PR targets applies. A repo admin labels this issue \`deployed\` once the server has the change.
 
             ### Event freezes
-            During an event change freeze no new entry goes into the \`hl7au-dev\` feed ([runbook constraint 9](${runbook}#4-ordering-constraints)).`;
+            ${txFreeze}`;
+
+            const bothTxSection = `### Terminology servers
+            This PR also changes the terminology server values. No feeder syncs either server (the tx-dev feeder was decommissioned on 2026-09-29), so that part is done by hand:
+            ${txSteps}
+
+            Only the line for the servers this PR targets applies. ${txFreeze} A repo admin labels this issue \`deployed\` only once Smile has passed its post-roll checks and the terminology server has the change.`;
 
             const otherSection = `### Deployment
             This PR changed nothing under \`module-config/\`, \`deploy/\` or \`terminology-servers/\`, so the merge rolls no server. A repo admin will follow up here and label this issue \`deployed\` once the change is live.`;
 
             const kind = process.env.KIND;
-            const section = kind === 'smile' ? smileSection : kind === 'tx' ? txSection : otherSection;
+            const sections = {
+              smile: smileSection,
+              tx: txSection,
+              both: `${smileSection}\n\n${bothTxSection}`,
+              other: otherSection
+            };
+            const section = sections[kind] || otherSection;
 
             await github.rest.issues.createComment({
               owner: context.repo.owner,
@@ -144,11 +157,16 @@ jobs:
             const issueNumber = parseInt(process.env.ISSUE_NUMBER, 10);
             const kind = process.env.KIND;
 
+            const smileLine = 'The merge itself still deploys the change: Argo CD syncs `main` automatically and rolls Smile, outside an event change freeze';
+            const txLine = 'the tx.dev feed entry is still added by hand (IG release runbook step 1.1), and a tx.hl7 change still goes to its owners';
+
             let deployLine;
             if (kind === 'smile') {
-              deployLine = 'The merge itself still deploys the change: Argo CD syncs `main` automatically and rolls Smile, outside an event change freeze';
+              deployLine = smileLine;
             } else if (kind === 'tx') {
-              deployLine = 'The merge changes nothing live: the tx.dev feed entry is still added by hand (IG release runbook step 1.1), and a tx.hl7 change still goes to its owners';
+              deployLine = `The merge changes nothing live: ${txLine}`;
+            } else if (kind === 'both') {
+              deployLine = `${smileLine}\n- The terminology server part changes nothing live: ${txLine}`;
             } else {
               deployLine = 'A change to `module-config/` or `deploy/` still deploys on merge (Argo CD syncs `main` automatically); a change under `terminology-servers/` changes nothing live';
             }
