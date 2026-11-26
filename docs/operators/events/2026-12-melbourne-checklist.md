@@ -6,7 +6,7 @@ Open the tracking issue with `gh issue create --title "Operator checklist: Melbo
 
 - Event: Tue 8 to Thu 10 Dec 2026 (T = Tue 8 Dec 2026)
 - Freeze: Fri 4 Dec 2026, 17:00 AEDT to Fri 11 Dec 2026, 17:00 AEDT
-- Sandbox: planned, mode `event`; opens Wed 2 Dec 2026, 09:00 AEDT; creation closes Thu 10 Dec 2026, 17:00 AEDT; expires overnight from Thu 17 to Fri 18 Dec 2026 (AEDT)
+- Sandbox: open, mode `event`; opens Wed 2 Dec 2026, 09:00 AEDT; creation closes Thu 10 Dec 2026, 17:00 AEDT; expires overnight from Thu 17 to Fri 18 Dec 2026 (AEDT)
 - Inferno: v1.2.3 (planned); https://github.com/hl7au/au-fhir-inferno/pull/223
 - Participant guide: `docs/participants/2026-12-melbourne.md`
 
@@ -32,7 +32,7 @@ Open the tracking issue with `gh issue create --title "Operator checklist: Melbo
   4. Check: `kubectl --context sparkey get nodeclaims -l karpenter.sh/nodepool=on-demand-prod -o jsonpath='{.items[*].spec.expireAfter}{"\n"}'` prints `Never`.
   5. Do not reverse the order: an apply first and #384 later restarts Smile twice, the second time by eviction at 19:00 (about 7 to 10 minutes down). If #123 is not merged in time, merge #384 alone in the same slot: at 19:00 AEDT Karpenter launches the new node, then evicts the single pod (eviction ignores `maxSurge`), about 7 to 10 minutes down; announce it. Merged outside the slot, that roll starts within a few minutes of Argo's poll.
   6. If #384 is not merged by Mon 30 Nov, the fallback is a forceful roll at a chosen hour, `kubectl --context sparkey delete nodeclaim on-demand-prod-pr76v` (no pre-spun node, so a longer gap: node launch plus startup, up to the 20-minute startup probe ceiling), any time after 2026-11-11 17:00 AEDT so the new 30-day clock ends after the freeze. It is a cluster write: the operator's call. A #123 apply on its own also moves Smile to a fresh node whose 30 days end after the freeze, with no eviction.
-- [ ] Sandbox service shown end to end on a scratch tenant: create, token, write, reset, expire. Then confirm the one source of the sandbox caps and dates, the ConfigMap in aehrc/sparked-argo `apps/sparked-sandbox/manifests/config.yaml` (#393), says what the manifest mirrors: `max_live` 30, `resource_ceiling` 10,000, `pool_target` 0, `sandboxes_expire` at the start of the expiry day (overnight from Thu 17 to Fri 18 Dec 2026 (AEDT)), and for web creations only `creates_per_ip_per_day` 60 and `pre_event.creates_per_ip_per_day` 3. If they differ, change the ConfigMap first (a sparked-argo PR), then copy its values to the manifest and re-render. Once Gate A is deployed, the cluster holds the same:
+- [ ] Sandbox service shown end to end on a scratch tenant: create, token, write, reset, expire. Then confirm the one source of the sandbox caps and dates, the ConfigMap in aehrc/sparked-argo `apps/sparked-sandbox/manifests/config.yaml` (#393), says what the manifest mirrors: `max_live` 30, `resource_ceiling` 10,000, `pool_target` 0, `sandboxes_expire` at the start of the expiry day (overnight from Thu 17 to Fri 18 Dec 2026 (AEDT)), and for web creations only `creates_per_ip_per_day` 60 and `pre_event.creates_per_ip_per_day` 10. If they differ, change the ConfigMap first (a sparked-argo PR), then copy its values to the manifest and re-render. Once Gate A is deployed, the cluster holds the same:
   ```sh
   kubectl --context sparkey -n sparked-sandbox get configmap sandbox-config -o jsonpath='{.data.config\.yaml}' \
     | grep -E '^ *(max_live|creates_per_ip_per_day|resource_ceiling|pool_target|sandboxes_expire):'

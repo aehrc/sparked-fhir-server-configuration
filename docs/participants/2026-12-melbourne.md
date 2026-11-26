@@ -4,7 +4,7 @@
 
 _Facts in this guide were last checked on Sat 21 Nov 2026._
 
-This guide covers the services the Sparked program runs for the event: the Sparked FHIR server, the hosted Inferno test kits and the terminology servers, and writable sandboxes if they go ahead. For the agenda, tracks and venue, see the [event page](https://confluence.hl7.org/pages/viewpage.action?pageId=494872196).
+This guide covers the services the Sparked program runs for the event: the Sparked FHIR server, writable sandboxes, the hosted Inferno test kits and the terminology servers. For the agenda, tracks and venue, see the [event page](https://confluence.hl7.org/pages/viewpage.action?pageId=494872196).
 
 Everything here holds **synthetic test data only**. Never send real patient or personal data to any of these services.
 
@@ -18,7 +18,7 @@ Everything here holds **synthetic test data only**. Never send real patient or p
 | Sparked FHIR server | `https://smile.sparked-fhir.com/aucore/fhir/DEFAULT` |
 | HL7 AU reference server | `https://fhir.hl7.org.au/aucore/fhir/DEFAULT` |
 | Inferno | https://inferno.hl7.org.au |
-| Sandboxes | Planned, not yet confirmed (Go/no-go on Mon 30 Nov 2026) |
+| Sandboxes | https://sandbox.sparked-fhir.com, with the event access code |
 | Change freeze | Fri 4 Dec 2026, 17:00 AEDT to Fri 11 Dec 2026, 17:00 AEDT |
 | Help | [Sparked FHIR Server topic on Zulip](https://chat.fhir.org/#narrow/channel/179173-australia/topic/Sparked.20FHIR.20Server) |
 
@@ -40,7 +40,7 @@ Programme:
 
 **Two servers share the same path.** `smile.sparked-fhir.com/aucore/fhir/DEFAULT` (Sparked) and `fhir.hl7.org.au/aucore/fhir/DEFAULT` (HL7 AU reference server) look alike but are separate systems, run by different teams, holding different IG versions. Check the host before you report a problem, and report it in the right place (see [Help](#help)).
 
-The Sparked server's `DEFAULT` partition is read-only for participants. Reads, searches, `$validate` and `$summary` need no login. Writable sandboxes are planned but not yet confirmed (see [Sandboxes](#sandboxes)); until they open, there is nowhere on the Sparked server to write.
+The Sparked server's `DEFAULT` partition is read-only for participants. Reads, searches, `$validate` and `$summary` need no login. To write, use your own sandbox (see [Sandboxes](#sandboxes)).
 
 **Not on the Sparked server.** Some event tracks use IGs that Sparked does not serve:
 
@@ -119,7 +119,7 @@ About the identifiers in this data (from the [AU test data documentation](https:
 
 ## Sandboxes
 
-Writable sandboxes for this event are **planned, not yet confirmed**. Go/no-go on Mon 30 Nov 2026 decides whether they go ahead, and this section is updated with the outcome. Until then, what follows is the plan.
+Writable sandboxes are **open** for this event.
 
 A sandbox is your own writable space on the Sparked FHIR server, with its own FHIR base URL, clients and starter data, separate from every other participant's.
 
@@ -137,7 +137,7 @@ The code is not in this guide.
 
 **Dates.** Sandboxes can be created from Wed 2 Dec 2026, 09:00 AEDT until Thu 10 Dec 2026, 17:00 AEDT. Sandboxes for this event expire overnight from Thu 17 to Fri 18 Dec 2026 (AEDT); their clients and login users are disabled and their data is deleted then.
 
-**Limits.** Up to 10,000 resources in one sandbox, and at most 30 sandboxes live at once for the event. One network address can create up to 3 sandboxes a day until Tue 8 Dec 2026, and up to 60 a day from then (the venue Wi-Fi puts everyone behind one address). Synthetic data only: the Sparked team can see everything in every sandbox.
+**Limits.** Up to 10,000 resources in one sandbox, and at most 30 sandboxes live at once for the event. One network address can create up to 10 sandboxes a day until Tue 8 Dec 2026, and up to 60 a day from then (the venue Wi-Fi puts everyone behind one address). Synthetic data only: the Sparked team can see everything in every sandbox.
 
 ## Auth recipes
 
@@ -157,7 +157,53 @@ The Sparked server's discovery documents ([SMART configuration](https://smile.sp
 curl -s 'https://smile.sparked-fhir.com/aucore/fhir/DEFAULT/Patient?_count=5'
 ```
 
-The recipes for backend services, bearer tokens and SMART App Launch need a client on a sandbox. They are added here if sandboxes go ahead; see [Sandboxes](#sandboxes).
+The recipes that need a client use the shell variables `SANDBOX_BASE`, `CLIENT_ID` and `CLIENT_SECRET` (the backend services client) and `APP_CLIENT_ID` (the public App Launch client); take their values from your sandbox page. They ask for v1-style scopes (`system/*.read`, `patient/*.read`); ask only for the scopes your sandbox page lists for each client. Register your app's redirect URIs on the sandbox page before the App Launch recipe.
+
+### Backend services: client credentials
+
+For a system talking to your sandbox with no user present. Send the client id and secret with HTTP Basic, then use the access token as a bearer token.
+
+```bash
+TOKEN=$(curl -s -u "$CLIENT_ID:$CLIENT_SECRET" \
+  -d grant_type=client_credentials \
+  -d scope='system/*.read' \
+  'https://smile.sparked-fhir.com/aucore/smartauth/oauth/token' | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])')
+```
+
+### Bearer token on each request
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" "$SANDBOX_BASE/Patient?_count=5"
+```
+
+A sandbox token works on your own sandbox only. Read `DEFAULT` without a token.
+
+### SMART App Launch with PKCE (standalone launch)
+
+For an app that a user signs in to. Your sandbox comes with a public client and a login user. The `redirect_uri` must be one registered on that client (https, or http on localhost).
+
+1. Make a PKCE verifier and its S256 challenge:
+
+   ```bash
+   CODE_VERIFIER=$(openssl rand -base64 48 | tr -d '=+/\n' | cut -c1-64)
+   CODE_CHALLENGE=$(printf '%s' "$CODE_VERIFIER" | openssl dgst -sha256 -binary | openssl base64 | tr '+/' '-_' | tr -d '=\n')
+   ```
+
+2. Send the user's browser to the authorize endpoint with these query parameters (URL-encoded): `response_type=code`, `client_id=$APP_CLIENT_ID`, `redirect_uri`, `scope=launch/patient openid fhirUser patient/*.read`, a random `state`, `aud=<your sandbox FHIR base>`, `code_challenge=$CODE_CHALLENGE` and `code_challenge_method=S256`.
+3. The user signs in with the sandbox login user and approves. The browser comes back to your redirect URI with `code` and `state`; check that `state` matches.
+4. Exchange the code:
+
+   ```bash
+   curl -s \
+     -d grant_type=authorization_code \
+     -d code="$CODE" \
+     -d redirect_uri="$REDIRECT_URI" \
+     -d client_id="$APP_CLIENT_ID" \
+     -d code_verifier="$CODE_VERIFIER" \
+     'https://smile.sparked-fhir.com/aucore/smartauth/oauth/token'
+   ```
+
+5. The response carries `access_token`, the `patient` in context and an `id_token`. Check the `id_token` signature against `https://smile.sparked-fhir.com/aucore/smartauth/jwk`.
 
 ### Testing your own server in Inferno: bearer token or custom header
 
@@ -180,8 +226,6 @@ The AU Core Test Kit's **FHIR Endpoint** input starts filled in with the HL7 AU 
 
 Each issue below was last checked on the date shown.
 
-- **The jwks_uri in SMART discovery redirects to a sign-in page** (checked Sat 21 Nov 2026). `jwks_uri` in `.well-known/smart-configuration` (`/aucore/smartauth/.well-known/jwks.json`) answers 302 to `/aucore/smartauth/signin`, so a client that follows it cannot check id_token signatures.
-  _What to do:_ Use the `jwks_uri` from the OpenID configuration instead: `https://smile.sparked-fhir.com/aucore/smartauth/jwk`.
 - **SMART discovery lives under the FHIR base, not under smartauth** (checked Sat 21 Nov 2026). `/aucore/smartauth/.well-known/smart-configuration` redirects to the sign-in page. Older Sparked handouts gave that address.
   _What to do:_ Use `<FHIR base>/.well-known/smart-configuration`, for example `https://smile.sparked-fhir.com/aucore/fhir/DEFAULT/.well-known/smart-configuration`.
 - **An unversioned profile resolves to the ballot** (checked Sat 21 Nov 2026). On Sparked, `$validate?profile=http://hl7.org.au/fhir/core/StructureDefinition/au-core-patient` validates against 3.0.0-ballot1.
