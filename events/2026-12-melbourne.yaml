@@ -236,7 +236,7 @@ sandbox:
     # From sandbox.opens until the first event day the access code is out but
     # nobody is at the venue yet, so one address gets few. Web only.
     pre_event:
-      creates_per_ip_per_day: 3
+      creates_per_ip_per_day: 10
     # The enforce job suspends a sandbox holding more.
     resource_ceiling: 10000
   fallback: Ask the Sparked team in the Sparked FHIR Server Zulip topic or at the venue for a sandbox issued by hand.
