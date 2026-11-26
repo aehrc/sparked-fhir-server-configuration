@@ -249,8 +249,8 @@ optional arguments:
 1. **Determine nodes** - From input or auto-detect from `simplified-multinode.yaml`
 2. **Load packages** - From config, packages directory, or custom JSON
 3. **Fetch current state** - Query each node for installed packages
-4. **Report drift** - Before any change, and in a dry run too: desired versions the node lacks (missing), other stored versions of a desired package id (extra), and, with `--source config`, stored package ids the seed config does not list. A live run does not remove an extra version whose package's desired version is already current
-5. **Compare and sync** - Install/update packages as needed
+4. **Report drift** - Before any change, and in a dry run too: desired versions the node lacks (missing), other stored versions of a desired package id (extra), and, with `--source config`, stored package ids the seed config does not list. It sends one packument GET (`/package/npm/<id>`) per desired package id on top of the search. A failed lookup is named in the block and never reported as `none`, and the block then does not say `No drift`; the stored id list is labelled possibly incomplete when the search response's `total` is missing or larger than what came back. A live run does not remove an extra version whose package's desired version is already stored
+5. **Compare and sync** - Install/update packages as needed. A version the packument already holds is not installed again, even when another version is current and is uninstalled first (a rollback), so a live run never stacks an install on the expunge that uninstall starts. If the search lookup fails, a live run changes nothing on that node and fails
 6. **Report results** - Show summary of all operations
 
 ## Integration with GitHub Actions
