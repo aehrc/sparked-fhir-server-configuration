@@ -374,6 +374,38 @@ check('each key is decided on its own: only the scope in both sources is skipped
   t.claims, [['patient', 'pat-1']]);
 
 // ---------------------------------------------------------------------------
+// onTokenGenerating: launch JSON that is not an object
+// ---------------------------------------------------------------------------
+
+console.log('--- token: launch JSON that is not an object (same as main) ---');
+
+function rawLaunch(text) {
+  return Buffer.from(text, 'utf8').toString('base64');
+}
+
+t = token({ approvedScopes: 'openid launch', contexts: [practitionerCtx] }, { launch: rawLaunch('null') });
+check('launch JSON null throws the same TypeError as before and adds nothing',
+  [t.error, t.claims, t.launchResourceIds, t.fhirUser],
+  ['TypeError: Cannot convert undefined or null to object', [], [], []]);
+
+t = token({ approvedScopes: 'openid launch', contexts: [practitionerCtx] }, { launch: rawLaunch('7') });
+check('launch JSON number adds nothing and falls back to the default practitioner',
+  [t.error, t.claims, t.launchResourceIds, t.fhirUser],
+  [null, [], [], [AUD + '/Practitioner/guthridge-jarred']]);
+
+t = token({ approvedScopes: 'openid launch', contexts: [practitionerCtx] }, { launch: rawLaunch('["a","b"]') });
+check('launch JSON array is read key by key, as before',
+  [t.error, t.claims, t.launchResourceIds, t.fhirUser],
+  [null, [['0', 'a'], ['1', 'b'], ['length', 2]], [['0', 'a'], ['1', 'b'], ['length', 2]],
+    [AUD + '/Practitioner/guthridge-jarred']]);
+
+t = token({ approvedScopes: 'openid launch', contexts: [practitionerCtx] }, { launch: rawLaunch('"ab"') });
+check('launch JSON string is read character by character, as before',
+  [t.error, t.claims, t.launchResourceIds, t.fhirUser],
+  [null, [['0', 'a'], ['1', 'b'], ['length', 2]], [['0', 'a'], ['1', 'b'], ['length', 2]],
+    [AUD + '/Practitioner/guthridge-jarred']]);
+
+// ---------------------------------------------------------------------------
 // onSmartLoginPreContextSelection: the sandbox patient picker
 // ---------------------------------------------------------------------------
 
