@@ -5,7 +5,8 @@ The adoption runs in one weekday window between 10:00 and 15:00 AEDT before
 Thu 3 Dec 2026, so the freeze that starts Fri 4 Dec 17:00 AEDT covers Smile
 mechanically for the first time. It changes no pod template, so Smile does not
 restart. The one step that does restart Smile, secrets through External Secrets
-Operator, is separate and planned for after the event. Until the adoption
+Operator, follows it in the same window (the owner's ruling, 26 Nov 2026), as a
+separate sync with one planned pod roll. Until the adoption
 lands, Smile is deployed by a local `terraform apply`; from the hand-over PR
 on, [sparkey-deploy-runbook.md](../sparkey-deploy-runbook.md) section A (a PR
 and a manual sync) is the only way a Smile config change ships.
@@ -123,11 +124,11 @@ render. After the first sync the annotation it writes does not contain
 | Aurora cluster, DB users, KMS keys, DB credential secrets | Terraform (`sdh-deps`, unchanged) |
 | IRSA role and policies, `iam-users-secret.tf` | Terraform |
 | AU PS generator jars in S3 (`aws_s3_object`) | Terraform |
-| Smile Deployment, Services, ConfigMaps, PDB, ServiceAccount, SecretProviderClass | Argo CD Application `smilecdr` (sparked-argo `apps/smilecdr.yaml`, project `sparked`) |
+| Smile Deployment, Services, ConfigMaps, PDB, ServiceAccount (and the SecretProviderClass until the ESO step), SecretStore and ExternalSecrets | Argo CD Application `smilecdr` (sparked-argo `apps/smilecdr.yaml`, project `sparked`) |
 | HTTPRoutes, network policies | Argo CD (unchanged) |
 | Chart values (`module-config/*.yaml`, `deploy/smilecdr/mapped-files.yaml`) | This repository, public |
-| Account-specific values (IRSA role ARN, secret ARNs, database wiring) | sparked-argo (private), `apps/smilecdr/values-account.yaml` |
-| Secrets | AWS Secrets Manager, through the CSI driver until the ESO step |
+| Account-specific values (IRSA role ARN, secret names, database wiring) | sparked-argo (private), `apps/smilecdr/values-account.yaml`; secret ARNs in `apps/smilecdr/secrets/` |
+| Secrets | AWS Secrets Manager, copied into Kubernetes Secrets by ESO (through the CSI driver until the ESO step) |
 
 Terraform keeps the module and sets `helm_deploy = false`, which gates only the
 module's `helm_release` and its `helm_template` data source. The module still
@@ -227,7 +228,13 @@ that matters, as long as two things cannot drift silently:
   difference is investigated, never synced blind:** copying Terraform's side
   into `values-account.yaml` can change the render, and a changed render is a
   pod roll (a non-empty `specs.hostname`, for example, also changes every
-  advertised URL).
+  advertised URL). Once secrets come through ESO, Terraform still computes the
+  CSI form for them (`type: sscsi` and an ARN): where the Application uses
+  `k8sSecret` and Terraform `sscsi`, the check drops those secret-source fields
+  from both sides and instead requires Terraform's ARN to be the one the
+  ExternalSecret behind that Secret reads (sparked-argo
+  `apps/smilecdr/secrets/`). Everything else, the list of databases included,
+  still compares strictly, and before the ESO step nothing is normalized.
 - **The module and chart versions.** sdh-deps v9.0.2 and chart 9.0.2 are
   released together. `smile_argo_check.py pairing` (this repository's CI)
   checks that the module ref and `helm_chart_version` in `terraform/main.tf`
@@ -339,31 +346,71 @@ One stray ConfigMap is not part of the release
 earlier revision, still there on 26 Nov). Argo CD does not track it, so it never
 prunes it; delete it by hand after the adoption.
 
-## Secrets through ESO (second step, one planned roll, after the event)
+## Secrets through ESO (second step, one planned roll, same window)
 
-Swapping the Secrets Store CSI driver for ESO changes the pod template (volumes
-and the image pull secret reference), so it is a pod roll: one Smile restart,
-with the old pod serving until the new one is ready. Do it as its own change,
-after the event:
+Swapping the Secrets Store CSI driver for ESO changes the pod template, so it
+is a pod roll: one Smile restart, with the old pod serving until the new one is
+ready (`maxUnavailable: 0`, startup probe up to 20 minutes). The design first
+put it after the event; on 26 Nov 2026 the owner ruled it ships in the same
+window as the adoption, so the event runs on the final shape. It is a separate
+sparked-argo PR and a separate sync, after the adoption sync.
 
-- ExternalSecrets in sparked-argo (next to the Application) for the database
-  credentials (`smile-SmileCluster-*-sparkey`), `users.json`
-  (`smilecdr-users-json`), the token signing keystore
-  (`smilecdr-token-signing-jwks`) and the image pull secret (a
-  `kubernetes.io/dockerconfigjson` template over `example-key-value`).
-- A reader role for the `smile` namespace in `aehrc/sparked-infrastructure`
-  (`secrets_readers` in `sparkey-eks/iam.tf`), with `kms:Decrypt` on the
-  module's secrets key for the database credentials (the other three use the
-  AWS-managed key). The Crossplane-readable prefixes deliberately exclude these
-  secrets.
-- Chart values switch each secret to `type: k8sSecret` with the ESO-created
-  Secret's name, in `values-account.yaml`. The chart supports this for the
-  database credentials, image pull secrets, the licence and the generic
-  `secrets` block.
-- Then remove the SecretProviderClass and the CSI driver dependency for this
-  namespace. Rerun the `values` check afterwards: Terraform still injects the
-  CSI form, so `values-account.yaml` will differ from it on purpose, and the
-  check needs an allowlist for those keys at that point.
+- **ExternalSecrets** in sparked-argo `apps/smilecdr/secrets/`, a fourth source
+  of the Application, all at sync wave -1: a SecretStore and ten
+  ExternalSecrets, one per database credential (`smile-SmileCluster-<db>-sparkey`
+  into `smilecdr-db-<db>`, keys `dbname`, `host`, `password`, `port`,
+  `username`), `smilecdr-users-json` into `smilecdr-users` (key `users-json`),
+  `smilecdr-token-signing-jwks` into `smilecdr-token-signing` (key
+  `keystores-json`), and `example-key-value` into `smilecdr-registry`
+  (`kubernetes.io/dockerconfigjson`). The property paths are the ones the
+  SecretProviderClass used. Argo CD's built-in health checks for SecretStore
+  and ExternalSecret (the Ready condition) hold the Deployment's wave until
+  every Secret exists, so a failed fetch stops the sync before the pod changes.
+- **No IAM change.** The SecretStore authenticates as the chart's
+  ServiceAccount `smilecdr-smilecdr`, whose IRSA role `smile-smilecdr-sparkey`
+  (this repository's Terraform, through the module) already reads all ten ARNs
+  and decrypts the module's KMS key: it is the role the CSI driver used. Its
+  trust policy accepts only `system:serviceaccount:smile:smilecdr-smilecdr`
+  with audience `sts.amazonaws.com`, and the ESO controller (v2.15.0) may mint
+  tokens for it. Checked read-only on 26 Nov 2026. A dedicated reader role in
+  aehrc/sparked-infrastructure (`secrets_readers`), as the other namespaces
+  have, would separate the workload's role from the secret reader; it is not
+  needed for this step.
+- **New Secret names**, deliberately: the CSI driver owns its synced Secrets
+  (`smile-smilecluster-<db>`, `smilecdr-users-json` and the rest) through the
+  pod's SecretProviderClassPodStatus and garbage-collects them when the last
+  pod that mounts the CSI volume goes, which would take a same-named ESO Secret
+  with it.
+- **Chart values** switch each secret to `type: k8sSecret` (database
+  `connectionConfigSource.source`) with the new name, in `values-account.yaml`,
+  the last value file, so `module-config/` stays as Terraform passes it. The
+  chart then renders no SecretProviderClass and no CSI volume. The render
+  against the live release (`smile_argo_check.py render`) differs in exactly
+  two objects: the SecretProviderClass (no longer rendered; pruned) and the
+  Deployment (the 35 database `secretKeyRef` names, the users and keystore
+  volumes, the image pull secret name, the CSI volume and its `/mnt/sscsi`
+  mount gone). Every ConfigMap, the image, probes and resources are identical.
+
+**Order matters.** Argo CD's client-side apply removes a list entry (a volume, a
+mount, an image pull secret) only if the object's
+`kubectl.kubernetes.io/last-applied-configuration` lists it. The live
+Deployment has none until the adoption sync writes it. Synced before the
+adoption, the ESO change would keep the CSI volume and mount next to the new
+Secrets, and once the SecretProviderClass is pruned the next pod start would
+fail to mount it. So: adoption sync first, then rerun the `dry-run` check
+against the ESO branch; it must show the CSI volume, the `/mnt/sscsi` mount,
+the volumes `smilecdr-users-json` and `smilecdr-token-signing-jwks`, and the
+image pull secret `smilecdr-scdr-image-pull-secrets` removed. Then sync with
+Prune (never Replace or Force).
+
+**Rollback:** revert the sparked-argo PR and sync with Prune. The chart renders
+the SecretProviderClass and the CSI volume again, the CSI driver recreates its
+Secrets when the new pod mounts the volume, and the pod rolls once more; the
+ExternalSecrets and their Secrets are pruned after it is healthy.
+
+The Secrets Store CSI driver itself stays installed. `smile` held the only
+SecretProviderClass in the cluster (26 Nov 2026), so after this step nothing
+uses the driver; removing it is a separate cleanup after the event.
 
 ## How day-to-day changes work afterwards
 
