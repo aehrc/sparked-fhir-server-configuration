@@ -71,11 +71,16 @@ For the December 2026 event the freeze runs from Fri 4 Dec 2026, 17:00 AEDT to
 Fri 11 Dec 2026, 17:00 AEDT. Nothing mechanical stops a Smile apply in that
 window: Argo CD sync windows and the Karpenter event budgets cover the Argo CD
 apps and the node pools, and the Smile freeze is a convention. The planned
-Smile apply before the freeze, the freeze mechanisms and the emergency path
-are in sections 2 and 3 of `docs/runbooks/event-runbook.md` in
-`aehrc/sparked-argo`; the event's dated steps are in its operator checklist
-(`docs/operators/events/`). An emergency apply follows the steps below and is
-announced in `#sparked-deployments`.
+Smile move before the December freeze is done: aehrc/sparked-argo#384 and
+this repository's #123 merged on 2026-11-22 (UTC), and Helm release revision
+17 deployed at 2026-11-22T22:19Z. On 2026-11-26 the Smile pod ran on NodeClaim
+`on-demand-prod-7v5s5` (`expireAfter: Never`) and the rendered config had
+`subscription.rest_hook_enabled = false`. The freeze mechanisms and the
+emergency path are in sections 2 and 3 of `docs/runbooks/event-runbook.md` in
+`aehrc/sparked-argo`; the event's dated steps are in this repository's
+operator checklist, [`docs/operators/events/`](operators/events/). An
+emergency apply follows the steps below and is announced in
+`#sparked-deployments`.
 
 ## Normal deploy
 
@@ -157,11 +162,12 @@ its timeouts (see [Apply](#3-apply) in the build history).
 ```bash
 curl -s https://smile.sparked-fhir.com/aucore/fhir/DEFAULT/metadata | jq .software
 curl -s https://smile.sparked-fhir.com/aucore/fhir/DEFAULT/.well-known/smart-configuration | jq .issuer
-../scripts/upgrade_smoke_tests.sh -o post-apply.md   # still in terraform/ from step 3
+../scripts/upgrade_smoke_tests.sh -o "${TMPDIR:-/tmp}/smile-post-apply-$(date +%Y%m%d-%H%M).md"
 ```
 
 The smoke tests read a password from the `smilecdr-user-passwords`
-secret, so they need the same AWS session.
+secret, so they need the same AWS session. The report goes to a temporary
+directory, outside the repository, because nothing in `.gitignore` covers it.
 
 If you changed `sparkey.tfvars` or the backend file for this deploy, store it
 now so the next operator gets the same inputs:
@@ -175,9 +181,16 @@ now so the next operator gets the same inputs:
 
 - **The new pod never becomes ready**: the old pod keeps serving
   (`maxUnavailable: 0`). Revert the change in git and apply again.
-- **Data or schema damage**: restore the Aurora cluster from the pre-apply
-  snapshot taken in step 2, revert the change, and apply the previous good
-  config.
+- **Data or schema damage**: a last resort. Restoring the pre-apply snapshot
+  from step 2 (`aws rds restore-db-cluster-from-snapshot`) creates a **new**
+  Aurora cluster under a new identifier, with no instances until you add one;
+  it does not roll `smile-smilecluster-sparkey` back in place. Smile and the
+  Terraform state still point at the old cluster, so the new one has to be
+  swapped in (Smile's database connection pointed at the new endpoint, or the
+  clusters renamed) and Terraform reconciled before you revert the change and
+  apply the previous good config. None of this has been rehearsed on sparkey:
+  the steps are unverified, so work them out with the Sparked infrastructure
+  team before starting.
 
 ## Build history: standing up sparkey (2026-08)
 
