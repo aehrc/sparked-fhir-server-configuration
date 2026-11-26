@@ -63,7 +63,7 @@ ARGO_ANNOTATIONS = {
 
 
 def head_report(argo_repo: Path, require_main: bool) -> None:
-    """Print which commits are being checked; with require_main, refuse anything but origin/main.
+    """Print which commits are being checked; with require_main, refuse anything but the remote main.
 
     Argo CD renders sparked-fhir-server-configuration at `main` and sparked-argo
     at `HEAD` when it syncs, not these checkouts. A check of a stale or feature
@@ -431,7 +431,7 @@ def main() -> int:
     g = v.add_mutually_exclusive_group(required=True)
     g.add_argument("--terraform-output", help="`terraform output -json smilecdr_helm_values`")
     g.add_argument("--helm-values", help="`helm get values smilecdr -n smile -o yaml`")
-    v.add_argument("--require-main", action="store_true", help="fail unless both checkouts are a clean origin/main (the adoption window)")
+    v.add_argument("--require-main", action="store_true", help="fail unless both checkouts are a clean copy of the remote main (git ls-remote origin) (the adoption window)")
     v.set_defaults(func=cmd_values)
 
     for name, func, helptext in (
@@ -443,7 +443,7 @@ def main() -> int:
         p.add_argument("--context", default="sparkey", help="kube context (default sparkey)")
         p.add_argument("--helm", default="helm", help="helm binary when --argocd-image is not given")
         p.add_argument("--argocd-image", help="run the Helm bundled in this Argo CD image (docker), e.g. quay.io/argoproj/argocd:v3.6.2")
-        p.add_argument("--require-main", action="store_true", help="fail unless both checkouts are a clean origin/main (the adoption window)")
+        p.add_argument("--require-main", action="store_true", help="fail unless both checkouts are a clean copy of the remote main (git ls-remote origin) (the adoption window)")
         if name == "render":
             p.add_argument("--manifest", help="compare with this file instead of `helm get manifest` of the live release")
             p.add_argument("--save-render", help="also write the render here")
