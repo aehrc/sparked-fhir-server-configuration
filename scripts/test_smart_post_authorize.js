@@ -18,8 +18,13 @@
  * fail any read of a member a Java Set or Map does not have, so they prove the
  * script asks the scopes only through Java methods, but node is not GraalJS:
  * host-object behaviour (typeof on host members, property access to getters)
- * is not reproduced. The live check after the pod rolls, with the sandbox
- * diagnostic log line, is what settles that.
+ * is not reproduced. The engine-shape mocks (shapedSession) add what a host
+ * access policy that exposes only the documented callback methods may leave:
+ * an approved set that answers only toString() or only for-of, and a context
+ * list that exposes nothing, with getOrCreateDefaultLaunchContext(type)
+ * working (measured on aucore). Which shape the deployed build is, is not
+ * known; the live check after the pod rolls, with the sandbox diagnostic log
+ * line naming the read that worked, is what settles that.
  *
  * Run: node scripts/test_smart_post_authorize.js
  * No dependencies.
@@ -744,13 +749,15 @@ check('context types match case-insensitively and order numerically (9 before 10
   p.persons.map((x) => x.associatedPatientContextResourceId), ['pat-a', 'pat-i', 'pat-j']);
 
 {
+  // The list is the fallback when getOrCreateDefaultLaunchContext is unavailable.
   const session = pickerSession({});
+  delete session.getOrCreateDefaultLaunchContext;
   session.defaultLaunchContexts = javaList([
     { getContextType: () => 'patient', getResourceId: () => 'pat-a' },
     { getContextType: () => 'sbx-patient-2', getResourceId: () => 'pat-b' },
   ]);
   p = pick(session);
-  check('context type and resource id are read through their getters',
+  check('without getOrCreateDefaultLaunchContext, the list is read through its getters',
     p.persons.map((x) => x.associatedPatientContextResourceId), ['pat-a', 'pat-b']);
 }
 
@@ -765,11 +772,21 @@ check('an empty approved scope set adds nothing', p.persons.length, 0);
 
 {
   const session = pickerSession({});
+  delete session.getOrCreateDefaultLaunchContext;
   Object.defineProperty(session, 'defaultLaunchContexts', { get: () => { throw new Error('boom'); } });
   p = pick(session);
   check('an exception reading defaultLaunchContexts is caught', p.error, null);
-  check('an exception reading defaultLaunchContexts adds nothing', p.persons.length, 0);
-  checkLog('an exception inside the picker is logged as a warning', p.logs, 'Sandbox patient picker skipped', true);
+  check('an exception reading defaultLaunchContexts, with no other read, adds nothing', p.persons.length, 0);
+  checkLog('an exception reading the context list is logged as a warning', p.logs, 'Sandbox patient picker skipped', true);
+}
+
+{
+  const session = pickerSession({});
+  Object.defineProperty(session, 'defaultLaunchContexts', { get: () => { throw new Error('boom'); } });
+  p = pick(session);
+  check('an exception reading defaultLaunchContexts does not hide the contexts read by type',
+    [p.error, p.persons.map((x) => x.associatedPatientContextResourceId)], [null, ['pat-a', 'pat-b', 'pat-c']]);
+  checkLog('the unreadable context list is still logged as a warning', p.logs, 'Sandbox patient picker skipped the context list', true);
 }
 
 {
@@ -783,9 +800,11 @@ check('an empty approved scope set adds nothing', p.persons.length, 0);
   const session = pickerSession({});
   const bad = { contextType: 'sbx-patient-4' };
   Object.defineProperty(bad, 'resourceId', { get: () => { throw new Error('boom'); } });
+  delete session.getOrCreateDefaultLaunchContext;
   session.defaultLaunchContexts = javaList([patientCtxs[0], patientCtxs[1], patientCtxs[3], bad]);
   p = pick(session);
-  check('an exception on the last context adds no person at all', [p.error, p.persons.length], [null, 0]);
+  check('an exception on the last listed context discards the whole list, so no person is added',
+    [p.error, p.persons.length], [null, 0]);
 }
 
 // A failure while adding: Smile CDR has no call to take a person back, so the
@@ -1037,15 +1056,15 @@ console.log('--- Java-shaped: sandbox diagnostic log ---');
 t = javaToken({ clientId: 'sbx-abc123-public', approved: ehrScopes }, { launch: pat1, params: { scope: ehrScopes } });
 check('sbx EHR launch logs one diagnostic line at token generation, at info',
   sandboxLines(t.logs).map(([level, m]) => [level, m.split(':')[0]]), [['info', 'Sandbox scopes at token generation']]);
-check('the token line names the read, the set\'s size() and toString(), and the requested scope string',
+check('the token line names the read, the set\'s size and values, the contexts found and the requested scope string',
   sandboxLines(t.logs).map(([, m]) => m),
-  ['Sandbox scopes at token generation: approved read=getApprovedScopes() size=5 ' +
-    'scopes=[openid, fhirUser, launch, launch/patient, patient/*.read]; requested=' + ehrScopes + '; EHR launch']);
+  ['Sandbox scopes at token generation: approved read=getApprovedScopes().contains() size=5 ' +
+    'scopes=[openid, fhirUser, launch, launch/patient, patient/*.read]; contexts=none; requested=' + ehrScopes + '; EHR launch']);
 check('the token line carries no launch value', sandboxLines(t.logs).some(([, m]) => m.includes('pat-1') || m.includes(pat1)), false);
 
 t = javaToken({ clientId: 'sbx-abc123-public', approved: 'throws' }, { launch: pat1, params: {} });
 check('an unreadable approved set is logged with why each read failed, and an absent request as null',
-  sandboxLines(t.logs).map(([, m]) => /^Sandbox scopes at token generation: approved read=none \(getApprovedScopes\(\) threw .*IllegalStateException.*; approvedScopes threw .*\); requested=null; EHR launch$/.test(m)),
+  sandboxLines(t.logs).map(([, m]) => /^Sandbox scopes at token generation: approved read=none \(getApprovedScopes\(\) threw .*IllegalStateException.*; approvedScopes.contains\(\) failed: .*; for-of approvedScopes failed: .*; String\(approvedScopes\) failed: .*\); contexts=none; requested=null; EHR launch$/.test(m)),
   [true]);
 
 t = javaToken({ clientId: 'sbx-abc123-public', approved: 'openid fhirUser launch/patient' }, {});
@@ -1081,8 +1100,10 @@ check('Java objects: sbx standalone launch offers the chooser',
   [p.error, p.persons.map((x) => x.associatedPatientContextResourceId), p.misses], [null, ['pat-a', 'pat-b', 'pat-c'], []]);
 check('Java objects: the chooser logs one line with the choice count',
   sandboxLines(p.logs).map(([, m]) => m),
-  ['Sandbox scopes at context selection: approved read=getApprovedScopes() size=4 ' +
-    'scopes=[openid, fhirUser, launch/patient, patient/*.read]; requested=(not available here); ' +
+  ['Sandbox scopes at context selection: approved read=getApprovedScopes().contains() size=4 ' +
+    'scopes=[openid, fhirUser, launch/patient, patient/*.read]; contexts=patient via ' +
+    'getOrCreateDefaultLaunchContext().resourceId, sbx-patient-2 via getOrCreateDefaultLaunchContext().resourceId, ' +
+    'sbx-patient-3 via getOrCreateDefaultLaunchContext().resourceId; requested=(not available here); ' +
     'standalone launch, 3 patient choices']);
 
 p = javaPick({ approved: 'openid fhirUser launch launch/patient patient/*.read' });
@@ -1177,6 +1198,292 @@ for (const clientId of nonSandboxClients) {
   }
 }
 check(`non-sandbox context selection adds nothing and logs nothing (${pickTotal} combinations)`, pickSame, pickTotal);
+
+// ---------------------------------------------------------------------------
+// Engine shapes: what a host access policy may let the script reach
+// ---------------------------------------------------------------------------
+
+console.log('--- engine shapes: full, restricted, iterable-only ---');
+
+/**
+ * A java.util.Set<String> under a host access policy that exposes only
+ * toString(): contains, iterator and size throw (or, with `undefinedMembers`,
+ * read as undefined), and the set is not iterable with for-of.
+ */
+function toStringOnlySet(items, undefinedMembers) {
+  return new Proxy({}, {
+    get(target, prop) {
+      if (prop === 'toString') {
+        return () => '[' + items.join(', ') + ']';
+      }
+      if (typeof prop === 'symbol' || undefinedMembers) {
+        return undefined;
+      }
+      throw new TypeError('Unknown member ' + String(prop) + ' (host access refused)');
+    },
+  });
+}
+
+/** A java.util.Set<String> that for-of can iterate and that exposes no method. */
+function iterableOnlySet(items) {
+  return new Proxy({}, {
+    get(target, prop) {
+      if (prop === Symbol.iterator) {
+        return () => items[Symbol.iterator]();
+      }
+      if (typeof prop === 'symbol') {
+        return undefined;
+      }
+      throw new TypeError('Unknown member ' + String(prop) + ' (host access refused)');
+    },
+  });
+}
+
+/** A java.util.List that exposes nothing at all. */
+function opaqueList() {
+  return new Proxy({}, {
+    get(target, prop) {
+      if (typeof prop === 'symbol') {
+        return undefined;
+      }
+      throw new TypeError('Unknown member ' + String(prop) + ' (host access refused)');
+    },
+  });
+}
+
+/**
+ * A UserSessionDetails as each engine shape hands it to the script:
+ * - full: every Java method reachable (the strict Java set, a list with an iterator);
+ * - restricted: the approved set answers only toString(), the context list nothing;
+ * - iterable: the approved set only iterates with for-of, the context list nothing.
+ * In every shape the documented getOrCreateDefaultLaunchContext(type) works,
+ * as measured on aucore, and returns a context with a null resourceId for a
+ * missing type.
+ */
+function shapedSession(shape, opts) {
+  const o = opts || {};
+  const s = javaShapedSession(Object.assign({}, o, { approved: undefined }));
+  const items = (o.approved || '').split(' ').filter(Boolean);
+  if (shape === 'full') {
+    s.session.getApprovedScopes = () => strictJavaSet(items, s.misses);
+  } else if (shape === 'restricted') {
+    s.session.getApprovedScopes = () => toStringOnlySet(items);
+    s.session.getDefaultLaunchContexts = () => opaqueList();
+  } else {
+    s.session.getApprovedScopes = () => iterableOnlySet(items);
+    s.session.getDefaultLaunchContexts = () => opaqueList();
+  }
+  return s;
+}
+
+function shapedToken(shape, sessionOpts, requestOpts) {
+  const loaded = load();
+  const s = shapedSession(shape, sessionOpts);
+  const r = requestDetails(Object.assign({ javaMaps: true }, requestOpts));
+  let error = null;
+  try {
+    loaded.context.onTokenGenerating(s.session, r.details);
+  } catch (e) {
+    error = String(e);
+  }
+  return { error, claims: r.calls.claims, launchResourceIds: s.calls.launchResourceIds, fhirUser: s.calls.fhirUser,
+    misses: s.misses, logs: loaded.logs };
+}
+
+function shapedPick(shape, opts) {
+  const s = shapedSession(shape, Object.assign({ clientId: 'sbx-abc123-public', contexts: patientCtxs }, opts));
+  const result = pick(s.session);
+  result.misses = s.misses;
+  return result;
+}
+
+const standaloneScopes = 'openid fhirUser launch/patient patient/*.read';
+const approvedMethod = {
+  full: 'getApprovedScopes().contains()',
+  restricted: 'String(getApprovedScopes())',
+  iterable: 'for-of getApprovedScopes()',
+};
+
+for (const shape of ['full', 'restricted', 'iterable']) {
+  for (const clientId of ['sbx-abc123-public', 'inferno-ehr']) {
+    const sandbox = clientId.indexOf('sbx-') === 0;
+
+    t = shapedToken(shape, { clientId, approved: ehrScopes, contexts: [practitionerCtx] },
+      { launch: pat1, params: { scope: ehrScopes }, smileHolds: ['patient'] });
+    check(`${shape}, ${clientId}: EHR launch "launch launch/patient" skips the claim`,
+      [t.error, t.claims, t.launchResourceIds, t.fhirUser],
+      [null, [], [['patient', 'pat-1']], [AUD + '/Practitioner/guthridge-jarred']]);
+    check(`${shape}, ${clientId}: ${sandbox ? 'one line naming the approved-scope read' : 'no sandbox line'}`,
+      sandboxLines(t.logs).map(([, m]) => m.split('; ')[0].replace(/ size=.*/, '')),
+      sandbox ? ['Sandbox scopes at token generation: approved read=' + approvedMethod[shape]] : []);
+
+    t = shapedToken(shape, { clientId, approved: 'openid fhirUser launch patient/*.read', contexts: [practitionerCtx] },
+      { launch: pat1, params: { scope: 'openid fhirUser launch patient/*.read' } });
+    check(`${shape}, ${clientId}: EHR launch "launch" alone adds the claim`,
+      [t.error, t.claims, t.launchResourceIds], [null, [['patient', 'pat-1']], [['patient', 'pat-1']]]);
+
+    t = shapedToken(shape, { clientId, approved: 'openid fhirUser', contexts: [sbxPatientFhirUser] }, {});
+    check(`${shape}, ${clientId}: standalone fhirUser from sbx-fhiruser`,
+      [t.error, t.fhirUser], [null, [AUD + '/Patient/abc123-pat-1']]);
+
+    p = shapedPick(shape, { clientId, approved: standaloneScopes });
+    if (sandbox) {
+      check(`${shape}: sbx standalone login offers the three patients`,
+        [p.error, p.persons.map((x) => x.associatedPatientContextResourceId), p.other], [null, ['pat-a', 'pat-b', 'pat-c'], []]);
+      check(`${shape}: the chooser line names the reads and the choice count`,
+        sandboxLines(p.logs).map(([, m]) => [m.indexOf('approved read=' + approvedMethod[shape] + ' size=4 ') > 0,
+          m.indexOf('contexts=patient via getOrCreateDefaultLaunchContext().resourceId, ' +
+            'sbx-patient-2 via getOrCreateDefaultLaunchContext().resourceId, ' +
+            'sbx-patient-3 via getOrCreateDefaultLaunchContext().resourceId;') > 0,
+          m.endsWith('; standalone launch, 3 patient choices')]),
+        [[true, true, true]]);
+    } else {
+      check(`${shape}, ${clientId}: no chooser and nothing logged`,
+        [p.error, p.persons.length, p.other, p.logs], [null, 0, [], []]);
+    }
+  }
+
+  p = shapedPick(shape, { approved: 'openid fhirUser launch launch/patient patient/*.read' });
+  check(`${shape}: sbx EHR launch offers no chooser`, [p.error, p.persons.length], [null, 0]);
+
+  t = shapedToken(shape, { approved: '' }, { launch: pat1, params: { scope: 'openid launch' } });
+  check(`${shape}: an empty approved set is unknown and the request decides`, [t.error, t.claims], [null, [['patient', 'pat-1']]]);
+}
+
+t = shapedToken('full', { clientId: 'sbx-abc123-public', approved: ehrScopes, contexts: [practitionerCtx] },
+  { launch: pat1, params: { scope: ehrScopes }, smileHolds: ['patient'] });
+check('full: the approved scopes are asked only through Java methods', t.misses, []);
+
+p = shapedPick('restricted', { approved: standaloneScopes });
+checkLog('restricted: the opaque context list is logged as a warning', p.logs,
+  'Sandbox patient picker skipped the context list', true);
+
+{
+  const loaded = load();
+  const s = shapedSession('restricted', { clientId: 'sbx-abc123-public', contexts: [practitionerCtx] });
+  s.session.getApprovedScopes = () => toStringOnlySet(ehrScopes.split(' '), true);
+  const r = requestDetails({ javaMaps: true, launch: pat1, params: { scope: ehrScopes }, smileHolds: ['patient'] });
+  let error = null;
+  try { loaded.context.onTokenGenerating(s.session, r.details); } catch (e) { error = String(e); }
+  check('restricted with members reading as undefined: the string form decides',
+    [error, r.calls.claims, sandboxLines(loaded.logs).map(([, m]) => m.indexOf('approved read=String(getApprovedScopes()) size=5 ') > 0)],
+    [null, [], [true]]);
+}
+
+{
+  // A Map.get() refused too: the request is unknown, and the approved scopes decide.
+  const loaded = load();
+  const s = shapedSession('restricted', { clientId: 'sbx-abc123-public', approved: ehrScopes });
+  const r = requestDetails({ launch: pat1, smileHolds: ['patient'] });
+  r.details.getRequestParameters = () => opaqueList();
+  let error = null;
+  try { loaded.context.onTokenGenerating(s.session, r.details); } catch (e) { error = String(e); }
+  check('restricted with the request map refused too: launch/patient approved skips the claim',
+    [error, r.calls.claims, s.calls.launchResourceIds], [null, [], [['patient', 'pat-1']]]);
+}
+
+for (const text of ['java.util.HashSet@1b2c3d', 'JavaObject[java.util.HashSet]', '[object Object]', 'launch launch/patient']) {
+  const loaded = load();
+  const s = javaShapedSession({});
+  s.session.getApprovedScopes = () => ({ toString: () => text });
+  const r = requestDetails({ launch: pat1, params: { scope: 'openid launch' } });
+  loaded.context.onTokenGenerating(s.session, r.details);
+  check(`a string form ${JSON.stringify(text)} is not a scope list, and the request decides`, r.calls.claims, [['patient', 'pat-1']]);
+}
+
+for (const value of ['[launch, launch/patient]', ['launch', 'launch/patient']]) {
+  // A JS string or array is never what Smile CDR hands over.
+  const loaded = load();
+  const s = javaShapedSession({});
+  s.session.getApprovedScopes = () => value;
+  const r = requestDetails({ launch: pat1, params: { scope: 'openid launch' } });
+  loaded.context.onTokenGenerating(s.session, r.details);
+  check(`approved scopes given as the JS value ${JSON.stringify(value)} are unknown`, r.calls.claims, [['patient', 'pat-1']]);
+}
+
+console.log('--- getOrCreateDefaultLaunchContext: missing types ---');
+
+/** A session whose getOrCreateDefaultLaunchContext knows only `known`, by exact type. */
+function byTypeOnlySession(known, opts) {
+  const s = shapedSession('restricted', Object.assign({ clientId: 'sbx-abc123-public', approved: standaloneScopes }, opts));
+  const created = [];
+  s.session.getOrCreateDefaultLaunchContext = (type) => {
+    created.push(type);
+    return { contextType: type, resourceId: type in known ? known[type] : null };
+  };
+  return { session: s.session, calls: s.calls, created };
+}
+
+{
+  const s = byTypeOnlySession({ patient: 'pat-a' });
+  p = pick(s.session);
+  check('only a patient context (every other type null) offers no chooser', [p.error, p.persons.length], [null, 0]);
+  check('the chooser reads patient, then sbx-patient-2 to sbx-patient-9, in order', s.created,
+    ['patient', 'sbx-patient-2', 'sbx-patient-3', 'sbx-patient-4', 'sbx-patient-5', 'sbx-patient-6',
+      'sbx-patient-7', 'sbx-patient-8', 'sbx-patient-9']);
+}
+
+{
+  const s = byTypeOnlySession({ patient: 'pat-a', 'sbx-patient-3': 'pat-c', 'sbx-patient-9': 'pat-i', 'sbx-patient-5': '' });
+  p = pick(s.session);
+  check('a missing sbx-patient-2 or an empty one is skipped, not the end of the list',
+    [p.error, p.persons.map((x) => x.associatedPatientContextResourceId)], [null, ['pat-a', 'pat-c', 'pat-i']]);
+}
+
+{
+  const s = byTypeOnlySession({ 'sbx-patient-2': 'Patient/pat-b', patient: 'Patient/pat-a' });
+  p = pick(s.session);
+  check('resource ids are offered exactly as stored',
+    p.persons.map((x) => x.associatedPatientContextResourceId), ['Patient/pat-a', 'Patient/pat-b']);
+}
+
+{
+  const s = byTypeOnlySession({});
+  const loaded = load();
+  let error = null;
+  try { loaded.context.onTokenGenerating(s.session, requestDetails({ javaMaps: true }).details); } catch (e) { error = String(e); }
+  check('null resourceIds for practitioner and sbx-fhiruser set no fhirUser', [error, s.calls.fhirUser], [null, []]);
+  check('fhirUser reads practitioner, then sbx-fhiruser', s.created, ['practitioner', 'sbx-fhiruser']);
+}
+
+{
+  const s = byTypeOnlySession({ practitioner: 'Practitioner/p-1', 'sbx-fhiruser': 'Patient/abc123-pat-1' });
+  const loaded = load();
+  loaded.context.onTokenGenerating(s.session, requestDetails({ javaMaps: true }).details);
+  check('a practitioner context still wins, and sbx-fhiruser is then not read',
+    [s.calls.fhirUser, s.created], [[AUD + '/Practitioner/p-1'], ['practitioner']]);
+}
+
+{
+  const s = byTypeOnlySession({});
+  s.session.getOrCreateDefaultLaunchContext = (type) => ({
+    getResourceId: () => ({ 'sbx-fhiruser': 'Patient/abc123-pat-1' })[type] || null,
+  });
+  const loaded = load();
+  loaded.context.onTokenGenerating(s.session, requestDetails({ javaMaps: true }).details);
+  check('a context exposing only getResourceId() is read through it', s.calls.fhirUser, [AUD + '/Patient/abc123-pat-1']);
+  checkLog('the token line names getResourceId() as the context read', loaded.logs,
+    'contexts=sbx-fhiruser via getOrCreateDefaultLaunchContext().getResourceId()', true);
+}
+
+{
+  const s = byTypeOnlySession({});
+  s.session.getOrCreateDefaultLaunchContext = () => { throw new Error('IllegalStateException'); };
+  const loaded = load();
+  const r = requestDetails({ javaMaps: true, launch: pat1, params: { scope: 'openid launch' } });
+  let error = null;
+  try { loaded.context.onTokenGenerating(s.session, r.details); } catch (e) { error = String(e); }
+  check('getOrCreateDefaultLaunchContext throwing fails open: no fhirUser, the claim as before',
+    [error, s.calls.fhirUser, r.calls.claims], [null, [], [['patient', 'pat-1']]]);
+}
+
+{
+  const s = byTypeOnlySession({ practitioner: 'Practitioner/p-1' });
+  s.session.getOidcClientId = () => 'inferno-standalone';
+  const loaded = load();
+  loaded.context.onTokenGenerating(s.session, requestDetails({ javaMaps: true }).details);
+  check('a non-sandbox standalone login logs no sandbox line', sandboxLines(loaded.logs), []);
+}
 
 console.log(`\n${passes}/${passes + failures} checks passed`);
 process.exit(failures > 0 ? 1 : 0);

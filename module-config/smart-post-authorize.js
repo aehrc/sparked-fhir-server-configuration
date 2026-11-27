@@ -38,47 +38,179 @@ function beanProperty(theObject, theName, theGetter) {
     return value;
 }
 
-/**
- * The ways to reach the user's approved scopes, in the order they are tried.
- * Smile CDR hands the script Java objects: on its GraalJS engine the approved
- * scopes are a java.util.Set<String> (UserSessionDetailsJson.getApprovedScopes(),
- * never null), which has none of the JS array methods (indexOf, includes,
- * length), so it is only ever asked through its own Java methods.
+/*
+ * Reading what Smile CDR hands the script. On aucore (Smile CDR 2026.05.R01)
+ * scripts run on a sandboxed GraalVM whose host access policy may expose only
+ * the documented callback methods (getOrCreateDefaultLaunchContext,
+ * addLaunchResourceId, addAccessTokenClaim, getLaunch work there, measured),
+ * so the generic Java methods of a Set or List (contains, iterator, size,
+ * get) may be refused. Every read below therefore tries several shapes, each
+ * on its own, never throws, and falls back to the behaviour before it when
+ * nothing answers. For sbx- clients one log line per callback names the
+ * shape that worked.
  */
-var APPROVED_SCOPE_READS = [
+
+/**
+ * Where the user's approved scopes come from, in order. They are a
+ * java.util.Set<String> (UserSessionDetailsJson.getApprovedScopes(), never
+ * null), which has none of the JS array methods (indexOf, includes, length).
+ */
+var APPROVED_SCOPE_SOURCES = [
     { name: "getApprovedScopes()", read: function (theUserSession) { return theUserSession.getApprovedScopes(); } },
     { name: "approvedScopes", read: function (theUserSession) { return theUserSession.approvedScopes; } }
 ];
 
-/** Whether a Java collection reports size() 0; false when that cannot be read. */
-function isEmptySet(theSet) {
-    try {
-        return Number(theSet.size()) === 0;
-    } catch (e) {
-        return false;
+/**
+ * The entries of a java.util collection's string form, "[a, b, c]" ("[]"
+ * when empty), as an array of strings; null when theText is not of that
+ * form. Scope names hold no commas or whitespace.
+ */
+function javaCollectionStringValues(theText) {
+    var match = /^\[([\s\S]*)\]$/.exec(theText);
+    if (!match || /^\[object /.test(theText)) {
+        return null;
+    }
+    var parts = match[1].split(/[\s,]+/);
+    var out = [];
+    for (var i = 0; i < parts.length; i++) {
+        if (parts[i]) {
+            out.push(parts[i]);
+        }
+    }
+    return out;
+}
+
+/** Throws unless theSet can be a host collection: a JS array or primitive never is. */
+function requireHostObject(theSet) {
+    if (theSet === null || typeof theSet !== "object" || Array.isArray(theSet)) {
+        throw new Error("not a host collection (" + (Array.isArray(theSet) ? "JS array" : typeof theSet) + ")");
     }
 }
 
+/** A reader over approved scope names already copied into a JS array. */
+function scopeListReader(theValues) {
+    return {
+        has: function (theScope) { return theValues.indexOf(theScope) >= 0; },
+        size: theValues.length,
+        values: theValues
+    };
+}
+
 /**
- * Whether theScope is among the user's approved scopes: true or false, or null
- * (unknown) when no read works. Each read is tried on its own, so one failing
- * does not hide the other; a read counts only when contains() answers with a
- * boolean. An empty set counts as unknown, as before: an approved login always
- * has at least one scope, so empty means "not populated at this point".
+ * The shapes in which an approved scope set can be asked, in order. Each
+ * open() takes the set and returns { has(scope), size, values } or throws
+ * when the set does not answer in that shape.
+ * - contains(): the Set's own contains(), which must answer with a boolean;
+ *   size() and the string form only describe it (unreadable leaves them
+ *   null, and an unreadable size does not count as empty).
+ * - for-of: GraalJS iterates a host Iterable when its policy allows it.
+ * - String(): the Set's string form "[a, b, c]", parsed.
  */
-function granted(theUserSession, theScope) {
-    for (var i = 0; i < APPROVED_SCOPE_READS.length; i++) {
-        try {
-            var scopes = APPROVED_SCOPE_READS[i].read(theUserSession);
-            var answer = scopes.contains(theScope);
-            if (typeof answer === "boolean") {
-                return answer || !isEmptySet(scopes) ? answer : null;
+var APPROVED_SCOPE_SHAPES = [
+    {
+        label: function (theSource) { return theSource + ".contains()"; },
+        open: function (theSet) {
+            var probe = theSet.contains("launch");
+            if (typeof probe !== "boolean") {
+                throw new Error("contains() gave " + typeof probe);
             }
-        } catch (e) {
-            // Try the next read.
+            var size = null;
+            try {
+                size = Number(theSet.size());
+                if (isNaN(size)) {
+                    size = null;
+                }
+            } catch (e) {
+                size = null;
+            }
+            var values = null;
+            try {
+                values = javaCollectionStringValues(String(theSet));
+            } catch (e) {
+                values = null;
+            }
+            return {
+                has: function (theScope) { return theSet.contains(theScope); },
+                size: size,
+                values: values
+            };
+        }
+    },
+    {
+        label: function (theSource) { return "for-of " + theSource; },
+        open: function (theSet) {
+            requireHostObject(theSet);
+            var values = [];
+            for (var scope of theSet) {
+                values.push(String(scope));
+            }
+            return scopeListReader(values);
+        }
+    },
+    {
+        label: function (theSource) { return "String(" + theSource + ")"; },
+        open: function (theSet) {
+            requireHostObject(theSet);
+            var values = javaCollectionStringValues(String(theSet));
+            if (values === null) {
+                throw new Error("String() is not a [a, b] list");
+            }
+            return scopeListReader(values);
         }
     }
-    return null;
+];
+
+/**
+ * Read the user's approved scopes once: every shape on every source, in
+ * that order, the first that answers wins. Returns { method, has, size,
+ * values } or, when nothing answers, { method: null, failures }. Never throws.
+ */
+function readApprovedScopes(theUserSession) {
+    var failures = [];
+    var sources = [];
+    for (var i = 0; i < APPROVED_SCOPE_SOURCES.length; i++) {
+        try {
+            sources.push({ name: APPROVED_SCOPE_SOURCES[i].name, value: APPROVED_SCOPE_SOURCES[i].read(theUserSession) });
+        } catch (e) {
+            failures.push(APPROVED_SCOPE_SOURCES[i].name + " threw " + e);
+        }
+    }
+    for (var j = 0; j < APPROVED_SCOPE_SHAPES.length; j++) {
+        for (var k = 0; k < sources.length; k++) {
+            var method = APPROVED_SCOPE_SHAPES[j].label(sources[k].name);
+            try {
+                var reader = APPROVED_SCOPE_SHAPES[j].open(sources[k].value);
+                reader.method = method;
+                return reader;
+            } catch (e) {
+                failures.push(method + " failed: " + e);
+            }
+        }
+    }
+    return { method: null, failures: failures };
+}
+
+/**
+ * Whether theScope is among the approved scopes theApproved (from
+ * readApprovedScopes): true or false, or null (unknown) when nothing read
+ * them or the answer is not a boolean. An empty set (size 0) counts as
+ * unknown, as before: an approved login always has at least one scope, so
+ * empty means "not populated at this point".
+ */
+function granted(theApproved, theScope) {
+    if (theApproved.method === null) {
+        return null;
+    }
+    var answer;
+    try {
+        answer = theApproved.has(theScope);
+    } catch (e) {
+        return null;
+    }
+    if (typeof answer !== "boolean") {
+        return null;
+    }
+    return answer || theApproved.size !== 0 ? answer : null;
 }
 
 /**
@@ -121,9 +253,9 @@ function requestedScopesOf(theAuthorizationRequestDetails) {
  * approved scopes are unknown, the request parameter decides alone; when
  * neither is readable, the claim is added (the behaviour before the skip).
  */
-function smileAddsLaunchClaim(theKey, theUserSession, theRequestedScopes) {
+function smileAddsLaunchClaim(theKey, theApproved, theRequestedScopes) {
     var scope = "launch/" + theKey;
-    var isGranted = granted(theUserSession, scope);
+    var isGranted = granted(theApproved, scope);
     var isRequested = theRequestedScopes ? theRequestedScopes.indexOf(scope) >= 0 : null;
     if (isGranted !== null) {
         return isGranted && isRequested !== false;
@@ -157,36 +289,28 @@ function isSandboxClient(theUserSession) {
 }
 
 /**
- * One line describing how the approved scopes were read: which read worked,
- * the set's size() and toString(), or why each read failed. Scope names only.
+ * How the approved scopes were read, for the sandbox log line: the method
+ * that worked with its size and values, or why each one failed. Scope names
+ * only.
  */
-function approvedScopesDiagnostic(theUserSession) {
-    var failed = [];
-    for (var i = 0; i < APPROVED_SCOPE_READS.length; i++) {
-        var name = APPROVED_SCOPE_READS[i].name;
-        try {
-            var scopes = APPROVED_SCOPE_READS[i].read(theUserSession);
-            var answer = scopes.contains("launch");
-            if (typeof answer !== "boolean") {
-                failed.push(name + " contains() gave " + typeof answer);
-                continue;
-            }
-            var size;
-            var text;
-            try { size = scopes.size(); } catch (e) { size = "unreadable (" + e + ")"; }
-            try { text = String(scopes.toString()); } catch (e) { text = "unreadable (" + e + ")"; }
-            return "approved read=" + name + " size=" + size + " scopes=" + text;
-        } catch (e) {
-            failed.push(name + " threw " + e);
-        }
+function approvedScopesSummary(theApproved) {
+    if (theApproved.method === null) {
+        return "approved read=none (" + theApproved.failures.join("; ") + ")";
     }
-    return "approved read=none (" + failed.join("; ") + ")";
+    return "approved read=" + theApproved.method +
+        " size=" + (theApproved.size === null ? "unreadable" : theApproved.size) +
+        " scopes=" + (theApproved.values === null ? "unreadable" : "[" + theApproved.values.join(", ") + "]");
 }
 
-/** Log one diagnostic line for a sandbox login. Never throws. */
-function logSandboxScopes(theWhere, theUserSession, theRequested, theOutcome) {
+/**
+ * Log the one diagnostic line of a sandbox callback: how the approved scopes
+ * were read, which method read each context type found (types only, never a
+ * resource id), the requested scope string and the outcome. Never throws.
+ */
+function logSandboxLine(theWhere, theApproved, theContexts, theRequested, theOutcome) {
     try {
-        Log.info("Sandbox scopes at " + theWhere + ": " + approvedScopesDiagnostic(theUserSession) +
+        Log.info("Sandbox scopes at " + theWhere + ": " + approvedScopesSummary(theApproved) +
+            "; contexts=" + (theContexts.length > 0 ? theContexts.join(", ") : "none") +
             "; requested=" + theRequested + "; " + theOutcome);
     } catch (e) {
         // Logging must not fail token issuance or the login.
@@ -202,6 +326,26 @@ function onTokenGenerating(theUserSession, theAuthorizationRequestDetails) {
         return;
     }
 
+    // Sandbox clients only: one line recording how the scopes and contexts
+    // this token depends on were read on this build. It is logged in the
+    // finally block, so it is there even when token issuance then fails.
+    var trace = {
+        approved: null,
+        contexts: contextReader(theUserSession, "Sandbox fhirUser context skipped: "),
+        flow: "standalone launch"
+    };
+    try {
+        injectLaunchContext(theUserSession, theAuthorizationRequestDetails, trace);
+    } finally {
+        if (isSandboxClient(theUserSession)) {
+            logSandboxLine("token generation",
+                trace.approved !== null ? trace.approved : readApprovedScopes(theUserSession),
+                trace.contexts.found, requestedScopeString(theAuthorizationRequestDetails), trace.flow);
+        }
+    }
+}
+
+function injectLaunchContext(theUserSession, theAuthorizationRequestDetails, theTrace) {
     // The audience is the FHIR base the app is authorizing against and, with
     // URL-based multitenancy, carries the tenant segment (e.g. .../fhir/VENDOR-A).
     // fhirUser and launch-context URLs below are built from it so tokens minted
@@ -233,15 +377,8 @@ function onTokenGenerating(theUserSession, theAuthorizationRequestDetails) {
         }
     }
 
-    // Sandbox clients only: record how the scopes the claim rule below depends
-    // on were read on this build. Logged before any claim is added, so the line
-    // is there even when token issuance then fails. Scope names only.
-    if (isSandboxClient(theUserSession)) {
-        logSandboxScopes("token generation", theUserSession, requestedScopeString(theAuthorizationRequestDetails),
-            launchRaw ? "EHR launch" : "standalone launch");
-    }
-
     if (launchRaw) {
+        theTrace.flow = "EHR launch";
         // EHR launch: decode the base64/base64url launch token and inject context.
         var launchParams;
         try {
@@ -254,6 +391,7 @@ function onTokenGenerating(theUserSession, theAuthorizationRequestDetails) {
         }
         var params = Object.getOwnPropertyNames(launchParams);
         var requestedScopes = requestedScopesOf(theAuthorizationRequestDetails);
+        theTrace.approved = readApprovedScopes(theUserSession);
 
         for (var i = 0; i < params.length; i++) {
             var key = params[i];
@@ -271,7 +409,7 @@ function onTokenGenerating(theUserSession, theAuthorizationRequestDetails) {
                 // 2026-11-27). smileAddsLaunchClaim states which scope sources
                 // decide; when none can be read, the claim is added as before.
                 theUserSession.addLaunchResourceId(key, value);
-                if (!smileAddsLaunchClaim(key, theUserSession, requestedScopes)) {
+                if (!smileAddsLaunchClaim(key, theTrace.approved, requestedScopes)) {
                     theAuthorizationRequestDetails.addAccessTokenClaim(key, value);
                 }
             }
@@ -284,23 +422,49 @@ function onTokenGenerating(theUserSession, theAuthorizationRequestDetails) {
 
         // If launch token had no practitioner, fall back to default launch context
         if (!launchParams.practitioner) {
-            defaultFhirUser(theUserSession, audience);
+            defaultFhirUser(theUserSession, audience, theTrace.contexts);
         }
 
     } else {
         // Standalone launch: use the user's default launch context
-        defaultFhirUser(theUserSession, audience);
+        defaultFhirUser(theUserSession, audience, theTrace.contexts);
     }
 }
 
 /**
- * The context type a sandbox login carries when its deployment names a
- * Patient (or a Practitioner) as fhirUser; Smile CDR ignores it.
+ * The resource id of the user's default launch context of type theType, read
+ * with the documented UserSessionDetails.getOrCreateDefaultLaunchContext(type)
+ * (the read main has always made for "practitioner"): ctx.resourceId, then
+ * ctx.getResourceId(), each on its own. Returns { id, method }, or null when
+ * the context is missing, its resource id is empty, or nothing could be read.
+ * Never throws.
  */
-var SANDBOX_FHIRUSER_CONTEXT_TYPE = "sbx-fhiruser";
-
-/** A resource reference fit for fhirUser: Patient/<id> or Practitioner/<id>. */
-var SANDBOX_FHIRUSER_RESOURCE_ID = /^(Patient|Practitioner)\/[A-Za-z0-9.-]{1,64}$/;
+function launchContextByType(theUserSession, theType) {
+    var ctx;
+    try {
+        ctx = theUserSession.getOrCreateDefaultLaunchContext(theType);
+    } catch (e) {
+        return null;
+    }
+    if (ctx === null || ctx === undefined) {
+        return null;
+    }
+    var reads = [
+        { name: ".resourceId", read: function () { return ctx.resourceId; } },
+        { name: ".getResourceId()", read: function () { return ctx.getResourceId(); } }
+    ];
+    for (var i = 0; i < reads.length; i++) {
+        try {
+            var value = reads[i].read();
+            if (value !== null && value !== undefined && String(value) !== "") {
+                return { id: String(value), method: "getOrCreateDefaultLaunchContext()" + reads[i].name };
+            }
+        } catch (e) {
+            // Try the next read.
+        }
+    }
+    return null;
+}
 
 /**
  * The user's default launch contexts as an array (empty when there are none).
@@ -324,64 +488,113 @@ function defaultLaunchContextsOf(theUserSession) {
 }
 
 /**
- * The sandbox fhirUser reference ("Patient/<id>" or "Practitioner/<id>") from
- * the first default launch context of type sbx-fhiruser, or null when there is
- * none or its resource id is not such a reference. Never throws.
+ * Reads the user's default launch contexts for one callback. byType(type,
+ * useList) reads a type with launchContextByType and, when that yields no
+ * resource id and useList is set, falls back to the default launch context
+ * list (defaultLaunchContexts or getDefaultLaunchContexts(), its context
+ * types matched case-insensitively, the first entry with a resource id
+ * counting). The list is the second fallback: on a host access policy that
+ * refuses a List's iterator it reads as empty. It is read at most once,
+ * whole: when any part of it throws, theListWarning plus the error is logged
+ * as a warning and the list counts as empty. found records "<type> via
+ * <method>" for each type found, for the sandbox log line. Never throws.
  */
-function sandboxFhirUserOf(theUserSession) {
-    try {
-        var list = defaultLaunchContextsOf(theUserSession);
-        for (var i = 0; i < list.length; i++) {
-            var ctx = list[i];
-            if (!ctx) {
-                continue;
-            }
-            var type = beanProperty(ctx, "contextType", "getContextType");
-            if (type === null || type === undefined ||
-                    String(type).toLowerCase() !== SANDBOX_FHIRUSER_CONTEXT_TYPE) {
-                continue;
-            }
-            var resourceId = beanProperty(ctx, "resourceId", "getResourceId");
-            if (resourceId === null || resourceId === undefined) {
-                return null;
-            }
-            resourceId = String(resourceId);
-            return SANDBOX_FHIRUSER_RESOURCE_ID.test(resourceId) ? resourceId : null;
+function contextReader(theUserSession, theListWarning) {
+    var entries = null;
+    var found = [];
+
+    function list() {
+        if (entries !== null) {
+            return entries;
         }
-    } catch (e) {
         try {
-            Log.warn("Sandbox fhirUser context skipped: " + e);
-        } catch (ignored) {
-            // Logging must not fail token issuance either.
+            var read = [];
+            var raw = defaultLaunchContextsOf(theUserSession);
+            for (var i = 0; i < raw.length; i++) {
+                var ctx = raw[i];
+                if (!ctx) {
+                    continue;
+                }
+                var type = beanProperty(ctx, "contextType", "getContextType");
+                var id = beanProperty(ctx, "resourceId", "getResourceId");
+                read.push({
+                    type: type === null || type === undefined ? null : String(type).toLowerCase(),
+                    id: id === null || id === undefined || String(id) === "" ? null : String(id)
+                });
+            }
+            entries = read;
+        } catch (e) {
+            entries = [];
+            try {
+                Log.warn(theListWarning + e);
+            } catch (ignored) {
+                // Logging must not fail token issuance or the login either.
+            }
         }
+        return entries;
     }
-    return null;
+
+    function byType(theType, theUseList) {
+        var hit = launchContextByType(theUserSession, theType);
+        if (hit !== null) {
+            found.push(theType + " via " + hit.method);
+            return hit.id;
+        }
+        if (!theUseList) {
+            return null;
+        }
+        var all = list();
+        for (var i = 0; i < all.length; i++) {
+            if (all[i].type === theType && all[i].id !== null) {
+                found.push(theType + " via defaultLaunchContexts");
+                return all[i].id;
+            }
+        }
+        return null;
+    }
+
+    return { byType: byType, list: list, found: found };
 }
 
 /**
- * Set fhirUser from the user's default launch contexts, used when the launch
- * names no practitioner. The "practitioner" context wins; without one, a
- * sandbox login's "sbx-fhiruser" context (written by aehrc/sparked-sandbox,
- * for example "Patient/<sandbox id>-<patient>" when the deployment names a
- * Patient as fhirUser) is used. Non-sandbox users have no sbx-fhiruser
- * context, so for them this is exactly the practitioner rule as before.
- * Anything else leaves fhirUser unset here, as before.
+ * The context type a sandbox login carries when its deployment names a
+ * Patient (or a Practitioner) as fhirUser; Smile CDR ignores it.
  */
-function defaultFhirUser(theUserSession, theAudience) {
-    var ctx = theUserSession.getOrCreateDefaultLaunchContext("practitioner");
-    if (ctx && ctx.resourceId) {
-        // resourceId is stored as "Practitioner/xxx" by manage_smart_users.py
-        theUserSession.setFhirUserUrl(theAudience + "/" + ctx.resourceId);
+var SANDBOX_FHIRUSER_CONTEXT_TYPE = "sbx-fhiruser";
+
+/** A resource reference fit for fhirUser: Patient/<id> or Practitioner/<id>. */
+var SANDBOX_FHIRUSER_RESOURCE_ID = /^(Patient|Practitioner)\/[A-Za-z0-9.-]{1,64}$/;
+
+/**
+ * Set fhirUser from the user's default launch contexts, used when the launch
+ * names no practitioner. The "practitioner" context wins (read with
+ * getOrCreateDefaultLaunchContext only, as on main); without one, a sandbox
+ * login's "sbx-fhiruser" context (written by aehrc/sparked-sandbox, for
+ * example "Patient/<sandbox id>-<patient>" when the deployment names a
+ * Patient as fhirUser) is used when its resource id is Patient/<id> or
+ * Practitioner/<id>. Non-sandbox users have no sbx-fhiruser context, so for
+ * them this is exactly the practitioner rule as before. Anything else leaves
+ * fhirUser unset here, as before. Never throws.
+ */
+function defaultFhirUser(theUserSession, theAudience, theContexts) {
+    // resourceId is stored as "Practitioner/xxx" by manage_smart_users.py
+    var practitioner = theContexts.byType("practitioner", false);
+    if (practitioner !== null) {
+        theUserSession.setFhirUserUrl(theAudience + "/" + practitioner);
         return;
     }
-    var sandboxFhirUser = sandboxFhirUserOf(theUserSession);
-    if (sandboxFhirUser !== null) {
+    var sandboxFhirUser = theContexts.byType(SANDBOX_FHIRUSER_CONTEXT_TYPE, true);
+    if (sandboxFhirUser !== null && SANDBOX_FHIRUSER_RESOURCE_ID.test(sandboxFhirUser)) {
         theUserSession.setFhirUserUrl(theAudience + "/" + sandboxFhirUser);
     }
 }
 
 /** Matches the extra patient context types a sandbox writes: sbx-patient-<n>. */
 var SANDBOX_PATIENT_CONTEXT_TYPE = /^sbx-patient-([0-9]+)$/i;
+
+/** The sbx-patient-<n> context types read by type, in order. */
+var SANDBOX_PATIENT_MIN = 2;
+var SANDBOX_PATIENT_MAX = 9;
 
 /**
  * Standalone patient picker for sandbox logins.
@@ -401,10 +614,12 @@ var SANDBOX_PATIENT_CONTEXT_TYPE = /^sbx-patient-([0-9]+)$/i;
  * the "patient" context, which Smile uses as the launch patient when no
  * choice is made, and each further starter patient as a context of type
  * sbx-patient-<n> (sbx-patient-2, sbx-patient-3, ...), which Smile ignores.
- * The choices are the "patient" context first, then every sbx-patient-<n>
- * context in ascending order of n, skipping empty resource ids and any
- * resource id already offered. Only the first "patient" context counts, in
- * case a build ever returns more than one.
+ * Each type is read with getOrCreateDefaultLaunchContext(type): "patient",
+ * then sbx-patient-2 to sbx-patient-9, skipping a missing or empty one; the
+ * default launch context list is the second fallback (contextReader), and
+ * any further sbx-patient-<n> it names is offered too. The choices are the
+ * "patient" context first, then the sbx-patient-<n> contexts in ascending
+ * order of n, each resource id offered once and exactly as stored.
  *
  * Scope: it acts only for clients whose id starts with "sbx-" (the sandbox
  * clients that aehrc/sparked-sandbox registers as sbx-<id>-<kind>), only on a
@@ -440,36 +655,33 @@ function onSmartLoginPreContextSelection(theUserSession, theContextSelectionChoi
         // Unknown (the approved scopes cannot be read) offers no chooser. The
         // diagnostic line names the request as unavailable: this callback is
         // given no authorization request details.
-        if (granted(theUserSession, "launch/patient") !== true || granted(theUserSession, "launch") !== false) {
-            logSandboxScopes("context selection", theUserSession, "(not available here)", "chooser not offered");
+        var approved = readApprovedScopes(theUserSession);
+        if (granted(approved, "launch/patient") !== true || granted(approved, "launch") !== false) {
+            logSandboxLine("context selection", approved, [], "(not available here)", "chooser not offered");
             return;
         }
 
-        var list = defaultLaunchContextsOf(theUserSession);
-
-        var primary = null;
+        var contexts = contextReader(theUserSession, "Sandbox patient picker skipped the context list: ");
+        var primary = contexts.byType("patient", true);
         var extras = [];
+        var readByType = {};
+        for (var n = SANDBOX_PATIENT_MIN; n <= SANDBOX_PATIENT_MAX; n++) {
+            var id = contexts.byType("sbx-patient-" + n, true);
+            readByType[n] = true;
+            if (id !== null) {
+                extras.push({ n: n, index: -1, id: id });
+            }
+        }
+        // Any further sbx-patient-<n> the list names (n outside 2 to 9).
+        var list = contexts.list();
         for (var i = 0; i < list.length; i++) {
-            var ctx = list[i];
-            if (!ctx) {
-                continue;
-            }
-            var type = beanProperty(ctx, "contextType", "getContextType");
-            var resourceId = beanProperty(ctx, "resourceId", "getResourceId");
-            if (type === null || type === undefined || resourceId === null || resourceId === undefined ||
-                    String(resourceId) === "") {
-                continue;
-            }
-            type = String(type);
-            if (type.toLowerCase() === "patient") {
-                if (primary === null) {
-                    primary = String(resourceId);
+            var match = list[i].type === null ? null : SANDBOX_PATIENT_CONTEXT_TYPE.exec(list[i].type);
+            if (match && list[i].id !== null) {
+                var number = parseInt(match[1], 10);
+                if (!readByType[number]) {
+                    extras.push({ n: number, index: i, id: list[i].id });
+                    contexts.found.push(list[i].type + " via defaultLaunchContexts");
                 }
-                continue;
-            }
-            var match = SANDBOX_PATIENT_CONTEXT_TYPE.exec(type);
-            if (match) {
-                extras.push({ n: parseInt(match[1], 10), index: i, id: String(resourceId) });
             }
         }
         // Ascending by n; the list position breaks ties so the order is stable.
@@ -486,7 +698,7 @@ function onSmartLoginPreContextSelection(theUserSession, theContextSelectionChoi
                 choices.push(extras[k].id);
             }
         }
-        logSandboxScopes("context selection", theUserSession, "(not available here)",
+        logSandboxLine("context selection", approved, contexts.found, "(not available here)",
             "standalone launch, " + choices.length + " patient choices");
         if (choices.length < 2) {
             return;
