@@ -572,8 +572,10 @@ var SANDBOX_FHIRUSER_RESOURCE_ID = /^(Patient|Practitioner)\/[A-Za-z0-9.-]{1,64}
  * login's "sbx-fhiruser" context (written by aehrc/sparked-sandbox, for
  * example "Patient/<sandbox id>-<patient>" when the deployment names a
  * Patient as fhirUser) is used when its resource id is Patient/<id> or
- * Practitioner/<id>. Non-sandbox users have no sbx-fhiruser context, so for
- * them this is exactly the practitioner rule as before. Anything else leaves
+ * Practitioner/<id>. The sbx-fhiruser read happens only for a sandbox client
+ * (isSandboxClient), so a non-sandbox login gets exactly the practitioner rule
+ * as before and getOrCreateDefaultLaunchContext is called for it only with
+ * "practitioner", as on main. Anything else leaves
  * fhirUser unset here, as before. Never throws.
  */
 function defaultFhirUser(theUserSession, theAudience, theContexts) {
@@ -581,6 +583,12 @@ function defaultFhirUser(theUserSession, theAudience, theContexts) {
     var practitioner = theContexts.byType("practitioner", false);
     if (practitioner !== null) {
         theUserSession.setFhirUserUrl(theAudience + "/" + practitioner);
+        return;
+    }
+    // Sandbox clients only: getOrCreateDefaultLaunchContext creates a context
+    // of any type the session lacks, so a non-sandbox login must never reach
+    // this read.
+    if (!isSandboxClient(theUserSession)) {
         return;
     }
     var sandboxFhirUser = theContexts.byType(SANDBOX_FHIRUSER_CONTEXT_TYPE, true);
