@@ -52,11 +52,11 @@ Works:
 - SMART v1 and v2 scopes. App Launch clients hold `patient/*.cruds` and `user/*.cruds` besides the v1 scopes, so an app may ask for any part of one, for example `patient/*.rs`, `patient/Observation.rs` or `patient/AllergyIntolerance.cus`. Each scope you ask for must fit inside one scope the client holds.
 - `fhirUser` names a starter practitioner: `Practitioner/<id>-armstrong-amada` after a standalone launch, or the one you pick for an EHR launch.
 - Every launch issues a fresh token, with the patient of that launch.
+- An EHR launch may ask for `launch` with `launch/patient` or `launch/encounter`: the token carries the launch's patient and encounter, and its granted scope lists `launch` without them.
 - `offline_access`: an app that asks for it gets a refresh token that lasts 8 hours.
 
 Does not work:
 - Choosing a patient during a standalone launch: there is no patient picker. Use EHR launch from your sandbox page instead.
-- Asking for both `launch` and `launch/patient` in an EHR launch: the token request fails on this server for now. Ask for `launch` without `launch/patient`.
 - `private_key_jwt`: confidential clients use a client secret only.
 - Keeping an app to one patient: a `patient/` scope reaches every patient in your sandbox, not only the launch patient.
 
