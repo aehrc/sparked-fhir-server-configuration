@@ -44,26 +44,41 @@ Supporting pieces:
   claim is skipped only when `launch/<key>` is in the approved scopes and,
   when the request parameter is readable, in it as well; when the approved
   scopes are unreadable the request parameter decides alone, and when
-  neither can be read the claim is added as before. Smile CDR runs the
-  script on GraalJS and hands it Java objects, so both scopes are read
-  through their Java methods only: the approved scopes (a
-  `java.util.Set<String>`) with `theUserSession.getApprovedScopes().contains(...)`,
-  then `theUserSession.approvedScopes.contains(...)`, each tried on its own;
-  the requested scopes with
-  `theAuthorizationRequestDetails.getRequestParameters().get("scope")` (a
-  `java.util.Map<String,String>` filtered by `auth_request_detail.whitelist`),
-  converted with `String(...)` and split on whitespace. Both reads fail open:
-  a read that throws, or a `contains()` that does not answer with a boolean,
-  makes that source unknown, and an empty approved set counts as unknown.
-  The first version (#132) read them as JS arrays and strings; on the real
-  engine the 500 persisted and the chooser never showed after it rolled out
-  (measured on `aucore` 2026-11-27), while its node tests passed. For
-  clients whose id starts with `sbx-` only, the script logs one `INFO` line
-  at token generation and one at context selection, starting `Sandbox scopes
-  at`, naming which approved-scope read worked, the set's `size()` and
-  `toString()`, the requested scope string (not available at context
-  selection) and the flow; it holds scope names only, never a token, code,
-  password or launch value. The same script also offers a **patient picker for sandbox
+  neither can be read the claim is added as before. Smile CDR 2026.05.R01
+  runs the script on a sandboxed GraalVM that hands it Java objects, and
+  its host access policy may expose only the documented callback methods
+  (`getOrCreateDefaultLaunchContext`, `addLaunchResourceId`,
+  `addAccessTokenClaim` and `getLaunch()` work on `aucore`), refusing the
+  generic Java methods of a Set or List. So every read tries several
+  shapes, each on its own, and never throws. The approved scopes (a
+  `java.util.Set<String>`) are read once per callback, trying in order
+  `contains()` on `theUserSession.getApprovedScopes()` and then on
+  `theUserSession.approvedScopes`, then `for (... of ...)` over each, then
+  each one's string form `[a, b, c]` parsed; a JS array or string never
+  counts, and an empty set counts as unknown. The requested scopes are
+  read with `theAuthorizationRequestDetails.getRequestParameters().get("scope")`
+  (a `java.util.Map<String,String>` filtered by
+  `auth_request_detail.whitelist`), converted with `String(...)` and split
+  on whitespace; a read that throws makes that source unknown. Launch
+  contexts are read by type with the documented
+  `theUserSession.getOrCreateDefaultLaunchContext(type)`, taking
+  `ctx.resourceId` and then `ctx.getResourceId()`: `practitioner` and then
+  `sbx-fhiruser` for `fhirUser`, `patient` and then `sbx-patient-2` to
+  `sbx-patient-9` for the chooser, skipping a missing or empty one. The
+  `defaultLaunchContexts` list is the second fallback for every type but
+  `practitioner`; when reading it throws, a warning is logged and it counts
+  as empty. The first version (#132) read the scopes as JS arrays and
+  strings and the contexts from the list; on the real engine the 500
+  persisted and the chooser never showed after it rolled out (measured on
+  `aucore` 2026-11-27), while its node tests passed. For clients whose id
+  starts with `sbx-` only, the script logs one `INFO` line per callback
+  (token generation, context selection), starting `Sandbox scopes at`,
+  naming which approved-scope method worked with its size and values, the
+  method that read each context type found, the requested scope string
+  (not available at context selection), the flow and, at context
+  selection, the number of patient choices; it holds scope names and
+  context types only, never a token, code, password, launch value or
+  resource id. The same script also offers a **patient picker for sandbox
   logins**: `onSmartLoginPreContextSelection` adds one person per sandbox
   patient on the user, so Smile CDR shows its context selection screen and
   puts the chosen patient's resource id into the launch context. Smile CDR
@@ -75,11 +90,13 @@ Supporting pieces:
   context and each further starter patient is a context of type
   `sbx-patient-<n>` (`sbx-patient-2`, `sbx-patient-3`, ...). The choices are
   the `patient` context first, then the `sbx-patient-<n>` contexts in
-  ascending order of `<n>`, skipping empty and repeated resource ids. It
+  ascending order of `<n>` (2 to 9 read by type, any further one only from
+  the list), skipping empty and repeated resource ids, each offered
+  exactly as stored. It
   acts only for clients whose id starts with `sbx-` (registered by
   aehrc/sparked-sandbox, which writes those contexts), only on a standalone
-  launch granted `launch/patient` without `launch` (read through the same
-  Java methods; unknown offers no chooser), and only when that gives
+  launch granted `launch/patient` without `launch` (read the same
+  way; unknown offers no chooser), and only when that gives
   two or more choices. It never changes authorities or scopes, and any
   error is logged and swallowed, so no other client on `aucore` is
   affected. Each person's patient id is written before its names, so a
@@ -182,9 +199,14 @@ sandbox launch flag is switched on:
 - Client credentials are unchanged.
 - A sandbox EHR launch asking for `launch/encounter`, with no encounter in
   the launch value, gets a token.
-- The pod log shows a `Sandbox scopes at` line for each sandbox flow above
-  and none for the non-sandbox ones. If a check fails, that line says which
-  scope read worked on this build and what it returned.
+- The pod log shows one `Sandbox scopes at` line per sandbox callback
+  above and none for the non-sandbox ones. Read it for each check: it
+  names the approved-scope method that worked on this build (for example
+  `approved read=String(getApprovedScopes())`) with the size and values it
+  returned, the method that read each context type found, and the number of
+  patient choices. `approved read=none (...)` lists why each method failed;
+  `contexts=none` on a chooser login means no context was read by type or
+  from the list.
 
 ## hl7au was excluded (historical)
 
