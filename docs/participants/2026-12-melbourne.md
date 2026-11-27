@@ -205,6 +205,24 @@ For an app that a user signs in to. Your sandbox comes with a public client and 
 
 5. The response carries `access_token`, the `patient` in context and an `id_token`. Check the `id_token` signature against `https://smile.sparked-fhir.com/aucore/smartauth/jwk`.
 
+### SMART App Launch in a sandbox
+
+Works:
+- Standalone launch. Your sandbox's login user signs in; the patient in context is your sandbox's `Patient/<id>-hennessy-billy`, and the token's patient is the bare id `<id>-hennessy-billy`.
+- EHR launch from your sandbox page. Open "EHR launch" on an App Launch client that holds the `launch` scope, choose a starter patient and practitioner, and follow the link: your app gets `iss` (your sandbox's FHIR base) and `launch`. The launch URL must be on the same host and port as one of that client's redirect URIs.
+- SMART v1 and v2 scopes. App Launch clients hold `patient/*.cruds` and `user/*.cruds` besides the v1 scopes, so an app may ask for any part of one, for example `patient/*.rs`, `patient/Observation.rs` or `patient/AllergyIntolerance.cus`. Each scope you ask for must fit inside one scope the client holds.
+- `fhirUser` names a starter practitioner: `Practitioner/<id>-armstrong-amada` after a standalone launch, or the one you pick for an EHR launch.
+- Every launch issues a fresh token, with the patient of that launch.
+- `offline_access`: an app that asks for it gets a refresh token that lasts 8 hours.
+
+Does not work:
+- Choosing a patient during a standalone launch: there is no patient picker. Use EHR launch from your sandbox page instead.
+- Asking for both `launch` and `launch/patient` in an EHR launch: the token request fails on this server for now. Ask for `launch` without `launch/patient`.
+- `private_key_jwt`: confidential clients use a client secret only.
+- Keeping an app to one patient: a `patient/` scope reaches every patient in your sandbox, not only the launch patient.
+
+Need an EHR to launch from, or a feature the sandbox lacks? See the hosts on the [SMART App Launch track page](https://confluence.hl7.org/pages/viewpage.action?pageId=506662031).
+
 ### Testing your own server in Inferno: bearer token or custom header
 
 The AU Core and AU PS test suites in Inferno take either an access token for your server (the **OAuth Credentials** input) or a custom header such as an API key (the **Header name** and **Header value** inputs). Use one or the other, and use a token or key issued for a test system holding synthetic data, because Inferno sessions are open to anyone with the link.
