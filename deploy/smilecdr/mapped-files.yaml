@@ -174,7 +174,10 @@ mappedFiles:
           if (!match || /^\[object /.test(theText)) {
               return null;
           }
-          var parts = match[1].split(/[\s,]+/);
+          // java.util collections join entries with ", ": split only there, so a
+          // scope that itself holds a comma (for example "x,launch/patient") stays
+          // one entry and never reads as a granted launch/patient (R16 round 5 F1).
+          var parts = match[1].split(", ");
           var out = [];
           for (var i = 0; i < parts.length; i++) {
               if (parts[i]) {
@@ -407,6 +410,19 @@ mappedFiles:
       }
 
       /**
+       * The requested scope string as the log may carry it: the app chose it, so
+       * control characters (a newline would forge a log line) become spaces and it
+       * is cut to 300 characters (R16 round 5 F3).
+       */
+      function loggableScopes(theRequested) {
+          if (theRequested === null || theRequested === undefined) {
+              return String(theRequested);
+          }
+          var text = String(theRequested).replace(/[\x00-\x1f\x7f\u2028\u2029]/g, " ");
+          return text.length > 300 ? text.substring(0, 300) + "..." : text;
+      }
+
+      /**
        * Log the one diagnostic line of a sandbox callback: how the approved scopes
        * were read, which method read each context type found (types only, never a
        * resource id), the requested scope string and the outcome. Never throws.
@@ -415,7 +431,7 @@ mappedFiles:
           try {
               Log.info("Sandbox scopes at " + theWhere + ": " + approvedScopesSummary(theApproved) +
                   "; contexts=" + (theContexts.length > 0 ? theContexts.join(", ") : "none") +
-                  "; requested=" + theRequested + "; " + theOutcome);
+                  "; requested=" + loggableScopes(theRequested) + "; " + theOutcome);
           } catch (e) {
               // Logging must not fail token issuance or the login.
           }

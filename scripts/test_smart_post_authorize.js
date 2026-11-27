@@ -1565,5 +1565,19 @@ for (const launch of [undefined, pat1]) {
     [errors, Array.from(types).sort()], [0, ['practitioner']]);
 }
 
+// R16 round 5 F1 and F3: the java collection string parse splits only on
+// ", ", and the log carries the requested scopes without control characters.
+{
+  const { context } = load();
+  check('a scope holding a comma stays one entry in the java collection string',
+    context.javaCollectionStringValues('[x,launch/patient, openid]'), ['x,launch/patient', 'openid']);
+  check('a plain java collection string splits into its scopes',
+    context.javaCollectionStringValues('[launch, launch/patient]'), ['launch', 'launch/patient']);
+  check('the logged requested scopes lose newlines and line separators',
+    context.loggableScopes('launch\nforged line\u2028x'), 'launch forged line x');
+  check('the logged requested scopes are cut to 300 characters',
+    context.loggableScopes('a'.repeat(400)).length, 303);
+}
+
 console.log(`\n${passes}/${passes + failures} checks passed`);
 process.exit(failures > 0 ? 1 : 0);
