@@ -92,12 +92,12 @@ Each canonical above is one example profile from its IG; any other profile from 
 
 ## Test data and identifiers
 
-The shared `DEFAULT` partition of the Sparked FHIR server holds the HL7 AU test data, loaded on Mon 24 Aug 2026:
+The shared `DEFAULT` partition of the Sparked FHIR server holds the HL7 AU test data, loaded on Mon 30 Nov 2026:
 
-- **AU Core**: [`aehrc/au-fhir-test-data` at `20fb514`](https://github.com/aehrc/au-fhir-test-data/tree/20fb5141d4433ca074f93f13cdcbb21b5477d8d7/au-fhir-test-data-set/au-core) (`sparked-aucore-loadable`). A Sparked branch of hl7au/au-fhir-test-data: upstream master at ecc2ff7 plus three commits that make the set loadable on this server.
-- **AU Patient Summary**: [`hl7au/au-fhir-test-data` at `ecc2ff7`](https://github.com/hl7au/au-fhir-test-data/tree/ecc2ff75656354da5042cc4f72accd816859a511/au-fhir-test-data-set/au-patient-summary) (`master`).
+- **AU Core**: [`aehrc/au-fhir-test-data` at `fbaef7a`](https://github.com/aehrc/au-fhir-test-data/tree/fbaef7a14a1a355554576c81edfa16e29b6b7a5e/au-fhir-test-data-set/au-core) (`sparked-aucore-loadable-2026-11`). A Sparked branch of hl7au/au-fhir-test-data: upstream master at af8a563 (23 Nov 2026) plus commits that make the set loadable on this server.
+- **AU Patient Summary**: [`hl7au/au-fhir-test-data` at `ecc2ff7`](https://github.com/hl7au/au-fhir-test-data/tree/ecc2ff75656354da5042cc4f72accd816859a511/au-fhir-test-data-set/au-patient-summary) (`master`). Loaded on Mon 24 Aug 2026; upstream has not changed this folder since.
 
-No reload is planned before the event; the data stays as loaded through the freeze.
+No further reload is planned before the event; the data stays as loaded through the freeze. Since the August load, three AU Core ids were renamed upstream: `Condition/condition-masked` is now `Condition/masked`, `Condition/noknown` is now `Condition/noneknown` and `Observation/observation-masked` is now `Observation/masked`.
 
 The upstream source is [hl7au/au-fhir-test-data](https://github.com/hl7au/au-fhir-test-data) (CC0). Load the same files into your own server with any FHIR client.
 

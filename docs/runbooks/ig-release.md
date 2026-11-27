@@ -70,7 +70,7 @@ is no longer deployed by anything and does not describe tx.dev.
 | tx.dev | Ontoserver at `https://tx.dev.hl7.org.au/fhir`, which syndicates from the Atomio feed `hl7au-dev` on `synd.ontoserver.csiro.au` | an entry added by hand to `hl7au-dev` in the Atomio dashboard; the feed list and schedule are in `aehrc/sparked-argo` `apps/ontoserver/values.yaml` (private), and the event freeze pause switch in `apps/ontoserver/values-event-freeze.yaml` (`aehrc/sparked-argo` #385) |
 | Inferno test kits | Ruby gems `au_core_test_kit` and `au_ps_inferno` on RubyGems | `hl7au/au-fhir-core-inferno`, `hl7au/au-ps-inferno` |
 | Inferno platform | staging `https://development.inferno.sparked-fhir.com`, production `https://inferno.hl7.org.au` | `hl7au/au-fhir-inferno`, deployed by ArgoCD from `aehrc/sparked-argo` (private) |
-| Test data | the AU FHIR test data set loaded onto `aucore` | `hl7au/au-fhir-test-data`, with AU Core read from the Sparked branch `sparked-aucore-loadable` of `aehrc/au-fhir-test-data`; loaded and tracked by the test data loader at `https://loader.sparked-fhir.com` (Phase 3) |
+| Test data | the AU FHIR test data set loaded onto `aucore` | `hl7au/au-fhir-test-data`, with AU Core read from a Sparked branch of `aehrc/au-fhir-test-data` (the loader's AU Core `gitBranch`); loaded and tracked by the test data loader at `https://loader.sparked-fhir.com` (Phase 3) |
 
 Not a target: the ci-build environment `https://ci-build.inferno.sparked-fhir.com`
 (`hl7au/au-fhir-inferno` #221, #222; Argo CD Application `inferno-ci-build`). It runs
@@ -653,48 +653,73 @@ what that guide leaves implicit.
 The test data on `aucore` is loaded and tracked by the Sparked test data loader (FHIRSeed)
 at `https://loader.sparked-fhir.com` (`aehrc/sparked-test-data-loader`, private), not by
 this repo's workflows. Its data sets are defined in that repo's
-`helm/sparked-test-data-loader/values.yaml`: **AU Core comes from `aehrc/au-fhir-test-data`
-branch `sparked-aucore-loadable`**, a Sparked branch of `hl7au/au-fhir-test-data`; AU Base,
+`helm/sparked-test-data-loader/values.yaml`: **AU Core comes from a branch of
+`aehrc/au-fhir-test-data` named by the AU Core data set's `gitBranch`** (a Sparked branch of
+`hl7au/au-fhir-test-data`; the public API below prints it); AU Base,
 AU Patient Summary and AU eRequesting come from `hl7au/au-fhir-test-data` `master`. The
-branch is upstream `master` plus three commits, explained in its `SPARKED-BRANCH.md`:
+branch is upstream `master` plus one commit per fix and the commits that write its `SPARKED-BRANCH.md`:
 eight `au-core` examples lose an `au-erequesting-*` claim in `meta.profile`, which `aucore`
 rejects with `VALIDATION_VAL_PROFILE_UNKNOWN_NOT_POLICY` because it does not carry
 `hl7.fhir.au.ereq`; `Patient/roberts-fred`, referenced from `au-core` but defined only in
-`au-erequesting`, is copied into `au-core`; and the third commit adds that README. Each
+`au-erequesting`, is copied into `au-core`; the rest add and update that README. Each
 load records an installation (the data set, the exact commit and a manifest of every
 resource that landed), which the loader rechecks hourly for integrity (still on the
 server) and freshness (pinned commit against the head of the configured branch).
 
-On 2026-11-26 `aucore` held AU Core at `20fb514` (the branch head) and AU Patient Summary
-at `ecc2ff7`, both loaded on 2026-08-24 by the scenario "HL7 AU Connectathon Brisbane",
-which matches `data.sets` in `events/2026-12-melbourne.yaml` (verified with the public
-API below and `curl -s https://loader.sparked-fhir.com/api/v1/public/datasets`).
+Each refresh of AU Core is a new branch (`sparked-aucore-loadable-<yyyy-mm>`) and a values
+PR in the loader repo, never a rewrite of the branch the loader has installed, so the
+installed branch stays as the rollback. `sparked-aucore-loadable` (upstream `ecc2ff7`,
+loaded 2026-08-24) was replaced by `sparked-aucore-loadable-2026-11` (upstream `af8a563`)
+for the December 2026 event. Print the branch the loader tracks now:
+
+```bash
+curl -s https://loader.sparked-fhir.com/api/v1/public/datasets \
+  | jq -r '.[] | select(.name=="AU Core") | .gitBranch'
+```
 
 <a id="step-3-1"></a>
 #### 3.1 Get the data ready
 
 - **Who:** requester, with the test data maintainers, for the data change; a Sparked
   maintainer with write access to `aehrc/au-fhir-test-data` for the branch.
-- **Where:** `hl7au/au-fhir-test-data` `master` (the authoritative set), then the
-  `sparked-aucore-loadable` branch of `aehrc/au-fhir-test-data` for AU Core.
+- **Where:** `hl7au/au-fhir-test-data` `master` (the authoritative set), then a new
+  branch of `aehrc/au-fhir-test-data` for AU Core, and the AU Core `gitBranch` in
+  `aehrc/sparked-test-data-loader` `helm/sparked-test-data-loader/values.yaml`.
 - **Do:**
   1. Confirm whether the release needs new or changed test data and that it has merged
      upstream, or record "no change" on the tracking issue.
-  2. If the AU Core data changed upstream, move the Sparked branch onto the new upstream
-     `master`. `SPARKED-BRANCH.md` asks for a rebase, not a merge, so the patch stays as
-     its commits on top. First check whether upstream has fixed either defect (the two
-     checks under **Verify**, run against upstream); if it has, drop that commit, and once
-     both are gone, retire the branch and point the loader's AU Core data set back at
-     `hl7au` `master` (a values PR in `aehrc/sparked-test-data-loader`).
+  2. If the AU Core data changed upstream, make a new Sparked branch from the new
+     upstream `master` and pick onto it only the fix commits still needed. Never rebase
+     or force-push the branch the loader has installed: it is the rollback until the new
+     one is loaded and checked. First check that the AU Core data set's `gitRepoUrl` is
+     the `aehrc` fork, and whether upstream has fixed either defect (the two checks under
+     **Verify**, run against upstream); leave out the commit for a fixed one, and once
+     both are fixed, point the loader's AU Core data set back at `hl7au` `master` instead
+     of making a branch.
 
      ```bash
      git clone https://github.com/aehrc/au-fhir-test-data && cd au-fhir-test-data
      git remote add upstream https://github.com/hl7au/au-fhir-test-data
      git fetch upstream master
-     git switch sparked-aucore-loadable
-     git rebase upstream/master
-     git push --force-with-lease origin sparked-aucore-loadable
+     OLD=$(curl -s https://loader.sparked-fhir.com/api/v1/public/datasets \
+       | jq -r '.[] | select(.name=="AU Core") | "\(.gitRepoUrl) \(.gitBranch)"')
+     echo "$OLD"   # must be the aehrc fork and a sparked-aucore-loadable branch
+     OLD=${OLD##* }
+     NEW=sparked-aucore-loadable-$(date +%Y-%m)
+     git log --oneline --reverse upstream/master.."origin/$OLD"   # the fix commits and README commits
+     git switch -c "$NEW" upstream/master
+     git cherry-pick <each fix commit still needed>   # a conflict or empty pick means upstream changed it: check, then skip
+     git checkout "origin/$OLD" -- SPARKED-BRANCH.md
+     # edit SPARKED-BRANCH.md: base commit and date, predecessor branch, fixes carried
+     git add SPARKED-BRANCH.md && git commit -m "Describe this branch as the <month> refresh"
+     git push origin "$NEW"
      ```
+
+     The new branch is then ahead of upstream by the fixes still needed plus one README
+     commit.
+     Then open the loader values PR setting the AU Core `gitBranch` to the new branch.
+     Merging it restarts the loader (Reloader), which then reports AU Core
+     `update-available` until step 3.2 runs.
 
   The AU Base and AU Patient Summary data sets read `hl7au` `master` directly and need no
   branch work.
@@ -702,25 +727,26 @@ API below and `curl -s https://loader.sparked-fhir.com/api/v1/public/datasets`).
   its job:
 
   ```bash
-  gh api repos/aehrc/au-fhir-test-data/compare/hl7au:au-fhir-test-data:master...sparked-aucore-loadable \
-    -q '"ahead \(.ahead_by), behind \(.behind_by)"'   # good: ahead 3 (fewer once a fix lands upstream), behind 0
+  gh api "repos/aehrc/au-fhir-test-data/compare/hl7au:au-fhir-test-data:master...$NEW" \
+    -q '"ahead \(.ahead_by), behind \(.behind_by)"'   # good: behind 0, ahead = fixes still needed + 1 (the README; ahead 4 for sparked-aucore-loadable-2026-11)
   grep -l au-erequesting au-fhir-test-data-set/au-core/*.json   # good: no output
   ls au-fhir-test-data-set/au-core/Patient-roberts-fred.json
   ```
 
 - **What goes wrong:**
-  - Reloading before the data merges, or before the branch is rebased, reloads the old
-    data.
+  - Reloading before the data merges, or before the new branch is made and the loader
+    points at it, reloads the old data.
   - **The loader's `current` for AU Core means current against the Sparked branch, not
-    against upstream.** On 2026-11-26 the branch still sat on upstream `ecc2ff7`
-    (2026-08-24), 147 commits and 247 changed `au-core` files behind upstream `af8a563`,
-    while the loader reported AU Core `current` (verified with the compare above). AU
-    Patient Summary, which reads upstream directly, showed `update-available`.
+    against upstream.** On 2026-11-26 `sparked-aucore-loadable` still sat on upstream
+    `ecc2ff7` (2026-08-24), 147 commits and 247 changed `au-core` files behind upstream
+    `af8a563`, while the loader reported AU Core `current` (verified with the compare
+    above). AU Patient Summary, which reads upstream directly, showed `update-available`.
   - Both defects were still upstream on 2026-11-26: eight `au-core` files claim an
     `au-erequesting` profile and `au-core` has no `Patient-roberts-fred.json` (verified on
-    `af8a563`). Rebasing without the patch makes the next load fail those nine.
-  - The loader reads the branch by name, so changing or deleting it changes what the
-    loader installs.
+    `af8a563`). A branch without the patch makes the next load fail those nine.
+  - The loader reads the branch by name, so changing or deleting the branch it tracks
+    changes what the loader installs. Delete an old branch only once nothing has it
+    installed and the event it served is over.
 
 <a id="step-3-2"></a>
 #### 3.2 Reload aucore through the loader
@@ -742,13 +768,27 @@ API below and `curl -s https://loader.sparked-fhir.com/api/v1/public/datasets`).
   upstream data changed. **Reload** (in the "Data Set Already Installed" dialog that
   loading the preset again opens) re-runs the full load instead; prefer Update. If an
   event manifest pins the data (`data.sets`), update its commits in the same change.
+
+  Update decides what to delete by comparing the old manifest with what succeeded this
+  time, so **a resource the old installation loaded whose PUT fails during the Update is
+  deleted from the server** (unless the load as a whole errors out, which prunes nothing,
+  or something still references it, which leaves it in place, unmanaged, with "could not
+  be deleted" in the operation log).
+  The loader retries a 429 or 5xx three times over about 7 seconds, which a terminology
+  reindex outlasts (Ontoserver answered 503 "compiled against a previous index version"
+  for about 40 seconds on 2026-11-26). Run it outside terminology maintenance, and if the
+  failure count is above the baseline below, run Update again: a PUT to a deleted id
+  recreates it.
 - **Verify:** the installation now names the new commit, `intact` and `current`, and its
   failure count is no worse than before (the 2026-08-24 load recorded `failed: 2` for AU
-  Core and `failed: 2` for AU Patient Summary; which resources those are is
-  **unverified**):
+  Core: the two `Binary` PDF reports, which `aucore` deliberately does not serve, checked
+  2026-11-26; and `failed: 2` for AU Patient Summary, the two
+  `aups-referral-endoconsult-*` Bundles, loaded afterwards by hand):
 
   ```bash
-  gh api repos/aehrc/au-fhir-test-data/commits/sparked-aucore-loadable -q .sha
+  BRANCH=$(curl -s https://loader.sparked-fhir.com/api/v1/public/datasets \
+    | jq -r '.[] | select(.name=="AU Core") | .gitBranch')
+  gh api "repos/aehrc/au-fhir-test-data/commits/$BRANCH" -q .sha
   curl -s https://loader.sparked-fhir.com/api/v1/public/nodes \
     | jq -r '.[] | .installations[] | "\(.datasetName)\t\(.version[0:7])\t\(.integrity)\t\(.freshness)\t\(.summary)"'
   curl -s "$FHIR/Patient/hennessy-billy" -o /dev/null -w '%{http_code}\n'   # good: 200
@@ -1112,7 +1152,7 @@ tracking issue:
 | Orphan SHA pin in `Gemfile.dev` | [5.1](#step-5-1) | bundle fails to fetch the git gem | `au-fhir-inferno` #130 (`9790c863`) |
 | Promotion PR carries commits you did not check on staging | [6.1](#step-6-1) | PR changelog lists more than your bump | `build-and-release-package.yaml`; #205 superseded by #207 |
 | `Manage Test Data` reloads upstream `master` behind the loader's back | [3.2](#step-3-2) | eight `VALIDATION_VAL_PROFILE_UNKNOWN_NOT_POLICY` failures; the loader still lists the old installation | `manage-test-data.yml` (no data source input); `SPARKED-BRANCH.md` |
-| AU Core `current` on the loader while upstream has moved on | [3.1](#step-3-1) | the compare in step 3.1 shows the branch behind upstream | loader freshness tracks `sparked-aucore-loadable` |
+| AU Core `current` on the loader while upstream has moved on | [3.1](#step-3-1) | the compare in step 3.1 shows the branch behind upstream | loader freshness tracks the AU Core `gitBranch`, not upstream |
 | A step lands in an event freeze | [constraint 9](#4-ordering-constraints) | the event manifest's `freeze` window covers today | `events/<event>.yaml`; `aehrc/sparked-argo` `docs/runbooks/event-runbook.md` section 3 |
 
 ## 9. Rollback
