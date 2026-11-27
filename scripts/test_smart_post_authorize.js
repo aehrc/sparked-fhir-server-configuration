@@ -169,15 +169,15 @@ function requestDetails(opts) {
   const o = opts || {};
   const calls = { claims: [] };
   const params = o.params || {};
-  // Claims Smile CDR already holds for this token (from a granted launch/<key>).
-  const held = o.smileHolds || [];
   const details = {
     getAudience: () => (o.audience === undefined ? AUD : o.audience),
     getLaunch: () => o.launch || null,
     getRequestParameters: () => (o.javaMaps ? strictJavaMap(params, o.misses) : { get: (k) => (k in params ? params[k] : null) }),
     addAccessTokenClaim: (k, v) => {
-      // Smile CDR refuses a claim it already holds (validateDontAlreadyHaveClaim).
-      if (held.includes(k) || calls.claims.some(([key]) => key === k)) {
+      // A second claim of the same key from the script itself is refused. Smile
+      // CDR's own launch claims are modelled separately (smileAddLaunchScopes):
+      // the script's claim does not count towards Smile's check (measured).
+      if (calls.claims.some(([key]) => key === k)) {
         throw new Error('IllegalArgumentException: duplicate claim ' + k);
       }
       calls.claims.push([k, v]);
@@ -381,8 +381,8 @@ check('an empty approved scope set falls back to the scope parameter',
   s.session.getApprovedScopes = () => javaSet(['launch', 'launch/patient']);
   const r = requestDetails({ launch: launchToken({ patient: 'pat-1' }) });
   loaded.context.onTokenGenerating(s.session, r.details);
-  check('approved scopes are read through getApprovedScopes() when the property is absent (launch/patient dropped; this set is a copy, so the claim is left to Smile CDR\'s one "launch" add)',
-    [s.calls.removedScopes, r.calls.claims], [['launch/patient'], []]);
+  check('approved scopes are read through getApprovedScopes() when the property is absent (launch/patient dropped and claimed)',
+    [s.calls.removedScopes, r.calls.claims], [['launch/patient'], [['patient', 'pat-1']]]);
 }
 
 {
@@ -412,8 +412,8 @@ check('an empty approved scope set falls back to the scope parameter',
   s.session.approvedScopes = strictJavaSet(['openid', 'launch', 'launch/patient']);
   const r = requestDetails({ launch: launchToken({ patient: 'pat-1' }) });
   loaded.context.onTokenGenerating(s.session, r.details);
-  check('approved scopes given as a Java set field (no getter) are read (launch/patient dropped; this set is a copy, so the claim is left to Smile CDR\'s one "launch" add)',
-    [s.calls.removedScopes, r.calls.claims], [['launch/patient'], []]);
+  check('approved scopes given as a Java set field (no getter) are read (launch/patient dropped and claimed)',
+    [s.calls.removedScopes, r.calls.claims], [['launch/patient'], [['patient', 'pat-1']]]);
 }
 
 t = token({ approvedScopes: 'openid launch launch/patient-extra' }, { launch: launchToken({ patient: 'pat-1' }) });
@@ -1075,10 +1075,19 @@ console.log('--- Java-shaped session and request (GraalJS) ---');
 function javaShapedSession(opts) {
   const o = opts || {};
   const misses = [];
-  const calls = { launchResourceIds: [], fhirUser: [] };
+  const calls = { launchResourceIds: [], fhirUser: [], removedScopes: [] };
   const contexts = o.contexts || [];
+  const items = typeof o.approved === 'string' && o.approved !== 'throws' ? o.approved.split(' ').filter(Boolean) : null;
+  calls.approved = items;
   const session = {
     getOidcClientId: () => (o.clientId === undefined ? null : o.clientId),
+    // Edits the approved set in place, as Smile CDR's does (measured).
+    removeApprovedScope: (scope) => {
+      calls.removedScopes.push(scope);
+      if (calls.approved && calls.approved.indexOf(scope) >= 0) {
+        calls.approved.splice(calls.approved.indexOf(scope), 1);
+      }
+    },
     getDefaultLaunchContexts: () => javaList(contexts),
     addLaunchResourceId: (k, v) => calls.launchResourceIds.push([k, v]),
     setFhirUserUrl: (u) => calls.fhirUser.push(u),
@@ -1088,7 +1097,7 @@ function javaShapedSession(opts) {
   if (o.approved === 'throws') {
     session.getApprovedScopes = () => { throw new Error('IllegalStateException: no approved scopes'); };
   } else if (o.approved !== undefined) {
-    session.getApprovedScopes = () => strictJavaSet(o.approved.split(' ').filter(Boolean), misses);
+    session.getApprovedScopes = () => strictJavaSet(items, misses);
   }
   return { session, calls, misses };
 }
@@ -1109,6 +1118,8 @@ function javaToken(sessionOpts, requestOpts) {
     claims: r.calls.claims,
     launchResourceIds: s.calls.launchResourceIds,
     fhirUser: s.calls.fhirUser,
+    removedScopes: s.calls.removedScopes,
+    approvedAfter: s.calls.approved ? s.calls.approved.slice() : null,
     misses: s.misses,
     logs: loaded.logs,
   };
@@ -1124,23 +1135,23 @@ const pat1 = launchToken({ patient: 'pat-1' });
 
 for (const clientId of ['sbx-abc123-public', 'inferno-ehr']) {
   t = javaToken({ clientId, approved: ehrScopes, contexts: [practitionerCtx] },
-    { launch: pat1, params: { scope: ehrScopes }, smileHolds: ['patient'] });
-  check(`${clientId}: EHR launch "launch launch/patient" with Java objects adds no duplicate claim (was HTTP 500)`,
-    [t.error, t.claims, t.launchResourceIds, t.fhirUser],
-    [null, [], [['patient', 'pat-1']], [AUD + '/Practitioner/guthridge-jarred']]);
+    { launch: pat1, params: { scope: ehrScopes } });
+  check(`${clientId}: EHR launch "launch launch/patient" with Java objects drops launch/patient and gets no duplicate (was HTTP 500)`,
+    [t.error, t.removedScopes, t.claims, t.launchResourceIds, t.fhirUser, smileAddLaunchScopes(t)],
+    [null, ['launch/patient'], [['patient', 'pat-1']], [['patient', 'pat-1']], [AUD + '/Practitioner/guthridge-jarred'], 'ok']);
   check(`${clientId}: the scopes are read only through Java methods`, t.misses, []);
 }
 
-t = javaToken({ approved: 'throws' }, { launch: pat1, params: {}, smileHolds: ['patient'] });
-check('the mock reproduces the 500: a duplicate patient claim throws IllegalArgumentException',
-  /IllegalArgumentException/.test(String(t.error)), true);
+check('the Smile CDR model reproduces the measured 500 when launch and launch/patient both stay approved',
+  smileAddLaunchScopes({ approvedAfter: ['openid', 'launch', 'launch/patient'], launchResourceIds: [['patient', 'pat-1']], claims: [] }),
+  'HTTP 500');
 
 t = javaToken({ approved: 'openid fhirUser launch patient/*.read' },
   { launch: pat1, params: { scope: 'openid fhirUser launch patient/*.read' } });
 check('Java objects: EHR launch with "launch" alone adds the patient claim',
   [t.error, t.claims, t.launchResourceIds], [null, [['patient', 'pat-1']], [['patient', 'pat-1']]]);
 
-t = javaToken({ approved: '' }, { launch: pat1, params: { scope: 'launch launch/patient' }, smileHolds: ['patient'] });
+t = javaToken({ approved: '' }, { launch: pat1, params: { scope: 'launch launch/patient' } });
 check('Java objects: an empty approved set (size 0) is unknown, and a request with launch/patient skips the claim',
   [t.error, t.claims], [null, []]);
 
@@ -1148,7 +1159,7 @@ t = javaToken({ approved: '' }, { launch: pat1, params: { scope: 'openid launch'
 check('Java objects: an empty approved set and a request without launch/patient adds the claim',
   t.claims, [['patient', 'pat-1']]);
 
-t = javaToken({ approved: 'throws' }, { launch: pat1, params: { scope: 'openid launch launch/patient' }, smileHolds: ['patient'] });
+t = javaToken({ approved: 'throws' }, { launch: pat1, params: { scope: 'openid launch launch/patient' } });
 check('getApprovedScopes() throwing and no approvedScopes falls back to the request: launch/patient skips the claim',
   [t.error, t.claims], [null, []]);
 
@@ -1156,7 +1167,7 @@ t = javaToken({ approved: 'throws' }, { launch: pat1, params: { scope: 'openid l
 check('getApprovedScopes() throwing and no approvedScopes falls back to the request: launch alone adds the claim',
   t.claims, [['patient', 'pat-1']]);
 
-t = javaToken({}, { launch: pat1, params: { scope: 'launch launch/patient' }, smileHolds: ['patient'] });
+t = javaToken({}, { launch: pat1, params: { scope: 'launch launch/patient' } });
 check('no getApprovedScopes() and no approvedScopes falls back to the request', [t.error, t.claims], [null, []]);
 
 t = javaToken({ approved: 'throws' }, { launch: pat1, params: {} });
@@ -1182,9 +1193,10 @@ t = javaToken({ approved: 'openid launch' }, { launch: pat1, params: { scope: 'o
 check('Java objects: launch/patient requested but not granted adds the claim', t.claims, [['patient', 'pat-1']]);
 
 t = javaToken({ approved: 'openid launch launch/patient launch/encounter' },
-  { launch: launchToken({ patient: 'pat-1', encounter: 'enc-1' }), params: { scope: 'openid launch launch/encounter' },
-    smileHolds: ['encounter'] });
-check('Java objects: each key is decided on its own', [t.error, t.claims], [null, [['patient', 'pat-1']]]);
+  { launch: launchToken({ patient: 'pat-1', encounter: 'enc-1' }), params: { scope: 'openid launch launch/encounter' } });
+check('Java objects: with launch approved both launch/<key> are dropped, remembered or not, and both claimed',
+  [t.error, t.removedScopes, t.claims, smileAddLaunchScopes(t)],
+  [null, ['launch/patient', 'launch/encounter'], [['patient', 'pat-1'], ['encounter', 'enc-1']], 'ok']);
 
 for (const answer of [undefined, null, 'true', 1]) {
   const loaded = load();
@@ -1234,11 +1246,11 @@ check('sbx standalone token generation logs a line too',
       throw new Error('log down');
     }
   };
-  const r = requestDetails({ javaMaps: true, launch: pat1, params: { scope: ehrScopes }, smileHolds: ['patient'] });
+  const r = requestDetails({ javaMaps: true, launch: pat1, params: { scope: ehrScopes } });
   let error = null;
   try { loaded.context.onTokenGenerating(s.session, r.details); } catch (e) { error = String(e); }
   check('a diagnostic Log.info that throws does not fail token generation',
-    [error, r.calls.claims, s.calls.launchResourceIds], [null, [], [['patient', 'pat-1']]]);
+    [error, r.calls.claims, s.calls.launchResourceIds], [null, [['patient', 'pat-1']], [['patient', 'pat-1']]]);
 }
 
 console.log('--- Java-shaped: sandbox patient chooser ---');
@@ -1315,15 +1327,21 @@ for (const clientId of nonSandboxClients) {
         const approvedList = approved === 'throws' ? null : approved.split(' ').filter(Boolean);
         const requestedList = requested === null ? null : requested.split(/\s+/).filter(Boolean);
         const keys = launchObj ? Object.keys(launchObj).filter((k) => k !== 'practitioner') : [];
+        // #136: a key whose launch/<key> is approved beside launch (a known,
+        // non-empty approved list) is dropped and claimed; others as before.
+        const dropped = (k) => !!(approvedList && approvedList.length && approvedList.includes('launch') &&
+          approvedList.includes('launch/' + k));
         const expected = {
           error: null,
-          claims: keys.filter((k) => !previousSkips(k, approvedList, requestedList)).map((k) => [k, launchObj[k]]),
+          removedScopes: keys.filter(dropped).map((k) => 'launch/' + k),
+          claims: keys.filter((k) => dropped(k) || !previousSkips(k, approvedList, requestedList)).map((k) => [k, launchObj[k]]),
           launchResourceIds: keys.map((k) => [k, launchObj[k]]),
           fhirUser: mainFhirUser([practitionerCtx], launchObj),
           lines: [],
         };
         const actual = {
           error: t.error,
+          removedScopes: t.removedScopes,
           claims: t.claims,
           launchResourceIds: t.launchResourceIds,
           fhirUser: t.fhirUser,
@@ -1339,7 +1357,8 @@ for (const clientId of nonSandboxClients) {
     }
   }
 }
-check(`non-sandbox token generation matches the previous rule with no log line (${total} combinations)`, same, total);
+check(`non-sandbox token generation matches the previous rule, apart from #136's drop and claim, with no log line (${total} combinations)`,
+  same, total);
 
 let pickSame = 0;
 let pickTotal = 0;
@@ -1419,6 +1438,7 @@ function shapedSession(shape, opts) {
   const o = opts || {};
   const s = javaShapedSession(Object.assign({}, o, { approved: undefined }));
   const items = (o.approved || '').split(' ').filter(Boolean);
+  s.calls.approved = items;
   if (shape === 'full') {
     s.session.getApprovedScopes = () => strictJavaSet(items, s.misses);
   } else if (shape === 'restricted') {
@@ -1442,6 +1462,7 @@ function shapedToken(shape, sessionOpts, requestOpts) {
     error = String(e);
   }
   return { error, claims: r.calls.claims, launchResourceIds: s.calls.launchResourceIds, fhirUser: s.calls.fhirUser,
+    removedScopes: s.calls.removedScopes, approvedAfter: s.calls.approved ? s.calls.approved.slice() : null,
     misses: s.misses, logs: loaded.logs };
 }
 
@@ -1464,10 +1485,10 @@ for (const shape of ['full', 'restricted', 'iterable']) {
     const sandbox = clientId.indexOf('sbx-') === 0;
 
     t = shapedToken(shape, { clientId, approved: ehrScopes, contexts: [practitionerCtx] },
-      { launch: pat1, params: { scope: ehrScopes }, smileHolds: ['patient'] });
-    check(`${shape}, ${clientId}: EHR launch "launch launch/patient" skips the claim`,
-      [t.error, t.claims, t.launchResourceIds, t.fhirUser],
-      [null, [], [['patient', 'pat-1']], [AUD + '/Practitioner/guthridge-jarred']]);
+      { launch: pat1, params: { scope: ehrScopes } });
+    check(`${shape}, ${clientId}: EHR launch "launch launch/patient" drops launch/patient and claims it`,
+      [t.error, t.removedScopes, t.claims, t.launchResourceIds, t.fhirUser, smileAddLaunchScopes(t)],
+      [null, ['launch/patient'], [['patient', 'pat-1']], [['patient', 'pat-1']], [AUD + '/Practitioner/guthridge-jarred'], 'ok']);
     check(`${shape}, ${clientId}: ${sandbox ? 'one line naming the approved-scope read' : 'no sandbox line'}`,
       sandboxLines(t.logs).map(([, m]) => m.split('; ')[0].replace(/ size=.*/, '')),
       sandbox ? ['Sandbox scopes at token generation: approved read=' + approvedMethod[shape]] : []);
@@ -1506,7 +1527,7 @@ for (const shape of ['full', 'restricted', 'iterable']) {
 }
 
 t = shapedToken('full', { clientId: 'sbx-abc123-public', approved: ehrScopes, contexts: [practitionerCtx] },
-  { launch: pat1, params: { scope: ehrScopes }, smileHolds: ['patient'] });
+  { launch: pat1, params: { scope: ehrScopes } });
 check('full: the approved scopes are asked only through Java methods', t.misses, []);
 
 p = shapedPick('restricted', { approved: standaloneScopes });
@@ -1517,24 +1538,24 @@ checkLog('restricted: the opaque context list is logged as a warning', p.logs,
   const loaded = load();
   const s = shapedSession('restricted', { clientId: 'sbx-abc123-public', contexts: [practitionerCtx] });
   s.session.getApprovedScopes = () => toStringOnlySet(ehrScopes.split(' '), true);
-  const r = requestDetails({ javaMaps: true, launch: pat1, params: { scope: ehrScopes }, smileHolds: ['patient'] });
+  const r = requestDetails({ javaMaps: true, launch: pat1, params: { scope: ehrScopes } });
   let error = null;
   try { loaded.context.onTokenGenerating(s.session, r.details); } catch (e) { error = String(e); }
-  check('restricted with members reading as undefined: the string form decides',
-    [error, r.calls.claims, sandboxLines(loaded.logs).map(([, m]) => m.indexOf('approved read=String(getApprovedScopes()) size=5 ') > 0)],
-    [null, [], [true]]);
+  check('restricted with members reading as undefined: the string form decides (drop and claim)',
+    [error, s.calls.removedScopes, r.calls.claims, sandboxLines(loaded.logs).map(([, m]) => m.indexOf('approved read=String(getApprovedScopes()) size=5 ') > 0)],
+    [null, ['launch/patient'], [['patient', 'pat-1']], [true]]);
 }
 
 {
   // A Map.get() refused too: the request is unknown, and the approved scopes decide.
   const loaded = load();
   const s = shapedSession('restricted', { clientId: 'sbx-abc123-public', approved: ehrScopes });
-  const r = requestDetails({ launch: pat1, smileHolds: ['patient'] });
+  const r = requestDetails({ launch: pat1 });
   r.details.getRequestParameters = () => opaqueList();
   let error = null;
   try { loaded.context.onTokenGenerating(s.session, r.details); } catch (e) { error = String(e); }
-  check('restricted with the request map refused too: launch/patient approved skips the claim',
-    [error, r.calls.claims, s.calls.launchResourceIds], [null, [], [['patient', 'pat-1']]]);
+  check('restricted with the request map refused too: launch launch/patient approved, dropped and claimed',
+    [error, s.calls.removedScopes, r.calls.claims, s.calls.launchResourceIds], [null, ['launch/patient'], [['patient', 'pat-1']], [['patient', 'pat-1']]]);
 }
 
 for (const text of ['java.util.HashSet@1b2c3d', 'JavaObject[java.util.HashSet]', '[object Object]', 'launch launch/patient']) {

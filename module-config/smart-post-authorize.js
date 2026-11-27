@@ -292,12 +292,12 @@ function smileAddsLaunchClaim(theKey, theApproved, theRequestedScopes) {
  * theUserSession.removeApprovedScope is documented for onTokenGenerating.
  * Only a known true answer for both scopes narrows; an unreadable scope set
  * leaves the session as it was (and the 500 with it). Logs the dropped scope
- * name. Never throws.
+ * name. Returns true when the scope was dropped. Never throws.
  */
 function narrowDoubleLaunchScope(theUserSession, theKey, theApproved) {
     var scope = "launch/" + theKey;
     if (granted(theApproved, "launch") !== true || granted(theApproved, scope) !== true) {
-        return;
+        return false;
     }
     try {
         theUserSession.removeApprovedScope(scope);
@@ -307,7 +307,7 @@ function narrowDoubleLaunchScope(theUserSession, theKey, theApproved) {
         } catch (ignored) {
             // Logging must not fail token issuance.
         }
-        return;
+        return false;
     }
     try {
         Log.info("EHR launch: dropped approved scope " + scope + " (launch is approved too; Smile CDR would add the " +
@@ -315,6 +315,7 @@ function narrowDoubleLaunchScope(theUserSession, theKey, theApproved) {
     } catch (ignored) {
         // Logging must not fail token issuance.
     }
+    return true;
 }
 
 /**
@@ -467,12 +468,14 @@ function injectLaunchContext(theUserSession, theAuthorizationRequestDetails, the
                 // covers it ("launch" and "launch/<key>") and refuses its own
                 // second add, so narrowDoubleLaunchScope leaves at most one of
                 // them. The script also adds the claim, as main always has,
-                // unless launch/<key> is approved (smileAddsLaunchClaim): its
-                // own claim does not count towards Smile's duplicate check
-                // (measured with "launch" alone), so this is belt and braces.
+                // after a drop (whatever its scope reader saw) and whenever
+                // launch/<key> is not approved (smileAddsLaunchClaim): its own
+                // claim does not count towards Smile's duplicate check
+                // (measured with "launch" alone), so the claim never depends
+                // on Smile's add alone after a drop.
                 theUserSession.addLaunchResourceId(key, value);
-                narrowDoubleLaunchScope(theUserSession, key, theTrace.approved);
-                if (!smileAddsLaunchClaim(key, theTrace.approved, requestedScopes)) {
+                var narrowed = narrowDoubleLaunchScope(theUserSession, key, theTrace.approved);
+                if (narrowed || !smileAddsLaunchClaim(key, theTrace.approved, requestedScopes)) {
                     theAuthorizationRequestDetails.addAccessTokenClaim(key, value);
                 }
             }

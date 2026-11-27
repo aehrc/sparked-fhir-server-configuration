@@ -50,9 +50,10 @@ Supporting pieces:
   new consent screen on the next login (measured). Two cases keep the 500:
   an approved scope set the script cannot read (nothing is dropped), and a
   `removeApprovedScope` that throws (a warning is logged). The script also
-  adds the claim itself, as it always has, unless `launch/<key>` is
-  approved; its own claim does not count towards Smile CDR's check
-  (`launch` alone with the script's claim answers 200). Neither scope
+  adds the claim itself after a drop, and otherwise, as it always has,
+  unless `launch/<key>` is approved; its own claim does not count towards
+  Smile CDR's check (`launch` alone with the script's claim answers 200).
+  Neither scope
   source alone is trusted to equal the grant: the user session's approved
   scopes may carry approvals remembered from an earlier consent, and the
   whitelisted `scope` request parameter may name a scope the user
