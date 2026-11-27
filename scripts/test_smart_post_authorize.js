@@ -134,8 +134,10 @@ function javaList(items) {
  */
 function userSession(opts) {
   const o = opts || {};
-  const calls = { launchResourceIds: [], fhirUser: [] };
+  const calls = { launchResourceIds: [], fhirUser: [], removedScopes: [] };
   const contexts = o.contexts || [];
+  const approved = o.approvedScopes === undefined ? null : o.approvedScopes.split(' ').filter(Boolean);
+  calls.approved = approved;
   const session = {
     oidcClientId: o.clientId,
     defaultLaunchContexts: javaList(contexts),
@@ -143,9 +145,21 @@ function userSession(opts) {
     setFhirUserUrl: (u) => calls.fhirUser.push(u),
     getOrCreateDefaultLaunchContext: (type) =>
       contexts.find((c) => c.contextType === type) || { contextType: type, resourceId: null },
+    // UserSessionDetails.removeApprovedScope: edits the session's approved
+    // set in place (measured on Smile CDR 2026.05.R01 and 2026.11.R01: the set
+    // read before the call answers without the scope afterwards).
+    removeApprovedScope: (scope) => {
+      calls.removedScopes.push(scope);
+      if (approved) {
+        const i = approved.indexOf(scope);
+        if (i >= 0) {
+          approved.splice(i, 1);
+        }
+      }
+    },
   };
-  if (o.approvedScopes !== undefined) {
-    session.approvedScopes = javaSet(o.approvedScopes.split(' ').filter(Boolean));
+  if (approved) {
+    session.approvedScopes = javaSet(approved);
   }
   return { session, calls };
 }
@@ -230,6 +244,8 @@ function token(sessionOpts, requestOpts) {
     claims: r.calls.claims,
     launchResourceIds: s ? s.calls.launchResourceIds : [],
     fhirUser: s ? s.calls.fhirUser : [],
+    removedScopes: s ? s.calls.removedScopes : [],
+    approvedAfter: s && s.calls.approved ? s.calls.approved.slice() : null,
     logs: loaded.logs,
   };
 }
@@ -288,28 +304,30 @@ t = token({ approvedScopes: 'openid fhirUser launch launch/patient patient/*.rea
   { launch: launchToken({ patient: 'pat-1' }) });
 check('EHR launch with "launch launch/patient" adds the launch resource id',
   t.launchResourceIds, [['patient', 'pat-1']]);
-check('EHR launch with "launch launch/patient" does not add the patient claim (Smile adds it)',
-  t.claims, []);
+check('EHR launch with "launch launch/patient" drops launch/patient from the approved scopes',
+  [t.removedScopes, t.approvedAfter], [['launch/patient'], ['openid', 'fhirUser', 'launch', 'patient/*.read']]);
+check('EHR launch with "launch launch/patient" adds the patient claim (Smile adds none once launch/patient is dropped)',
+  t.claims, [['patient', 'pat-1']]);
 check('EHR launch with "launch launch/patient" does not throw', t.error, null);
 
 t = token({ approvedScopes: 'openid launch launch/patient launch/encounter' },
   { launch: launchToken({ patient: 'pat-1', encounter: 'enc-1' }) });
 check('EHR launch with launch/encounter adds both launch resource ids',
   t.launchResourceIds, [['patient', 'pat-1'], ['encounter', 'enc-1']]);
-check('EHR launch with launch/patient and launch/encounter adds neither claim',
-  t.claims, []);
+check('EHR launch with launch/patient and launch/encounter drops both and adds both claims',
+  [t.removedScopes, t.claims], [['launch/patient', 'launch/encounter'], [['patient', 'pat-1'], ['encounter', 'enc-1']]]);
 
 t = token({ approvedScopes: 'openid launch launch/patient' },
   { launch: launchToken({ patient: 'pat-1', encounter: 'enc-1' }) });
-check('EHR launch without launch/encounter still adds the encounter claim',
-  t.claims, [['encounter', 'enc-1']]);
+check('EHR launch without launch/encounter drops launch/patient only and adds both claims',
+  [t.removedScopes, t.claims], [['launch/patient'], [['patient', 'pat-1'], ['encounter', 'enc-1']]]);
 check('EHR launch without launch/encounter adds both launch resource ids',
   t.launchResourceIds, [['patient', 'pat-1'], ['encounter', 'enc-1']]);
 
 t = token({ approvedScopes: 'openid launch launch/encounter' },
   { launch: launchToken({ encounter: 'enc-1' }) });
-check('EHR launch with "launch launch/encounter" does not add the encounter claim',
-  [t.claims, t.launchResourceIds], [[], [['encounter', 'enc-1']]]);
+check('EHR launch with "launch launch/encounter" drops launch/encounter and adds the encounter claim',
+  [t.removedScopes, t.claims, t.launchResourceIds], [['launch/encounter'], [['encounter', 'enc-1']], [['encounter', 'enc-1']]]);
 
 t = token({ approvedScopes: 'openid launch' },
   { launch: launchToken({ encounter: 'enc-1' }) });
@@ -321,12 +339,12 @@ t = token({ approvedScopes: 'openid launch launch/patient' },
 check('a practitioner in the launch token sets fhirUser',
   t.fhirUser, [AUD + '/Practitioner/smith-jane']);
 check('a practitioner in the launch token is never a claim or launch resource id',
-  [t.claims, t.launchResourceIds], [[], [['patient', 'pat-1']]]);
+  [t.claims, t.launchResourceIds], [[['patient', 'pat-1']], [['patient', 'pat-1']]]);
 
 t = token({ approvedScopes: 'openid launch launch/patient' },
   { params: { launch: launchToken({ patient: 'pat-1' }) } });
 check('a launch token from the whitelisted request parameter follows the same rule',
-  [t.claims, t.launchResourceIds], [[], [['patient', 'pat-1']]]);
+  [t.removedScopes, t.claims, t.launchResourceIds], [['launch/patient'], [['patient', 'pat-1']], [['patient', 'pat-1']]]);
 
 // ---------------------------------------------------------------------------
 // onTokenGenerating: reading the scopes
@@ -364,7 +382,7 @@ check('an empty approved scope set falls back to the scope parameter',
   const r = requestDetails({ launch: launchToken({ patient: 'pat-1' }) });
   loaded.context.onTokenGenerating(s.session, r.details);
   check('approved scopes are read through getApprovedScopes() when the property is absent',
-    r.calls.claims, []);
+    [s.calls.removedScopes, r.calls.claims], [['launch/patient'], [['patient', 'pat-1']]]);
 }
 
 {
@@ -394,7 +412,8 @@ check('an empty approved scope set falls back to the scope parameter',
   s.session.approvedScopes = strictJavaSet(['openid', 'launch', 'launch/patient']);
   const r = requestDetails({ launch: launchToken({ patient: 'pat-1' }) });
   loaded.context.onTokenGenerating(s.session, r.details);
-  check('approved scopes given as a Java set field (no getter) are read', r.calls.claims, []);
+  check('approved scopes given as a Java set field (no getter) are read',
+    [s.calls.removedScopes, r.calls.claims], [['launch/patient'], [['patient', 'pat-1']]]);
 }
 
 t = token({ approvedScopes: 'openid launch launch/patient-extra' }, { launch: launchToken({ patient: 'pat-1' }) });
@@ -420,8 +439,8 @@ check('launch/patient requested but not approved (declined) adds the claim',
 
 t = token({ approvedScopes: 'openid launch launch/patient' },
   { launch: launchToken({ patient: 'pat-1' }), params: { scope: 'openid launch launch/patient' } });
-check('launch/patient both approved and requested skips the claim',
-  [t.error, t.claims, t.launchResourceIds], [null, [], [['patient', 'pat-1']]]);
+check('launch launch/patient both approved and requested: launch/patient dropped, claim added',
+  [t.error, t.removedScopes, t.claims, t.launchResourceIds], [null, ['launch/patient'], [['patient', 'pat-1']], [['patient', 'pat-1']]]);
 
 {
   const loaded = load();
@@ -430,8 +449,8 @@ check('launch/patient both approved and requested skips the claim',
   r.details.getRequestParameters = () => { throw new Error('no request parameters'); };
   let error = null;
   try { loaded.context.onTokenGenerating(s.session, r.details); } catch (e) { error = String(e); }
-  check('request parameters unreadable and launch/patient approved skips the claim',
-    [error, r.calls.claims, s.calls.launchResourceIds], [null, [], [['patient', 'pat-1']]]);
+  check('request parameters unreadable and launch launch/patient approved: dropped, claim added',
+    [error, s.calls.removedScopes, r.calls.claims, s.calls.launchResourceIds], [null, ['launch/patient'], [['patient', 'pat-1']], [['patient', 'pat-1']]]);
 }
 
 t = token({}, { launch: launchToken({ patient: 'pat-1' }), params: {} });
@@ -440,8 +459,127 @@ check('neither approved scopes nor the scope parameter readable adds the claim',
 
 t = token({ approvedScopes: 'openid launch launch/patient launch/encounter' },
   { launch: launchToken({ patient: 'pat-1', encounter: 'enc-1' }), params: { scope: 'openid launch launch/encounter' } });
-check('each key is decided on its own: only the scope in both sources is skipped',
-  t.claims, [['patient', 'pat-1']]);
+check('with "launch" approved every approved launch/<key> is dropped, remembered or not, and each claim added',
+  [t.removedScopes, t.claims], [['launch/patient', 'launch/encounter'], [['patient', 'pat-1'], ['encounter', 'enc-1']]]);
+
+// ---------------------------------------------------------------------------
+// onTokenGenerating: against Smile CDR's own launch claims (measured)
+// ---------------------------------------------------------------------------
+
+console.log('--- token: Smile CDR launch claims, as measured on 2026.05.R01 and 2026.11.R01 ---');
+
+/**
+ * What SmartTokenEnhancerSvcImpl.addLaunchScopes did with the session the
+ * script leaves behind, measured on local Smile CDR 2026.05.R01 and 2026.11.R01
+ * (27 Nov 2026) with this script: for each launch resource id of type <key>,
+ * Smile adds the <key> claim once when launch/<key> is approved and a second
+ * time when launch is approved too; with launch alone it adds none. Any add of
+ * a claim already present (its own or the script's) throws
+ * IllegalArgumentException (validateDontAlreadyHaveClaim), the token 500.
+ * Returns 'ok' or 'HTTP 500'.
+ */
+function smileAddLaunchScopes(t) {
+  const approved = t.approvedAfter || [];
+  const have = t.claims.map(([k]) => k);
+  for (const [key] of t.launchResourceIds) {
+    if (!approved.includes('launch/' + key)) {
+      continue;
+    }
+    const adds = approved.includes('launch') ? 2 : 1;
+    for (let i = 0; i < adds; i++) {
+      if (have.includes(key)) {
+        return 'HTTP 500';
+      }
+      have.push(key);
+    }
+  }
+  return 'ok';
+}
+
+/** Every claim key the token would carry: the script's and Smile CDR's. */
+function tokenClaimKeys(t) {
+  const approved = t.approvedAfter || [];
+  const keys = t.claims.map(([k]) => k);
+  for (const [key] of t.launchResourceIds) {
+    if (approved.includes('launch/' + key) && !keys.includes(key)) {
+      keys.push(key);
+    }
+  }
+  return keys.sort();
+}
+
+{
+  const launches = [{ patient: 'pat-1' }, { patient: 'pat-1', encounter: 'enc-1' }, { encounter: 'enc-1' },
+    { patient: 'pat-1', practitioner: 'smith-jane' }];
+  const scopeSets = ['openid launch', 'openid launch launch/patient', 'openid launch launch/encounter',
+    'openid launch launch/patient launch/encounter', 'openid launch/patient', 'openid launch/patient launch/encounter',
+    'openid launch fhirUser launch/patient patient/*.rs'];
+  let cells = 0;
+  const bad = [];
+  for (const launch of launches) {
+    for (const scopes of scopeSets) {
+      for (const requested of [undefined, scopes]) {
+        const tt = token({ approvedScopes: scopes, contexts: [practitionerCtx] },
+          { launch: launchToken(launch), params: requested === undefined ? {} : { scope: requested } });
+        cells++;
+        const expectedKeys = Object.keys(launch).filter((k) => k !== 'practitioner').sort();
+        const outcome = [tt.error, smileAddLaunchScopes(tt), tokenClaimKeys(tt)];
+        if (JSON.stringify(outcome) !== JSON.stringify([null, 'ok', expectedKeys])) {
+          bad.push([launch, scopes, requested === undefined ? 'no scope param' : 'scope param', outcome]);
+        }
+      }
+    }
+  }
+  check(`no EHR launch cell gets Smile CDR's duplicate claim, and each carries every launch key once (${cells} cells)`,
+    bad, []);
+}
+
+t = token({ approvedScopes: 'openid launch/patient patient/*.rs' }, { launch: launchToken({ patient: 'pat-1' }) });
+check('launch/patient without launch and a launch value: nothing dropped, Smile adds the claim (measured 200)',
+  [t.removedScopes, t.claims, smileAddLaunchScopes(t), tokenClaimKeys(t)], [[], [], 'ok', ['patient']]);
+
+t = token({ approvedScopes: 'openid launch patient/*.rs' }, { launch: launchToken({ patient: 'pat-1' }) });
+check('launch alone: nothing dropped, the script adds the claim (measured 200)',
+  [t.removedScopes, t.claims, smileAddLaunchScopes(t)], [[], [['patient', 'pat-1']], 'ok']);
+
+t = token({ approvedScopes: 'openid fhirUser launch/patient patient/*.rs', contexts: [practitionerCtx] }, {});
+check('a standalone launch drops no scope', [t.removedScopes, t.approvedAfter],
+  [[], ['openid', 'fhirUser', 'launch/patient', 'patient/*.rs']]);
+
+{
+  // A session whose removeApprovedScope fails: the scope stays, so the claim
+  // rule of #132 and #134 decides (skip), a warning is logged, nothing throws.
+  const loaded = load();
+  const s = userSession({ approvedScopes: 'openid launch launch/patient' });
+  s.session.removeApprovedScope = () => { throw new Error('refused'); };
+  const r = requestDetails({ launch: launchToken({ patient: 'pat-1' }) });
+  let error = null;
+  try { loaded.context.onTokenGenerating(s.session, r.details); } catch (e) { error = String(e); }
+  check('a removeApprovedScope that throws leaves the approved scopes and the old claim rule',
+    [error, r.calls.claims], [null, []]);
+  checkLog('a removeApprovedScope that throws is logged as a warning', loaded.logs, 'Could not drop the approved scope launch/patient', true);
+}
+
+{
+  // Unknown approved scopes: never narrowed.
+  const tt = token({}, { launch: launchToken({ patient: 'pat-1' }), params: { scope: 'openid launch launch/patient' } });
+  check('approved scopes unreadable: nothing is dropped', tt.removedScopes, []);
+}
+
+{
+  // The Java-shaped twin: only contains/size/iterator/toString on the set.
+  const loaded = load();
+  const misses = [];
+  const items = ['openid', 'launch', 'launch/patient'];
+  const s = userSession({});
+  s.session.approvedScopes = strictJavaSet(items, misses);
+  s.session.removeApprovedScope = (x) => { s.calls.removedScopes.push(x); items.splice(items.indexOf(x), 1); };
+  const r = requestDetails({ launch: launchToken({ patient: 'pat-1' }), javaMaps: true, misses });
+  let error = null;
+  try { loaded.context.onTokenGenerating(s.session, r.details); } catch (e) { error = String(e); }
+  check('a Java-shaped session: launch/patient dropped through removeApprovedScope, claim added, no JS-only member read',
+    [error, s.calls.removedScopes, r.calls.claims, misses], [null, ['launch/patient'], [['patient', 'pat-1']], []]);
+}
 
 // ---------------------------------------------------------------------------
 // onTokenGenerating: launch JSON that is not an object

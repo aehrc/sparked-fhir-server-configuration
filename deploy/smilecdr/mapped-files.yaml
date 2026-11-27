@@ -374,6 +374,45 @@ mappedFiles:
       }
 
       /**
+       * On an EHR launch whose launch names theKey, drop the approved scope
+       * "launch/" + theKey when "launch" is approved too.
+       *
+       * Why: Smile CDR 2026.05.R01 adds the theKey claim to the access token itself
+       * once when "launch/" + theKey is approved and the session holds a launch
+       * resource id of that type, and a second time when "launch" is approved as
+       * well; its own second add fails SmartTokenEnhancerSvcImpl
+       * .validateDontAlreadyHaveClaim (in addLaunchScopes) and the token request
+       * answers HTTP 500. With "launch" alone Smile CDR adds no such claim and the
+       * script adds it (smileAddsLaunchClaim). Measured on a local 2026.05.R01 with
+       * this script on 2026-11-27, and with or without a default patient context on
+       * the user; the same 500 is seen on aucore for every client. Dropping the
+       * narrower scope leaves the "launch" path: the token carries the launch's
+       * context as before, and its scope list omits "launch/" + theKey, which an
+       * authorization server may do (SMART App Launch: granted scopes may differ
+       * from those requested). theUserSession.removeApprovedScope is documented
+       * for onTokenGenerating. Only a known true answer for both scopes narrows;
+       * an unreadable scope set leaves the session as it was. Returns true when
+       * the scope was dropped. Never throws.
+       */
+      function narrowDoubleLaunchScope(theUserSession, theKey, theApproved) {
+          var scope = "launch/" + theKey;
+          if (granted(theApproved, "launch") !== true || granted(theApproved, scope) !== true) {
+              return false;
+          }
+          try {
+              theUserSession.removeApprovedScope(scope);
+              return true;
+          } catch (e) {
+              try {
+                  Log.warn("Could not drop the approved scope " + scope + " on an EHR launch: " + e);
+              } catch (ignored) {
+                  // Logging must not fail token issuance.
+              }
+              return false;
+          }
+      }
+
+      /**
        * Whether the login is through a sandbox client, whose id starts with "sbx-"
        * (aehrc/sparked-sandbox registers them as sbx-<id>-<kind>). Never throws.
        */
@@ -519,17 +558,18 @@ mappedFiles:
 
                   if (key !== "practitioner") {
                       // Inject patient, encounter, etc. as launch context, and as a
-                      // token claim unless Smile CDR adds that claim itself. When the
-                      // app was granted the matching launch/<key> scope (for example
-                      // "launch launch/patient"), Smile puts the claim into the token
-                      // from the launch resource ids, and a second addAccessTokenClaim
-                      // for the same key throws IllegalArgumentException in
-                      // SmartTokenEnhancerSvcImpl.validateDontAlreadyHaveClaim, failing
-                      // the token request with HTTP 500 (measured on aucore
-                      // 2026-11-27). smileAddsLaunchClaim states which scope sources
-                      // decide; when none can be read, the claim is added as before.
+                      // token claim unless Smile CDR adds that claim itself. Smile
+                      // adds it once for an approved launch/<key> and again when
+                      // "launch" is approved too, then refuses its own duplicate
+                      // (narrowDoubleLaunchScope); a script claim beside its own
+                      // fails the same way (validateDontAlreadyHaveClaim, HTTP 500).
+                      // smileAddsLaunchClaim states which scope sources decide; when
+                      // none can be read, the claim is added as before.
                       theUserSession.addLaunchResourceId(key, value);
-                      if (!smileAddsLaunchClaim(key, theTrace.approved, requestedScopes)) {
+                      // Once launch/<key> is dropped, Smile CDR adds no <key> claim
+                      // (the "launch" path), so the script adds it.
+                      var narrowed = narrowDoubleLaunchScope(theUserSession, key, theTrace.approved);
+                      if (narrowed || !smileAddsLaunchClaim(key, theTrace.approved, requestedScopes)) {
                           theAuthorizationRequestDetails.addAccessTokenClaim(key, value);
                       }
                   }

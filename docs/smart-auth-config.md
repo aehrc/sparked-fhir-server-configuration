@@ -30,21 +30,30 @@ Supporting pieces:
   fhirUser) sets it, if its resource id is `Patient/<id>` or
   `Practitioner/<id>`; other users have no such context and are unchanged.
   Each launch value (other than `practitioner`) always becomes a launch
-  resource id, but becomes an access token claim only when the app was not
-  granted the matching `launch/<key>` scope. With `launch/patient` or
-  `launch/encounter` granted, Smile CDR puts that claim in the token itself
-  from the launch resource ids, and a second claim for the same key throws
-  `IllegalArgumentException` in
-  `SmartTokenEnhancerSvcImpl.validateDontAlreadyHaveClaim`, so the token
-  request failed with HTTP 500 (measured on `aucore` 2026-11-27 for an EHR
-  launch asking for `launch launch/patient`). Neither scope source alone
-  is trusted to equal the grant: the user session's approved scopes may
-  carry approvals remembered from an earlier consent, and the whitelisted
-  `scope` request parameter may name a scope the user declined. So the
-  claim is skipped only when `launch/<key>` is in the approved scopes and,
-  when the request parameter is readable, in it as well; when the approved
-  scopes are unreadable the request parameter decides alone, and when
-  neither can be read the claim is added as before. Smile CDR 2026.05.R01
+  resource id. Smile CDR then adds the matching access token claim itself
+  once when `launch/<key>` is approved, and a second time when `launch` is
+  approved as well; its own second add throws `IllegalArgumentException` in
+  `SmartTokenEnhancerSvcImpl.validateDontAlreadyHaveClaim` (called from
+  `addLaunchScopes`), so an EHR launch asking for `launch launch/patient` (or
+  `launch launch/encounter`) failed with HTTP 500 on every client, with or
+  without a default `patient` context on the user. With `launch` alone it
+  adds no such claim. Measured on `aucore` 2026-11-27 and reproduced on
+  local Smile CDR 2026.05.R01 and 2026.11.R01 the same day; no release note
+  up to 2026.11.R01 mentions it. So on an EHR launch, when both `launch` and
+  `launch/<key>` are approved, the script drops `launch/<key>` with the
+  documented `theUserSession.removeApprovedScope` and adds the claim itself,
+  which leaves Smile CDR on its `launch` path: the token carries the
+  launch's context and its `scope` omits `launch/<key>` (SMART App Launch
+  lets the granted scopes differ from those requested). Otherwise the claim
+  is added unless the app was granted `launch/<key>` without `launch`, in
+  which case Smile CDR adds it. Neither scope source alone is trusted to
+  equal the grant: the user session's approved scopes may carry approvals
+  remembered from an earlier consent, and the whitelisted `scope` request
+  parameter may name a scope the user declined. So that skip happens only
+  when `launch/<key>` is in the approved scopes and, when the request
+  parameter is readable, in it as well; when the approved scopes are
+  unreadable nothing is dropped and the request parameter decides alone,
+  and when neither can be read the claim is added as before. Smile CDR 2026.05.R01
   runs the script on a sandboxed GraalVM that hands it Java objects, and
   its host access policy may expose only the documented callback methods
   (`getOrCreateDefaultLaunchContext`, `addLaunchResourceId`,
@@ -103,7 +112,15 @@ Supporting pieces:
   failure partway through adding never leaves a named person without a
   patient id; the persons already added stay (Smile CDR has no call to
   remove one), and a failure on the patient id write itself can leave one
-  empty person. `node scripts/test_smart_post_authorize.js`
+  empty person. The picker does not offer anything yet: Smile CDR calls
+  `onSmartLoginPreContextSelection` on every interactive login, right after
+  sign-in and before consent, with `oidcClientId` null and the approved
+  scopes empty (measured on local Smile CDR 2026.05.R01 and 2026.11.R01,
+  2026-11-27), so its client and scope checks never pass; the
+  context-selection choices expose no requested scopes either, so a script
+  cannot tell an EHR launch from a standalone one there. With the checks
+  bypassed, Smile CDR showed its selection screen and the chosen patient
+  became the token's `patient`. `node scripts/test_smart_post_authorize.js`
   unit tests both (CI runs it in `validate-config.yml`).
 - **Client registration**: a GitHub issue from template 05 is registered by
   the `register-smart-client` job in `.github/workflows/issue-labeled.yml`
@@ -184,8 +201,8 @@ sandbox launch flag is switched on:
 
 - On one non-sandbox client and user (such clients remember approvals): an
   EHR launch asking for `launch launch/patient` first, then one asking for
-  `launch` alone; both tokens carry `patient`. This catches the claim rule
-  reading remembered approvals when the request's `scope` is unreadable.
+  `launch` alone; both tokens carry `patient`, and the first token's
+  `scope` lists `launch` without `launch/patient`.
 - An EHR launch asking for `launch` alone still returns `patient` in the
   token response and in the access token.
 - An EHR launch asking for `launch launch/patient` returns 200 and a token
@@ -198,7 +215,8 @@ sandbox launch flag is switched on:
   Patient as `fhirUser` on a standalone launch.
 - Client credentials are unchanged.
 - A sandbox EHR launch asking for `launch/encounter`, with no encounter in
-  the launch value, gets a token.
+  the launch value, gets a token; with an encounter in the launch value, the
+  token carries `encounter` (was HTTP 500).
 - The pod log shows one `Sandbox scopes at` line per sandbox callback
   above and none for the non-sandbox ones. Read it for each check: it
   names the approved-scope method that worked on this build (for example
