@@ -30,21 +30,38 @@ Supporting pieces:
   fhirUser) sets it, if its resource id is `Patient/<id>` or
   `Practitioner/<id>`; other users have no such context and are unchanged.
   Each launch value (other than `practitioner`) always becomes a launch
-  resource id, but becomes an access token claim only when the app was not
-  granted the matching `launch/<key>` scope. With `launch/patient` or
-  `launch/encounter` granted, Smile CDR puts that claim in the token itself
-  from the launch resource ids, and a second claim for the same key throws
-  `IllegalArgumentException` in
-  `SmartTokenEnhancerSvcImpl.validateDontAlreadyHaveClaim`, so the token
-  request failed with HTTP 500 (measured on `aucore` 2026-11-27 for an EHR
-  launch asking for `launch launch/patient`). Neither scope source alone
-  is trusted to equal the grant: the user session's approved scopes may
-  carry approvals remembered from an earlier consent, and the whitelisted
-  `scope` request parameter may name a scope the user declined. So the
-  claim is skipped only when `launch/<key>` is in the approved scopes and,
-  when the request parameter is readable, in it as well; when the approved
-  scopes are unreadable the request parameter decides alone, and when
-  neither can be read the claim is added as before. Smile CDR 2026.05.R01
+  resource id. Smile CDR then adds the matching access token claim itself,
+  once for each approved scope that covers it: `launch` covers every launch
+  resource id and `launch/<key>` its own. With both approved it adds the
+  claim twice, and its own second add throws `IllegalArgumentException` in
+  `SmartTokenEnhancerSvcImpl.validateDontAlreadyHaveClaim` (called from
+  `addLaunchScopes`), so an EHR launch asking for `launch launch/patient`
+  (or `launch launch/encounter`) failed with HTTP 500 on every client, with
+  or without a default `patient` context on the user. Measured on `aucore`
+  2026-11-27 and reproduced the same day on local Smile CDR 2026.05.R01 and
+  2026.11.R01, also with a script that only calls `addLaunchResourceId`; no
+  release note up to 2026.11.R01 mentions it. So on an EHR launch, when both
+  `launch` and `launch/<key>` are approved, the script drops `launch/<key>`
+  with the documented `theUserSession.removeApprovedScope` and logs one
+  `INFO` line naming the dropped scope. Smile CDR then adds the claim once:
+  the token carries the launch's context, refreshes keep it, and its
+  `scope` omits `launch/<key>` (SMART App Launch lets the granted scopes
+  differ from those requested). A client that remembers approvals shows no
+  new consent screen on the next login (measured). Two cases keep the 500:
+  an approved scope set the script cannot read (nothing is dropped), and a
+  `removeApprovedScope` that throws (a warning is logged). The script also
+  adds the claim itself after a drop, and otherwise, as it always has,
+  unless `launch/<key>` is approved; its own claim does not count towards
+  Smile CDR's check (`launch` alone with the script's claim answers 200).
+  Neither scope
+  source alone is trusted to equal the grant: the user session's approved
+  scopes may carry approvals remembered from an earlier consent, and the
+  whitelisted `scope` request parameter may name a scope the user
+  declined. So the claim is left to Smile CDR only when `launch/<key>` is
+  in the approved scopes and, when the request parameter is readable, in
+  it as well; when the approved scopes are unreadable the request
+  parameter decides alone, and when neither can be read the claim is added
+  as before. Smile CDR 2026.05.R01
   runs the script on a sandboxed GraalVM that hands it Java objects, and
   its host access policy may expose only the documented callback methods
   (`getOrCreateDefaultLaunchContext`, `addLaunchResourceId`,
@@ -103,7 +120,15 @@ Supporting pieces:
   failure partway through adding never leaves a named person without a
   patient id; the persons already added stay (Smile CDR has no call to
   remove one), and a failure on the patient id write itself can leave one
-  empty person. `node scripts/test_smart_post_authorize.js`
+  empty person. The picker does not offer anything yet: Smile CDR calls
+  `onSmartLoginPreContextSelection` on every interactive login, right after
+  sign-in and before consent, with `oidcClientId` null and the approved
+  scopes empty (measured on local Smile CDR 2026.05.R01 and 2026.11.R01,
+  2026-11-27), so its client and scope checks never pass; the
+  context-selection choices expose no requested scopes either, so a script
+  cannot tell an EHR launch from a standalone one there. With the checks
+  bypassed, Smile CDR showed its selection screen and the chosen patient
+  became the token's `patient`. `node scripts/test_smart_post_authorize.js`
   unit tests both (CI runs it in `validate-config.yml`).
 - **Client registration**: a GitHub issue from template 05 is registered by
   the `register-smart-client` job in `.github/workflows/issue-labeled.yml`
@@ -184,12 +209,13 @@ sandbox launch flag is switched on:
 
 - On one non-sandbox client and user (such clients remember approvals): an
   EHR launch asking for `launch launch/patient` first, then one asking for
-  `launch` alone; both tokens carry `patient`. This catches the claim rule
-  reading remembered approvals when the request's `scope` is unreadable.
+  `launch` alone; both tokens carry `patient`, and the first token's
+  `scope` lists `launch` without `launch/patient`.
 - An EHR launch asking for `launch` alone still returns `patient` in the
   token response and in the access token.
 - An EHR launch asking for `launch launch/patient` returns 200 and a token
-  carrying `patient` (was HTTP 500).
+  carrying `patient` (was HTTP 500), and the pod log shows `EHR launch:
+  dropped approved scope launch/patient` for it.
 - A non-sandbox client's standalone login is unchanged: no chooser, and the
   same patient as before.
 - A sandbox standalone launch asking for `launch/patient` without `launch`
@@ -198,7 +224,8 @@ sandbox launch flag is switched on:
   Patient as `fhirUser` on a standalone launch.
 - Client credentials are unchanged.
 - A sandbox EHR launch asking for `launch/encounter`, with no encounter in
-  the launch value, gets a token.
+  the launch value, gets a token; with an encounter in the launch value, the
+  token carries `encounter` (was HTTP 500).
 - The pod log shows one `Sandbox scopes at` line per sandbox callback
   above and none for the non-sandbox ones. Read it for each check: it
   names the approved-scope method that worked on this build (for example
